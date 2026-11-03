@@ -32,7 +32,7 @@ public partial class MainWindow : Window
         new(StringComparer.Ordinal);
     private readonly List<WifiDirectPeer> _discoveredPeers = new();
     private readonly CancellationTokenSource _lifetimeCts = new();
-    private readonly string _receiveDirectory;
+    private string _receiveDirectory;
     private readonly ReceiverPreferencesStore _receiverPreferencesStore = new();
     private readonly ClipboardSyncService _clipboardSyncService;
     private readonly TransferHistoryStore _historyStore;
@@ -66,6 +66,7 @@ public partial class MainWindow : Window
     private bool _isSending;
     private bool _isHandlingRequest;
     private string? _connectedPeerName;
+    private string? _peerBuild;
     private bool _step0Passed;
     private bool _messageLayerReady;
     private volatile bool _isClosing;
@@ -75,7 +76,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        _receiveDirectory = GetReceiveDirectory();
+        _receiveDirectory = GetDefaultReceiveDirectory();
 
         InitializeComponent();
 
@@ -147,10 +148,8 @@ public partial class MainWindow : Window
 
         _initialized = true;
 
-        ReceiveDirectoryText.Text = $"接收目录：{_receiveDirectory}";
         StatusText.Text = "未连接";
         Log("M0 界面已启动。");
-        Log($"接收目录：{_receiveDirectory}");
         Log($"日志文件：{AppLog.FilePath}");
         Log($"本端构建：{GetBuildInfo()}");
         InitializeTrayIcon();
@@ -160,6 +159,8 @@ public partial class MainWindow : Window
         Log($"历史设备：{_knownDevices.Count} 台。");
 
         ApplyReceiverPreferences();
+        UpdateReceiveDirectoryText();
+        Log($"接收目录：{_receiveDirectory}");
         Log($"同名文件策略：{GetSameNamePolicyText(_sameNamePolicy)}");
         Log(_clipboardSyncEnabled ? "剪贴板同步：已启用。" : "剪贴板同步：已关闭。");
 
@@ -243,6 +244,8 @@ public partial class MainWindow : Window
     {
         var preferences = _receiverPreferencesStore.Load();
         _sameNamePolicy = preferences.SameNamePolicy;
+        _receiveDirectory = ResolveReceiveDirectory(
+            preferences.ReceiveDirectory);
         _clipboardConsentAcknowledged =
             preferences.ClipboardConsentAcknowledged;
         _clipboardSyncEnabled =
@@ -316,7 +319,8 @@ public partial class MainWindow : Window
             {
                 SameNamePolicy = _sameNamePolicy,
                 ClipboardSyncEnabled = _clipboardSyncEnabled,
-                ClipboardConsentAcknowledged = _clipboardConsentAcknowledged
+                ClipboardConsentAcknowledged = _clipboardConsentAcknowledged,
+                ReceiveDirectory = _receiveDirectory
             });
 
     private void ClipboardSyncCheckBox_Checked(
@@ -1117,6 +1121,8 @@ public partial class MainWindow : Window
             UpdateStatus(message);
             return false;
         }
+
+        _peerBuild = peerHello.Build;
 
         Log(
             $"协议协商成功：peerProtocol={peerHello.ProtocolVersion}，" +
@@ -2397,6 +2403,67 @@ public partial class MainWindow : Window
         _trayIcon?.ShowBalloon(title, message, isError);
     }
 
+    private void ChangeReceiveDirectoryButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_isClosing || _channel is not null)
+        {
+            return;
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择接收目录",
+            InitialDirectory = Directory.Exists(_receiveDirectory)
+                ? _receiveDirectory
+                : GetDefaultReceiveDirectory()
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var selected = dialog.FolderName.Trim();
+
+        if (string.IsNullOrEmpty(selected))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(selected);
+            selected = Path.GetFullPath(selected);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"无法使用该目录：{exception.Message}",
+                "接收目录",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
+        _receiveDirectory = selected;
+        UpdateReceiveDirectoryText();
+        UpdateUi();
+
+        var saved = SaveReceiverPreferences();
+        Log(
+            $"接收目录已更改：{selected}" +
+            (saved ? string.Empty : "（保存失败）"));
+        UpdateStatus("接收目录已更新");
+    }
+
+    private void UpdateReceiveDirectoryText()
+    {
+        ReceiveDirectoryText.Text = $"接收目录：{_receiveDirectory}";
+    }
+
     private void ClearLogButton_Click(object sender, RoutedEventArgs e)
     {
         LogTextBox.Clear();
@@ -2410,6 +2477,113 @@ public partial class MainWindow : Window
         };
 
         window.ShowDialog();
+    }
+
+    private void ExportDiagnosticsButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        string zipPath;
+
+        try
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "WifiDirectTransfer",
+                "diagnostics");
+            Directory.CreateDirectory(directory);
+
+            zipPath = Path.Combine(
+                directory,
+                $"WifiDirectTransfer-diag-{DateTime.Now:yyyyMMdd-HHmmss-fff}.zip");
+
+            var logDirectory = Path.GetDirectoryName(AppLog.FilePath);
+            var files = new List<string>
+            {
+                AppLog.FilePath,
+                StartupLog.FilePath
+            };
+
+            if (!string.IsNullOrWhiteSpace(logDirectory))
+            {
+                files.Add(Path.Combine(logDirectory, "app.prev.log"));
+            }
+
+            files.Add(_receiverPreferencesStore.FilePath);
+
+            DiagnosticsPackage.Create(
+                zipPath,
+                BuildDiagnosticsInfo(),
+                files);
+
+            Log($"诊断信息已导出：{zipPath}");
+        }
+        catch (Exception exception)
+        {
+            Log($"导出诊断失败：{exception.GetType().Name}");
+            MessageBox.Show(
+                this,
+                $"导出失败：{exception.Message}",
+                "导出诊断",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
+        var openFolder = MessageBox.Show(
+            this,
+            $"诊断信息已保存到：\n{zipPath}\n\n是否打开所在文件夹？",
+            "导出诊断",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+
+        if (openFolder != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(
+                new ProcessStartInfo(
+                    "explorer.exe",
+                    $"/select,\"{zipPath}\"")
+                {
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception)
+        {
+            // 打开资源管理器失败不影响导出结果。
+        }
+    }
+
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new AboutWindow(BuildDiagnosticsInfo())
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    private string BuildDiagnosticsInfo()
+    {
+        return
+            $"生成时间：{DateTimeOffset.Now:O}{Environment.NewLine}" +
+            $"本端构建：{GetBuildInfo()}{Environment.NewLine}" +
+            $"协议版本：{MessageProtocol.ProtocolVersion}{Environment.NewLine}" +
+            $"对端构建：{_peerBuild ?? "未连接"}{Environment.NewLine}" +
+            $"接收目录：{_receiveDirectory}{Environment.NewLine}" +
+            $"同名文件策略：{GetSameNamePolicyText(_sameNamePolicy)}{Environment.NewLine}" +
+            $"剪贴板同步：{(_clipboardSyncEnabled ? "已启用" : "已关闭")}{Environment.NewLine}" +
+            $"连接状态：{(_channel is null ? "未连接" : "已连接")}{Environment.NewLine}" +
+            $"系统：{RuntimeInformation.OSDescription}{Environment.NewLine}" +
+            $".NET：{RuntimeInformation.FrameworkDescription}{Environment.NewLine}" +
+            $"进程：{(Environment.Is64BitProcess ? "x64" : "x86")}{Environment.NewLine}" +
+            $"日志：{AppLog.FilePath}";
     }
 
     private void RecordHistory(
@@ -2533,6 +2707,8 @@ public partial class MainWindow : Window
                                      !_isSending &&
                                      !queueRunning &&
                                      queue?.HasFiles == true;
+
+        ChangeReceiveDirectoryButton.IsEnabled = !connected && !busy;
 
         ScanButton.Content = _isScanning ? "搜索中…" : "扫描设备";
     }
@@ -2687,7 +2863,29 @@ public partial class MainWindow : Window
             $"frameMax={ClipboardMessageCodec.MaxPayloadLength}";
     }
 
-    private static string GetReceiveDirectory()
+    private static string ResolveReceiveDirectory(string? saved)
+    {
+        if (!string.IsNullOrWhiteSpace(saved))
+        {
+            try
+            {
+                var fullPath = Path.GetFullPath(saved);
+
+                if (Path.IsPathRooted(fullPath))
+                {
+                    return fullPath;
+                }
+            }
+            catch (Exception)
+            {
+                // 无法解析时回退到默认目录。
+            }
+        }
+
+        return GetDefaultReceiveDirectory();
+    }
+
+    private static string GetDefaultReceiveDirectory()
     {
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var root = string.IsNullOrWhiteSpace(profile)

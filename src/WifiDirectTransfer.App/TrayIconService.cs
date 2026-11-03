@@ -10,10 +10,14 @@ internal sealed class TrayIconService : IDisposable
 {
     private readonly Forms.NotifyIcon _notifyIcon;
     private readonly Forms.ContextMenuStrip _menu;
+    private readonly Drawing.Icon _icon;
+    private readonly bool _ownsIcon;
     private int _disposed;
 
     public TrayIconService()
     {
+        _icon = LoadIcon(out _ownsIcon);
+
         var showItem = new Forms.ToolStripMenuItem("显示主窗口");
         showItem.Click += (_, _) => ShowRequested?.Invoke();
 
@@ -27,7 +31,7 @@ internal sealed class TrayIconService : IDisposable
 
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = Drawing.SystemIcons.Application,
+            Icon = _icon,
             Text = "Wi-Fi Direct 文件传输",
             Visible = true,
             ContextMenuStrip = _menu
@@ -74,10 +78,41 @@ internal sealed class TrayIconService : IDisposable
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _menu.Dispose();
+
+            if (_ownsIcon)
+            {
+                _icon.Dispose();
+            }
         }
         catch (Exception)
         {
             // 退出阶段忽略托盘资源释放异常。
         }
+    }
+
+    private static Drawing.Icon LoadIcon(out bool ownsIcon)
+    {
+        try
+        {
+            var executablePath = Environment.ProcessPath;
+
+            if (!string.IsNullOrWhiteSpace(executablePath))
+            {
+                var icon = Drawing.Icon.ExtractAssociatedIcon(executablePath);
+
+                if (icon is not null)
+                {
+                    ownsIcon = true;
+                    return icon;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // 回退到系统图标。
+        }
+
+        ownsIcon = false;
+        return Drawing.SystemIcons.Application;
     }
 }

@@ -10,6 +10,8 @@ internal static class StartupLog
         "logs",
         "startup.log");
 
+    public static string FilePath => LogFilePath;
+
     public static void Write(string message)
     {
         var line = $"{DateTimeOffset.Now:O} {message}";

@@ -10,6 +10,8 @@ public sealed class ReceiverPreferences
     public bool ClipboardSyncEnabled { get; set; }
 
     public bool ClipboardConsentAcknowledged { get; set; }
+
+    public string? ReceiveDirectory { get; set; }
 }
 
 /// <summary>
