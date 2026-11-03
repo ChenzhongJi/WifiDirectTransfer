@@ -478,19 +478,23 @@ public sealed class FileReceiver : IAsyncDisposable
 
         if (payload.Length != MessageProtocol.FileEndDigestLength)
         {
-            DeleteActive(
-                new MessageProtocolException(
-                    $"FileEnd payload 必须为 {MessageProtocol.FileEndDigestLength} 字节。"),
-                _safeFileName);
+            await FailFileEndAsync(
+                    new MessageProtocolException(
+                        $"FileEnd payload 必须为 {MessageProtocol.FileEndDigestLength} 字节。"),
+                    _safeFileName,
+                    cancellationToken)
+                .ConfigureAwait(false);
             return;
         }
 
         if (_received != _expectedSize)
         {
-            DeleteActive(
-                new TransferTruncatedException(
-                    $"文件接收不完整：预期 {_expectedSize} 字节，实际 {_received} 字节。"),
-                _safeFileName);
+            await FailFileEndAsync(
+                    new TransferTruncatedException(
+                        $"文件接收不完整：预期 {_expectedSize} 字节，实际 {_received} 字节。"),
+                    _safeFileName,
+                    cancellationToken)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -531,6 +535,19 @@ public sealed class FileReceiver : IAsyncDisposable
 
             TryDelete(metaPath);
             TryDelete(metaPath + ".tmp");
+
+            try
+            {
+                await SendFileVerifiedAsync(actualDigest, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception verifyError)
+            {
+                _log?.Invoke(
+                    "发送校验确认失败，文件已保存：" +
+                    verifyError.GetType().Name);
+            }
+
             ResetState();
 
             var result = new FileReceiveResult(
@@ -543,7 +560,8 @@ public sealed class FileReceiver : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            DeleteActive(exception, safeFileName);
+            await FailFileEndAsync(exception, safeFileName, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -587,14 +605,47 @@ public sealed class FileReceiver : IAsyncDisposable
         }
     }
 
+    private async Task FailFileEndAsync(
+        Exception error,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SendTransferErrorAsync(error, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception sendError)
+        {
+            _log?.Invoke(
+                "发送传输失败通知失败：" + sendError.GetType().Name);
+        }
+
+        DeleteActive(error, fileName);
+    }
+
     private Task SendTransferErrorAsync(
-        InsufficientStorageException error,
+        Exception error,
+        CancellationToken cancellationToken)
+    {
+        var errorCode = error is FileTransferException transferError
+            ? transferError.ErrorCode
+            : WifiDirectErrorCode.TransferInterrupted;
+
+        return _dispatcher.SendAsync(
+            MessageType.ControlMessage,
+            ControlMessageCodec.SerializeTransferError(
+                errorCode,
+                error.Message),
+            cancellationToken);
+    }
+
+    private Task SendFileVerifiedAsync(
+        byte[] digest,
         CancellationToken cancellationToken) =>
         _dispatcher.SendAsync(
             MessageType.ControlMessage,
-            ControlMessageCodec.SerializeTransferError(
-                error.ErrorCode,
-                error.Message),
+            ControlMessageCodec.SerializeFileVerified(digest),
             cancellationToken);
 
     private Task SendFileSkippedAsync(CancellationToken cancellationToken) =>

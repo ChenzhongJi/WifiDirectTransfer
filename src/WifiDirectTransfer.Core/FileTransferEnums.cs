@@ -18,7 +18,8 @@ public enum ControlMessageSubtype : byte
     ResumeRequest = 0x02,
     TransferError = 0x03,
     QueueInfo = 0x04,
-    FileSkipped = 0x05
+    FileSkipped = 0x05,
+    FileVerified = 0x06
 }
 
 public enum SameNamePolicy

@@ -14,6 +14,8 @@ public static class FileSender
 {
     private static readonly TimeSpan AckTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StartResponseTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DefaultVerificationTimeout =
+        TimeSpan.FromSeconds(60);
 
     public static async Task<FileSendResult> SendAsync(
         MessageDispatcher dispatcher,
@@ -23,11 +25,21 @@ public static class FileSender
         IProgress<FileTransferProgress>? progress = null,
         IProgress<FileTransferStartInfo>? startProgress = null,
         CancellationToken cancellationToken = default,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        TimeSpan? verificationTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(fileName);
+
+        var verifyTimeout = verificationTimeout ?? DefaultVerificationTimeout;
+
+        if (verifyTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(verificationTimeout),
+                "校验确认超时必须大于零。");
+        }
 
         if (maxFileSize <= 0)
         {
@@ -252,9 +264,40 @@ public static class FileSender
 
             var digest = hash.GetHashAndReset();
 
-            await dispatcher
-                .SendAsync(MessageType.FileEnd, digest, cancellationToken)
-                .ConfigureAwait(false);
+            controlState.BeginVerifyWait();
+
+            try
+            {
+                await dispatcher
+                    .SendAsync(MessageType.FileEnd, digest, cancellationToken)
+                    .ConfigureAwait(false);
+
+                byte[] verifiedDigest;
+
+                try
+                {
+                    verifiedDigest = await controlState.VerifyTask
+                        .WaitAsync(verifyTimeout, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    throw new TransferTimeoutException(
+                        "等待接收端校验确认超时。");
+                }
+
+                if (!CryptographicOperations.FixedTimeEquals(
+                        verifiedDigest,
+                        digest))
+                {
+                    throw new MessageProtocolException(
+                        "接收端校验确认的 SHA-256 与发送值不一致。");
+                }
+            }
+            finally
+            {
+                controlState.EndVerifyWait();
+            }
 
             progress?.Report(
                 new FileTransferProgress(initialLength, initialLength));
@@ -278,7 +321,8 @@ public static class FileSender
         IProgress<FileTransferProgress>? progress = null,
         IProgress<FileTransferStartInfo>? startProgress = null,
         CancellationToken cancellationToken = default,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        TimeSpan? verificationTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -301,7 +345,8 @@ public static class FileSender
                 progress,
                 startProgress,
                 cancellationToken,
-                log)
+                log,
+                verificationTimeout)
             .ConfigureAwait(false);
     }
 
@@ -318,6 +363,7 @@ public static class FileSender
 
         private TaskCompletionSource<StartResponse>? _startTcs;
         private TaskCompletionSource<long>? _ackTcs;
+        private TaskCompletionSource<byte[]>? _verifyTcs;
         private bool _startWaitFinished;
         private bool _lateResume;
         private Exception? _lateStartError;
@@ -343,6 +389,20 @@ public static class FileSender
                     return _ackTcs?.Task
                            ?? Task.FromException<long>(
                                new InvalidOperationException("尚未开始等待 ACK。"));
+                }
+            }
+        }
+
+        public Task<byte[]> VerifyTask
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _verifyTcs?.Task
+                           ?? Task.FromException<byte[]>(
+                               new InvalidOperationException(
+                                   "尚未开始等待校验确认。"));
                 }
             }
         }
@@ -386,6 +446,23 @@ public static class FileSender
             lock (_gate)
             {
                 _ackTcs = null;
+            }
+        }
+
+        public void BeginVerifyWait()
+        {
+            lock (_gate)
+            {
+                _verifyTcs = new TaskCompletionSource<byte[]>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        public void EndVerifyWait()
+        {
+            lock (_gate)
+            {
+                _verifyTcs = null;
             }
         }
 
@@ -459,6 +536,13 @@ public static class FileSender
 
                     _lateResume = true;
                 }
+                else if (message.Subtype == ControlMessageSubtype.FileVerified)
+                {
+                    if (message.Digest is { } digest)
+                    {
+                        _verifyTcs?.TrySetResult(digest);
+                    }
+                }
                 else if (startError is not null)
                 {
                     if (!_startWaitFinished &&
@@ -473,6 +557,7 @@ public static class FileSender
                     }
 
                     _ackTcs?.TrySetException(startError);
+                    _verifyTcs?.TrySetException(startError);
                 }
                 else if (message.Subtype == ControlMessageSubtype.Ack)
                 {

@@ -67,6 +67,156 @@ public sealed class FileTransferTests
     }
 
     [Fact]
+    public Task Receive_SendsFileVerifiedWithDigest()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var data = CreatePayload(128 * 1024);
+            var expectedHash = SHA256.HashData(data);
+
+            await using var session = new TransferTestSession(directory);
+
+            var sendResult = await session.SendBytesAsync(data, "verified.bin");
+            await session.Received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var verified = TestFrameLog
+                .Parse(session.Transport.BackwardLog)
+                .Where(frame => frame.Type == MessageType.ControlMessage)
+                .Select(frame => ControlMessageCodec.Deserialize(frame.Payload))
+                .Single(message =>
+                    message.Subtype == ControlMessageSubtype.FileVerified);
+
+            Assert.Equal(expectedHash, verified.Digest);
+            Assert.Equal(expectedHash, sendResult.Sha256);
+        });
+    }
+
+    [Fact]
+    public async Task Send_WithoutFileVerified_TimesOut()
+    {
+        await using var transport = new TestDuplexTransport();
+        var senderDispatcher = new MessageDispatcher(
+            transport.SenderInput,
+            transport.SenderOutput);
+        var receiverDispatcher = new MessageDispatcher(
+            transport.ReceiverInput,
+            transport.ReceiverOutput);
+
+        long received = 0;
+
+        receiverDispatcher.MessageReceived += async (_, args, cancellationToken) =>
+        {
+            switch (args.Type)
+            {
+                case MessageType.FileStart:
+                    await receiverDispatcher.SendAsync(
+                        MessageType.ControlMessage,
+                        ControlMessageCodec.SerializeResumeRequest(0),
+                        cancellationToken);
+                    break;
+
+                case MessageType.FileChunk:
+                    received += args.Payload.Length;
+                    await receiverDispatcher.SendAsync(
+                        MessageType.ControlMessage,
+                        ControlMessageCodec.SerializeAck(received),
+                        cancellationToken);
+                    break;
+            }
+        };
+
+        using var senderCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var receiverCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var senderLoop = senderDispatcher.StartReceiveLoopAsync(senderCts.Token);
+        var receiverLoop = receiverDispatcher.StartReceiveLoopAsync(receiverCts.Token);
+
+        try
+        {
+            using var source = new MemoryStream(new byte[200 * 1024]);
+
+            var exception = await Assert.ThrowsAsync<TransferTimeoutException>(
+                () => FileSender.SendAsync(
+                    senderDispatcher,
+                    source,
+                    "no-verify.bin",
+                    verificationTimeout: TimeSpan.FromMilliseconds(300)));
+
+            Assert.Contains("校验确认", exception.Message);
+            Assert.Equal(source.Length, received);
+        }
+        finally
+        {
+            senderCts.Cancel();
+            receiverCts.Cancel();
+            transport.CompleteBoth();
+
+            try
+            {
+                await senderLoop;
+            }
+            catch (Exception)
+            {
+                // 测试清理忽略循环退出异常。
+            }
+
+            try
+            {
+                await receiverLoop;
+            }
+            catch (Exception)
+            {
+                // 测试清理忽略循环退出异常。
+            }
+        }
+    }
+
+    [Fact]
+    public Task Receive_TamperedDigest_SendsTransferError()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var data = CreatePayload(64 * 1024);
+            using var wire = new MemoryStream();
+            using var response = new MemoryStream();
+            var sender = new MessageDispatcher(Stream.Null, wire);
+
+            await SendManualFileAsync(
+                sender,
+                data,
+                "tampered.bin",
+                tamperDigest: true);
+
+            wire.Position = 0;
+            var receiverDispatcher = new MessageDispatcher(wire, response);
+            await using var receiver = new FileReceiver(
+                receiverDispatcher,
+                directory);
+
+            var failed = new TaskCompletionSource<Exception>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            receiver.FileFailed += (_, args) => failed.TrySetResult(args.Error);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await receiverDispatcher.StartReceiveLoopAsync(cts.Token);
+
+            var error = await failed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.IsType<ChecksumMismatchException>(error);
+
+            var transferError = TestFrameLog
+                .Parse(response)
+                .Where(frame => frame.Type == MessageType.ControlMessage)
+                .Select(frame => ControlMessageCodec.Deserialize(frame.Payload))
+                .Single(message =>
+                    message.Subtype == ControlMessageSubtype.TransferError);
+
+            Assert.Equal(
+                WifiDirectErrorCode.ChecksumMismatch,
+                transferError.ErrorCode);
+            Assert.Empty(Directory.GetFiles(directory));
+        });
+    }
+
+    [Fact]
     public Task Receive_TamperedDigest_ThrowsAndDeletesPartAndMeta()
     {
         return InTempDirectoryAsync(async directory =>

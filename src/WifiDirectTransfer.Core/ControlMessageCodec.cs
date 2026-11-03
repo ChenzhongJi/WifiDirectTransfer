@@ -7,7 +7,8 @@ public sealed record ControlMessage(
     ControlMessageSubtype Subtype,
     long Offset,
     WifiDirectErrorCode ErrorCode,
-    string Message);
+    string Message,
+    byte[]? Digest = null);
 
 /// <summary>
 /// ControlMessage payload 编解码：subtype(1) + data。多字节字段使用大端。
@@ -20,6 +21,8 @@ public static class ControlMessageCodec
 
     public const int OffsetPayloadLength = 1 + 8;
     public const int TransferErrorHeaderLength = 1 + 4;
+    public const int FileVerifiedPayloadLength =
+        1 + MessageProtocol.FileEndDigestLength;
 
     public static byte[] SerializeAck(long persistedOffset)
     {
@@ -58,6 +61,23 @@ public static class ControlMessageCodec
     public static byte[] SerializeFileSkipped()
     {
         return new[] { (byte)ControlMessageSubtype.FileSkipped };
+    }
+
+    /// <summary>
+    /// 接收端在 SHA-256 校验通过且正式文件落盘后发送，携带接收端计算的摘要。
+    /// </summary>
+    public static byte[] SerializeFileVerified(ReadOnlySpan<byte> digest)
+    {
+        if (digest.Length != MessageProtocol.FileEndDigestLength)
+        {
+            throw new MessageProtocolException(
+                $"FileVerified 摘要必须为 {MessageProtocol.FileEndDigestLength} 字节。");
+        }
+
+        var payload = new byte[FileVerifiedPayloadLength];
+        payload[0] = (byte)ControlMessageSubtype.FileVerified;
+        digest.CopyTo(payload.AsSpan(1));
+        return payload;
     }
 
     public static byte[] SerializeTransferError(
@@ -103,6 +123,7 @@ public static class ControlMessageCodec
             ControlMessageSubtype.QueueInfo => DeserializeOffset(payload, subtype),
             ControlMessageSubtype.TransferError => DeserializeTransferError(payload),
             ControlMessageSubtype.FileSkipped => DeserializeFileSkipped(payload),
+            ControlMessageSubtype.FileVerified => DeserializeFileVerified(payload),
             _ => throw new MessageProtocolException(
                 $"未知的 ControlMessage 子类型：0x{payload[0]:X2}。")
         };
@@ -137,6 +158,22 @@ public static class ControlMessageCodec
             0,
             WifiDirectErrorCode.FileSkipped,
             string.Empty);
+    }
+
+    private static ControlMessage DeserializeFileVerified(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length != FileVerifiedPayloadLength)
+        {
+            throw new MessageProtocolException(
+                $"FileVerified payload 长度必须为 {FileVerifiedPayloadLength} 字节。");
+        }
+
+        return new ControlMessage(
+            ControlMessageSubtype.FileVerified,
+            0,
+            default,
+            string.Empty,
+            payload[1..].ToArray());
     }
 
     private static ControlMessage DeserializeTransferError(ReadOnlySpan<byte> payload)

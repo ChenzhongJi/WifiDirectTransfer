@@ -74,6 +74,44 @@ public sealed class ControlMessageCodecTests
     }
 
     [Fact]
+    public void FileVerified_RoundTripsDigest()
+    {
+        var digest = new byte[MessageProtocol.FileEndDigestLength];
+
+        for (var index = 0; index < digest.Length; index++)
+        {
+            digest[index] = (byte)index;
+        }
+
+        var payload = ControlMessageCodec.SerializeFileVerified(digest);
+
+        Assert.Equal((byte)ControlMessageSubtype.FileVerified, payload[0]);
+        Assert.Equal(ControlMessageCodec.FileVerifiedPayloadLength, payload.Length);
+
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Equal(ControlMessageSubtype.FileVerified, message.Subtype);
+        Assert.Equal(digest, message.Digest);
+    }
+
+    [Fact]
+    public void FileVerified_RejectsInvalidDigestLength()
+    {
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.SerializeFileVerified(
+                new byte[MessageProtocol.FileEndDigestLength - 1]));
+
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.Deserialize(
+                new[]
+                {
+                    (byte)ControlMessageSubtype.FileVerified,
+                    (byte)1,
+                    (byte)2
+                }));
+    }
+
+    [Fact]
     public void TransferError_AllowsEmptyMessage()
     {
         var payload = ControlMessageCodec.SerializeTransferError(

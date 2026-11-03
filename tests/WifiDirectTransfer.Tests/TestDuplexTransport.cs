@@ -23,11 +23,12 @@ internal sealed class TestDuplexTransport : IAsyncDisposable
         });
 
         ForwardLog = new MemoryStream();
+        BackwardLog = new MemoryStream();
 
         SenderInput = new ChannelReaderStream(_backward.Reader);
         SenderOutput = new ChannelWriterStream(_forward.Writer, ForwardLog);
         ReceiverInput = new ChannelReaderStream(_forward.Reader);
-        ReceiverOutput = new ChannelWriterStream(_backward.Writer, null);
+        ReceiverOutput = new ChannelWriterStream(_backward.Writer, BackwardLog);
     }
 
     public Stream SenderInput { get; }
@@ -40,6 +41,8 @@ internal sealed class TestDuplexTransport : IAsyncDisposable
 
     public MemoryStream ForwardLog { get; }
 
+    public MemoryStream BackwardLog { get; }
+
     public void CompleteBoth()
     {
         _forward.Writer.TryComplete();
@@ -50,6 +53,7 @@ internal sealed class TestDuplexTransport : IAsyncDisposable
     {
         CompleteBoth();
         ForwardLog.Dispose();
+        BackwardLog.Dispose();
         return default;
     }
 
