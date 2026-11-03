@@ -504,11 +504,18 @@
                                        FontWeight="SemiBold"
                                        Foreground="#1B1B1B"
                                        VerticalAlignment="Center" />
-                            <Button x:Name="ClearLogButton"
-                                    HorizontalAlignment="Right"
-                                    Padding="10,2"
-                                    Content="清空"
-                                    Click="ClearLogButton_Click" />
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right">
+                                <Button x:Name="HistoryButton"
+                                        Padding="10,2"
+                                        Content="传输历史"
+                                        Click="HistoryButton_Click" />
+                                <Button x:Name="ClearLogButton"
+                                        Margin="6,0,0,0"
+                                        Padding="10,2"
+                                        Content="清空"
+                                        Click="ClearLogButton_Click" />
+                            </StackPanel>
                         </Grid>
 
                         <TextBox x:Name="LogTextBox"

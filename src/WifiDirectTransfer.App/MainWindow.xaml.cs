@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private readonly string _receiveDirectory;
     private readonly ReceiverPreferencesStore _receiverPreferencesStore = new();
     private readonly ClipboardSyncService _clipboardSyncService;
+    private readonly TransferHistoryStore _historyStore;
     private string _testFileName = "wdt-test-1MiB.bin";
     private SameNamePolicy _sameNamePolicy = SameNamePolicy.AutoRename;
     private bool _isApplyingReceiverPreferences;
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
     private bool _isConnecting;
     private bool _isSending;
     private bool _isHandlingRequest;
+    private string? _connectedPeerName;
     private bool _step0Passed;
     private bool _messageLayerReady;
     private volatile bool _isClosing;
@@ -76,6 +78,8 @@ public partial class MainWindow : Window
         _receiveDirectory = GetReceiveDirectory();
 
         InitializeComponent();
+
+        _historyStore = new TransferHistoryStore(log: Log);
 
         _clipboardSyncService = new ClipboardSyncService(
             Dispatcher,
@@ -669,6 +673,7 @@ public partial class MainWindow : Window
             }
 
             RecordKnownDevice(peer);
+            _connectedPeerName = peer.DisplayName;
             UpdateStatus("已连接，双方都可以发送文件");
         }
         catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
@@ -750,6 +755,7 @@ public partial class MainWindow : Window
             else if (await StartMessageLayerAsync(channel))
             {
                 RecordKnownDevice(peer);
+                _connectedPeerName = peer.DisplayName;
                 UpdateStatus("已连接，双方都可以发送文件");
                 Log("快速重连成功。");
             }
@@ -891,6 +897,7 @@ public partial class MainWindow : Window
             }
 
             RecordKnownDevice(request.Peer);
+            _connectedPeerName = request.Peer.DisplayName;
             UpdateStatus("已连接，双方都可以发送文件");
             Log("连接已建立，双方都可以发送文件。");
         }
@@ -1221,6 +1228,13 @@ public partial class MainWindow : Window
         NotifyIfInBackground(
             "接收完成",
             $"{result.FileName}（{FormatBytes(result.FileSize)}）");
+
+        RecordHistory(
+            TransferDirection.Receive,
+            result.FileName,
+            result.FileSize,
+            TransferOutcome.Completed,
+            result.FilePath);
     }
 
     private void OnFileFailed(object? sender, FileFailedEventArgs args)
@@ -1239,6 +1253,13 @@ public partial class MainWindow : Window
                 $"message={message}");
             UpdateStatus(message);
             NotifyIfInBackground("接收失败", message, isError: true);
+            RecordHistory(
+                TransferDirection.Receive,
+                args.FileName ?? "未知文件",
+                0,
+                TransferOutcome.Failed,
+                null,
+                message);
             return;
         }
 
@@ -1253,6 +1274,13 @@ public partial class MainWindow : Window
 
         UpdateStatus(errorMessage);
         NotifyIfInBackground("接收失败", errorMessage, isError: true);
+        RecordHistory(
+            TransferDirection.Receive,
+            args.FileName ?? "未知文件",
+            0,
+            TransferOutcome.Failed,
+            null,
+            errorMessage);
     }
 
     private void OnFileSkipped(object? sender, FileSkippedEventArgs args)
@@ -1264,6 +1292,14 @@ public partial class MainWindow : Window
 
         Log($"同名文件已跳过：{args.FileName}");
         UpdateStatus($"已跳过同名文件：{args.FileName}");
+
+        RecordHistory(
+            TransferDirection.Receive,
+            args.FileName,
+            0,
+            TransferOutcome.Skipped,
+            null,
+            "同名文件已跳过");
     }
 
     private void ReceivedFilesList_PreviewMouseLeftButtonDown(
@@ -1497,6 +1533,13 @@ public partial class MainWindow : Window
             $"bytes={result.FileSize}, " +
             $"startOffset={result.StartOffset}, " +
             $"sha256={Convert.ToHexString(result.Sha256)}");
+
+        RecordHistory(
+            TransferDirection.Send,
+            result.FileName,
+            result.FileSize,
+            TransferOutcome.Completed,
+            args.File.SourcePath);
     }
 
     private void OnQueueFileFailed(object? sender, QueueFileFailedEventArgs args)
@@ -1518,6 +1561,14 @@ public partial class MainWindow : Window
             $"message={args.File.ErrorMessage}");
 
         UpdateStatus(errorMessage);
+
+        RecordHistory(
+            TransferDirection.Send,
+            args.File.FileName,
+            args.File.Size,
+            TransferOutcome.Failed,
+            args.File.SourcePath,
+            args.File.ErrorMessage ?? errorMessage);
     }
 
     private void OnQueueFileSkipped(object? sender, QueueFileSkippedEventArgs args)
@@ -1533,6 +1584,14 @@ public partial class MainWindow : Window
             $"reason={args.Reason}");
 
         UpdateStatus($"已跳过同名文件：{args.File.FileName}");
+
+        RecordHistory(
+            TransferDirection.Send,
+            args.File.FileName,
+            args.File.Size,
+            TransferOutcome.Skipped,
+            args.File.SourcePath,
+            args.Reason);
     }
 
     private void OnQueueCompleted(object? sender, TransferQueueCompletedEventArgs args)
@@ -2321,6 +2380,13 @@ public partial class MainWindow : Window
         string message,
         bool isError = false)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => NotifyIfInBackground(title, message, isError)));
+            return;
+        }
+
         if (!_isHiddenToTray &&
             IsVisible &&
             WindowState != WindowState.Minimized)
@@ -2334,6 +2400,45 @@ public partial class MainWindow : Window
     private void ClearLogButton_Click(object sender, RoutedEventArgs e)
     {
         LogTextBox.Clear();
+    }
+
+    private void HistoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new HistoryWindow(_historyStore)
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    private void RecordHistory(
+        TransferDirection direction,
+        string fileName,
+        long fileSize,
+        TransferOutcome outcome,
+        string? filePath = null,
+        string? errorMessage = null)
+    {
+        try
+        {
+            _historyStore.Add(
+                new TransferHistoryEntry(
+                    DateTimeOffset.Now,
+                    direction,
+                    string.IsNullOrWhiteSpace(fileName)
+                        ? "未知文件"
+                        : fileName,
+                    Math.Max(0, fileSize),
+                    outcome,
+                    _connectedPeerName,
+                    filePath,
+                    errorMessage));
+        }
+        catch (Exception exception)
+        {
+            Log($"记录传输历史失败：{exception.GetType().Name}");
+        }
     }
 
     private void UpdateUi()
