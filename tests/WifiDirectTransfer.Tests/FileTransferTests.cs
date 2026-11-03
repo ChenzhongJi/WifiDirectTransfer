@@ -176,6 +176,32 @@ public sealed class FileTransferTests
     }
 
     [Fact]
+    public Task Receive_MetadataUpdateFailure_DoesNotAbortFile()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var data = CreatePayload(128 * 1024);
+            const string fileName = "meta-failure.bin";
+            var metaPath = Path.Combine(directory, fileName + ".meta");
+
+            // 用同名目录模拟 .meta 无法被文件重命名覆盖的情况。
+            Directory.CreateDirectory(metaPath);
+
+            await using var session = new TransferTestSession(directory);
+
+            var sendResult = await session.SendBytesAsync(data, fileName);
+            var receiveResult = await session.Received.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(data.Length, sendResult.FileSize);
+            Assert.Equal(data, File.ReadAllBytes(receiveResult.FilePath));
+            Assert.True(Directory.Exists(metaPath));
+            Assert.Empty(Directory.GetFiles(directory, "*.part"));
+            Assert.Empty(Directory.GetFiles(directory, "*.meta.tmp"));
+        });
+    }
+
+    [Fact]
     public Task Send_SourceShorterThanReportedLength_ThrowsFileChanged()
     {
         return InTempDirectoryAsync(async directory =>

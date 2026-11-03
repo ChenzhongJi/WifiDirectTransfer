@@ -2,8 +2,11 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Microsoft.Win32;
 using WifiDirectTransfer.Core;
@@ -21,6 +24,7 @@ public partial class MainWindow : Window
 
     private readonly WifiDirectConnectionService _service = new();
     private readonly ObservableCollection<PeerListItem> _peerItems = new();
+    private readonly ObservableCollection<ReceivedFileItem> _receivedFiles = new();
     private readonly KnownDeviceStore _knownDeviceStore = new();
     private readonly Dictionary<string, KnownDevice> _knownDevices =
         new(StringComparer.Ordinal);
@@ -28,9 +32,16 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly string _receiveDirectory;
     private readonly ReceiverPreferencesStore _receiverPreferencesStore = new();
+    private readonly ClipboardSyncService _clipboardSyncService;
     private string _testFileName = "wdt-test-1MiB.bin";
     private SameNamePolicy _sameNamePolicy = SameNamePolicy.AutoRename;
     private bool _isApplyingReceiverPreferences;
+    private bool _clipboardSyncEnabled;
+    private bool _clipboardConsentAcknowledged;
+    private bool _isApplyingClipboardPreference;
+    private HwndSource? _hwndSource;
+    private Point _receivedDragStart;
+    private ReceivedFileItem? _receivedDragItem;
 
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
@@ -60,8 +71,53 @@ public partial class MainWindow : Window
 
         InitializeComponent();
 
+        _clipboardSyncService = new ClipboardSyncService(
+            Dispatcher,
+            Log,
+            _lifetimeCts.Token);
+
         PeerList.ItemsSource = _peerItems;
+        ReceivedFilesList.ItemsSource = _receivedFiles;
         _service.ConnectionRequested += OnConnectionRequested;
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        if (PresentationSource.FromVisual(this) is HwndSource source)
+        {
+            _hwndSource = source;
+            source.AddHook(WndProc);
+            _clipboardSyncService.Attach(source.Handle);
+        }
+    }
+
+    private IntPtr WndProc(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (message == ClipboardSyncService.WmClipboardUpdate)
+        {
+            _clipboardSyncService.OnClipboardUpdate();
+        }
+
+        return IntPtr.Zero;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_hwndSource is not null)
+        {
+            _hwndSource.RemoveHook(WndProc);
+            _hwndSource = null;
+        }
+
+        _clipboardSyncService.Dispose();
+        base.OnClosed(e);
     }
 
     private bool CapabilitySupported =>
@@ -87,6 +143,7 @@ public partial class MainWindow : Window
 
         ApplyReceiverPreferences();
         Log($"同名文件策略：{GetSameNamePolicyText(_sameNamePolicy)}");
+        Log(_clipboardSyncEnabled ? "剪贴板同步：已启用。" : "剪贴板同步：已关闭。");
 
         CheckCapability();
 
@@ -144,15 +201,17 @@ public partial class MainWindow : Window
             ? AppRole.Sender
             : AppRole.Receiver;
 
-        Log($"角色：{(_role == AppRole.Sender ? "发送端" : "接收端")}");
+        Log(
+            "连接角色：" +
+            (_role == AppRole.Sender ? "发起连接端" : "等待连接端"));
 
         if (_channel is null && CapabilitySupported)
         {
             StatusText.Text = _role == AppRole.Sender
-                ? "发送端：点击扫描设备"
+                ? "发起端：点击扫描设备"
                 : _serviceStarted
                     ? "等待连接…"
-                    : "接收端：点击等待连接";
+                    : "等待端：点击等待连接";
         }
 
         UpdateUi();
@@ -162,6 +221,11 @@ public partial class MainWindow : Window
     {
         var preferences = _receiverPreferencesStore.Load();
         _sameNamePolicy = preferences.SameNamePolicy;
+        _clipboardConsentAcknowledged =
+            preferences.ClipboardConsentAcknowledged;
+        _clipboardSyncEnabled =
+            preferences.ClipboardSyncEnabled &&
+            _clipboardConsentAcknowledged;
 
         _isApplyingReceiverPreferences = true;
 
@@ -178,6 +242,19 @@ public partial class MainWindow : Window
         {
             _isApplyingReceiverPreferences = false;
         }
+
+        _isApplyingClipboardPreference = true;
+
+        try
+        {
+            ClipboardSyncCheckBox.IsChecked = _clipboardSyncEnabled;
+        }
+        finally
+        {
+            _isApplyingClipboardPreference = false;
+        }
+
+        _clipboardSyncService.SetEnabled(_clipboardSyncEnabled);
     }
 
     private void SameNamePolicyComboBox_SelectionChanged(
@@ -204,15 +281,78 @@ public partial class MainWindow : Window
             _fileReceiver.SameNamePolicy = policy;
         }
 
-        var saved = _receiverPreferencesStore.Save(
-            new ReceiverPreferences
-            {
-                SameNamePolicy = policy
-            });
+        var saved = SaveReceiverPreferences();
 
         Log(
             $"同名文件策略：{GetSameNamePolicyText(policy)}" +
             (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private bool SaveReceiverPreferences() =>
+        _receiverPreferencesStore.Save(
+            new ReceiverPreferences
+            {
+                SameNamePolicy = _sameNamePolicy,
+                ClipboardSyncEnabled = _clipboardSyncEnabled,
+                ClipboardConsentAcknowledged = _clipboardConsentAcknowledged
+            });
+
+    private void ClipboardSyncCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingClipboardPreference || _isClosing)
+        {
+            return;
+        }
+
+        if (!_clipboardConsentAcknowledged)
+        {
+            var dialog = new ClipboardSyncConfirmationWindow
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                _isApplyingClipboardPreference = true;
+
+                try
+                {
+                    ClipboardSyncCheckBox.IsChecked = false;
+                }
+                finally
+                {
+                    _isApplyingClipboardPreference = false;
+                }
+
+                return;
+            }
+
+            _clipboardConsentAcknowledged = true;
+        }
+
+        _clipboardSyncEnabled = true;
+        _clipboardSyncService.SetEnabled(true);
+
+        var saved = SaveReceiverPreferences();
+        Log("剪贴板同步已启用。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void ClipboardSyncCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingClipboardPreference || _isClosing)
+        {
+            return;
+        }
+
+        _clipboardSyncEnabled = false;
+        _clipboardSyncService.SetEnabled(false);
+
+        var saved = SaveReceiverPreferences();
+        Log("剪贴板同步已关闭。" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private static string GetSameNamePolicyText(SameNamePolicy policy) => policy switch
@@ -377,7 +517,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        Log("接收端已就绪，等待发送端连接。");
+        Log("等待端已就绪，等待连接发起端连接。");
         UpdateStatus("等待连接…");
         UpdateUi();
     }
@@ -506,7 +646,7 @@ public partial class MainWindow : Window
 
             StartMessageLayer(channel);
             RecordKnownDevice(peer);
-            UpdateStatus("已连接，可以添加队列文件或发送测试文件");
+            UpdateStatus("已连接，双方都可以发送文件");
         }
         catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
         {
@@ -588,7 +728,7 @@ public partial class MainWindow : Window
             {
                 StartMessageLayer(channel);
                 RecordKnownDevice(peer);
-                UpdateStatus("已连接，可以添加队列文件或发送测试文件");
+                UpdateStatus("已连接，双方都可以发送文件");
                 Log("快速重连成功。");
             }
         }
@@ -653,7 +793,7 @@ public partial class MainWindow : Window
 
         if (_role != AppRole.Receiver)
         {
-            Log($"忽略连接请求：当前不是接收端。DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
+            Log($"忽略连接请求：当前不是等待连接端。DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
             return;
         }
 
@@ -713,8 +853,8 @@ public partial class MainWindow : Window
 
             StartMessageLayer(channel);
             RecordKnownDevice(request.Peer);
-            UpdateStatus("已连接，等待文件…");
-            Log("接收端已开始等待文件。");
+            UpdateStatus("已连接，双方都可以发送文件");
+            Log("连接已建立，双方都可以发送文件。");
         }
         catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
         {
@@ -873,24 +1013,49 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("消息帧层已经启动。");
         }
 
-        var dispatcher = new MessageDispatcher(channel.Input, channel.Output);
+        var dispatcher = new MessageDispatcher(
+            channel.Input,
+            channel.Output,
+            ClipboardMessageCodec.MaxPayloadLength);
         _dispatcher = dispatcher;
+        _clipboardSyncService.SetSender(
+            (payload, token) =>
+            {
+                token.ThrowIfCancellationRequested();
 
-        if (_role == AppRole.Receiver)
-        {
-            var receiver = new FileReceiver(
-                dispatcher,
-                _receiveDirectory,
-                progress: new Progress<FileTransferProgress>(value =>
-                    UpdateStatus($"正在接收：{value.BytesTransferred}/{value.TotalBytes} 字节")),
-                sameNamePolicy: _sameNamePolicy);
+                // 一旦开始写入帧就不能中途取消，否则会留下半个帧并损坏连接。
+                return dispatcher.SendAsync(
+                    MessageType.ClipboardUpdate,
+                    payload,
+                    CancellationToken.None);
+            });
 
-            receiver.FileStarted += OnFileStarted;
-            receiver.FileReceived += OnFileReceived;
-            receiver.FileFailed += OnFileFailed;
-            receiver.FileSkipped += OnFileSkipped;
-            _fileReceiver = receiver;
-        }
+        var receiver = new FileReceiver(
+            dispatcher,
+            _receiveDirectory,
+            progress: new Progress<FileTransferProgress>(value =>
+                UpdateStatus($"正在接收：{value.BytesTransferred}/{value.TotalBytes} 字节")),
+            sameNamePolicy: _sameNamePolicy,
+            log: Log);
+
+        receiver.FileStarted += OnFileStarted;
+        receiver.FileReceived += OnFileReceived;
+        receiver.FileFailed += OnFileFailed;
+        receiver.FileSkipped += OnFileSkipped;
+        _fileReceiver = receiver;
+
+        var queue = new TransferQueueManager(
+            dispatcher,
+            errorMessageFactory: CreateQueueErrorMessage,
+            log: Log);
+
+        queue.FileStarted += OnQueueFileStarted;
+        queue.FileCompleted += OnQueueFileCompleted;
+        queue.FileFailed += OnQueueFileFailed;
+        queue.FileSkipped += OnQueueFileSkipped;
+        queue.QueueCompleted += OnQueueCompleted;
+        _queueManager = queue;
+        QueuePanel.DataContext = queue;
 
         dispatcher.MessageReceived += OnDispatcherMessageAsync;
         dispatcher.Disconnected += OnDispatcherDisconnected;
@@ -899,25 +1064,7 @@ public partial class MainWindow : Window
         _messageLoopCts = cts;
         _messageLoopTask = dispatcher.StartReceiveLoopAsync(cts.Token);
 
-        if (_role == AppRole.Sender)
-        {
-            var queue = new TransferQueueManager(
-                dispatcher,
-                errorMessageFactory: CreateQueueErrorMessage,
-                log: Log);
-
-            queue.FileStarted += OnQueueFileStarted;
-            queue.FileCompleted += OnQueueFileCompleted;
-            queue.FileFailed += OnQueueFileFailed;
-            queue.FileSkipped += OnQueueFileSkipped;
-            queue.QueueCompleted += OnQueueCompleted;
-            _queueManager = queue;
-            QueuePanel.DataContext = queue;
-
-            Log("发送队列已就绪。");
-        }
-
-        Log($"消息帧层已启动：role={_role}。");
+        Log($"双向传输层已就绪：role={_role}。");
     }
 
     private void OnFileStarted(object? sender, FileStartedEventArgs args)
@@ -930,8 +1077,8 @@ public partial class MainWindow : Window
         var info = args.StartInfo;
 
         Log(info.IsResume
-            ? $"接收端：从断点继续，偏移 {info.StartOffset} 字节"
-            : "接收端：从头开始");
+            ? $"接收：从断点继续，偏移 {info.StartOffset} 字节"
+            : "接收：从头开始");
 
         UpdateStatus(info.IsResume
             ? $"正在接收（从 {info.StartOffset} 字节继续）…"
@@ -945,6 +1092,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileReceived(sender, args)));
+            return;
+        }
+
         var result = args.Result;
 
         Log(
@@ -955,7 +1109,12 @@ public partial class MainWindow : Window
             $"elapsed={args.Elapsed.TotalMilliseconds:F0}ms, " +
             $"path={result.FilePath}");
 
-        UpdateStatus("已连接，等待文件…");
+        _receivedFiles.Insert(
+            0,
+            new ReceivedFileItem(result, DateTimeOffset.Now));
+        ReceivedFilesEmptyText.Visibility = Visibility.Collapsed;
+
+        UpdateStatus("已连接，可以继续传输");
     }
 
     private void OnFileFailed(object? sender, FileFailedEventArgs args)
@@ -976,10 +1135,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        var errorContext = args.Error is COMException
+            ? WifiDirectErrorContext.WinRt
+            : WifiDirectErrorContext.FileIo;
         var errorMessage = LogException(
             args.Error,
             WifiDirectOperation.Transfer,
-            WifiDirectErrorContext.FileIo,
+            errorContext,
             _lifetimeCts.Token);
 
         UpdateStatus(errorMessage);
@@ -992,8 +1154,196 @@ public partial class MainWindow : Window
             return;
         }
 
-        Log($"接收端：同名文件已跳过：{args.FileName}");
+        Log($"同名文件已跳过：{args.FileName}");
         UpdateStatus($"已跳过同名文件：{args.FileName}");
+    }
+
+    private void ReceivedFilesList_PreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        _receivedDragStart = e.GetPosition(ReceivedFilesList);
+        _receivedDragItem = GetReceivedFileItem(e.OriginalSource as DependencyObject);
+    }
+
+    private void ReceivedFilesList_PreviewMouseLeftButtonUp(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        _receivedDragItem = null;
+    }
+
+    private void ReceivedFilesList_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _receivedDragItem is null)
+        {
+            return;
+        }
+
+        var position = e.GetPosition(ReceivedFilesList);
+
+        if (Math.Abs(position.X - _receivedDragStart.X) <
+                SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(position.Y - _receivedDragStart.Y) <
+                SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        var dragItem = _receivedDragItem;
+        _receivedDragItem = null;
+
+        var items = ReceivedFilesList.SelectedItems
+            .OfType<ReceivedFileItem>()
+            .ToList();
+
+        if (!items.Contains(dragItem))
+        {
+            items = new List<ReceivedFileItem> { dragItem };
+        }
+
+        var paths = new List<string>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in items)
+        {
+            if (File.Exists(item.FilePath) &&
+                seenPaths.Add(item.FilePath))
+            {
+                paths.Add(item.FilePath);
+            }
+        }
+
+        if (paths.Count == 0)
+        {
+            Log("接收文件已不存在，无法拖出。");
+            UpdateStatus("接收文件已不存在");
+            return;
+        }
+
+        // W3 折中：未实现 VirtualFileDataObject 的 CFSTR_FILEDESCRIPTOR /
+        // CFSTR_FILECONTENTS，直接通过 FileDrop 传递接收目录中的真实文件路径。
+        // 限制：拖出期间文件必须存在，目标程序会立即从磁盘读取；大文件没有
+        // 虚拟文件的延迟内容读取能力，源文件被移动或删除时拖放会失败。
+        var data = new DataObject();
+        data.SetData(DataFormats.FileDrop, paths.ToArray());
+
+        try
+        {
+            e.Handled = true;
+            DragDrop.DoDragDrop(
+                ReceivedFilesList,
+                data,
+                DragDropEffects.Copy);
+        }
+        catch (Exception exception)
+        {
+            Log($"拖出文件失败：{exception.GetType().Name}");
+        }
+    }
+
+    private ReceivedFileItem? GetReceivedFileItem(DependencyObject? source)
+    {
+        if (source is null)
+        {
+            return null;
+        }
+
+        var container = ItemsControl.ContainerFromElement(
+            ReceivedFilesList,
+            source) as ListBoxItem;
+
+        return container?.DataContext as ReceivedFileItem;
+    }
+
+    private void Window_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Window_PreviewDrop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop) ||
+            e.Data.GetData(DataFormats.FileDrop) is not string[] droppedPaths ||
+            droppedPaths.Length == 0)
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+
+        if (_channel is null || !_step0Passed)
+        {
+            ShowDropPrompt("请先连接对端设备后再拖入文件");
+            return;
+        }
+
+        if (_queueManager is null)
+        {
+            ShowDropPrompt("请先连接对端设备后再拖入文件");
+            return;
+        }
+
+        if (_queueManager.IsRunning)
+        {
+            ShowDropPrompt("传输队列正在运行，请等待完成后再拖入文件。");
+            return;
+        }
+
+        e.Effects = DragDropEffects.Copy;
+
+        try
+        {
+            var files = DroppedFileCollector.Collect(droppedPaths, Log);
+
+            if (files.Count == 0)
+            {
+                Log("拖入内容中没有可发送的文件。");
+                UpdateStatus("拖入内容中没有可发送的文件");
+                return;
+            }
+
+            var added = _queueManager.EnqueueFiles(files);
+            Log($"拖入添加 {added.Count} 个文件到队列。");
+            UpdateStatus($"已从拖入添加 {added.Count} 个文件");
+            UpdateUi();
+        }
+        catch (InvalidOperationException exception)
+        {
+            Log($"拖入失败：{exception.Message}");
+            ShowDropPrompt("传输队列正在运行，请等待完成后再拖入文件。");
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Transfer,
+                WifiDirectErrorContext.FileIo,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+    }
+
+    private void ShowDropPrompt(string message)
+    {
+        Log(message);
+        UpdateStatus(message);
+
+        MessageBox.Show(
+            this,
+            message,
+            "拖入发送",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void OnQueueFileStarted(object? sender, QueueFileStartedEventArgs args)
@@ -1144,14 +1494,14 @@ public partial class MainWindow : Window
         return WifiDirectErrorMapper.GetUserMessage(errorCode);
     }
 
-    private Task OnDispatcherMessageAsync(
+    private async Task OnDispatcherMessageAsync(
         MessageDispatcher sender,
         MessageReceivedEventArgs args,
         CancellationToken cancellationToken)
     {
         if (_isClosing || !ReferenceEquals(_dispatcher, sender))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         try
@@ -1168,6 +1518,12 @@ public partial class MainWindow : Window
                     Log($"控制消息：{FormatControlMessage(control)}");
                     break;
                 }
+
+                case MessageType.ClipboardUpdate:
+                    await HandleRemoteClipboardAsync(
+                        args.Payload,
+                        cancellationToken);
+                    break;
             }
         }
         catch (Exception exception)
@@ -1178,8 +1534,6 @@ public partial class MainWindow : Window
                 WifiDirectErrorContext.WinRt,
                 _lifetimeCts.Token);
         }
-
-        return Task.CompletedTask;
     }
 
     private async void OnDispatcherDisconnected(object? sender, DisconnectedEventArgs args)
@@ -1239,6 +1593,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task HandleRemoteClipboardAsync(
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken)
+    {
+        if (!_clipboardSyncEnabled || _isClosing)
+        {
+            return;
+        }
+
+        await _clipboardSyncService
+            .HandleRemotePayloadAsync(payload, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private static string FormatControlMessage(ControlMessage message) => message.Subtype switch
     {
         ControlMessageSubtype.Ack =>
@@ -1255,8 +1623,7 @@ public partial class MainWindow : Window
 
     private void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_role != AppRole.Sender ||
-            _isSending ||
+        if (_isSending ||
             _queueManager is not { IsRunning: false } queue)
         {
             return;
@@ -1300,8 +1667,7 @@ public partial class MainWindow : Window
 
     private async void StartQueueButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_role != AppRole.Sender ||
-            _channel is null ||
+        if (_channel is null ||
             _dispatcher is null ||
             !_step0Passed ||
             _isSending ||
@@ -1358,8 +1724,7 @@ public partial class MainWindow : Window
 
     private void ClearQueueButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_role != AppRole.Sender ||
-            _isSending ||
+        if (_isSending ||
             _queueManager is not { IsRunning: false } queue)
         {
             return;
@@ -1369,7 +1734,7 @@ public partial class MainWindow : Window
         {
             queue.Clear();
             Log("队列已清空。");
-            UpdateStatus("已连接，可以继续发送文件");
+            UpdateStatus("已连接，可以继续传输");
             UpdateUi();
         }
         catch (Exception exception)
@@ -1385,8 +1750,7 @@ public partial class MainWindow : Window
 
     private async void SendTestFileButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_role != AppRole.Sender ||
-            _channel is null ||
+        if (_channel is null ||
             _dispatcher is null ||
             !_step0Passed ||
             _isSending ||
@@ -1417,8 +1781,8 @@ public partial class MainWindow : Window
 
             var startProgress = new Progress<FileTransferStartInfo>(info =>
                 Log(info.IsResume
-                    ? $"发送端：从断点继续，偏移 {info.StartOffset} 字节"
-                    : "发送端：从头开始"));
+                    ? $"发送：从断点继续，偏移 {info.StartOffset} 字节"
+                    : "发送：从头开始"));
 
             var result = await FileSender.SendAsync(
                 _dispatcher,
@@ -1440,7 +1804,7 @@ public partial class MainWindow : Window
                 $"elapsed={stopwatch.ElapsedMilliseconds}ms");
 
             _testFileName = $"wdt-test-{DateTime.Now:yyyyMMdd-HHmmss-fff}.bin";
-            UpdateStatus("已连接，可以继续发送文件");
+            UpdateStatus("已连接，可以继续传输");
         }
         catch (FileSkippedException exception)
         {
@@ -1448,7 +1812,7 @@ public partial class MainWindow : Window
 
             Log($"发送被跳过：file={fileName}, message={exception.Message}");
             _testFileName = $"wdt-test-{DateTime.Now:yyyyMMdd-HHmmss-fff}.bin";
-            UpdateStatus("接收端已跳过同名文件");
+            UpdateStatus("对端已跳过同名文件");
         }
         catch (RemoteTransferException exception)
             when (exception.ErrorCode == WifiDirectErrorCode.StorageInsufficient)
@@ -1515,6 +1879,7 @@ public partial class MainWindow : Window
             _messageLoopTask = null;
             _step0Passed = false;
             QueuePanel.DataContext = null;
+            _clipboardSyncService.SetSender(null);
 
             if (dispatcher is not null)
             {
@@ -1604,10 +1969,10 @@ public partial class MainWindow : Window
 
             Log("连接已重置。");
             UpdateStatus(_role == AppRole.Sender
-                ? "发送端：点击扫描设备"
+                ? "发起端：点击扫描设备"
                 : _serviceStarted
                     ? "等待连接…"
-                    : "接收端：点击等待连接");
+                    : "等待端：点击等待连接");
             UpdateUi();
         }
         finally
@@ -1704,10 +2069,8 @@ public partial class MainWindow : Window
         RoleReceiverRadio.IsEnabled = supported && !connected && !busy;
         RoleSenderRadio.IsEnabled = supported && !connected && !busy;
 
-        SameNamePolicyPanel.Visibility = _role == AppRole.Receiver
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        SameNamePolicyComboBox.IsEnabled = _role == AppRole.Receiver;
+        SameNamePolicyPanel.Visibility = Visibility.Visible;
+        SameNamePolicyComboBox.IsEnabled = true;
 
         var waiting = _serviceStarted && _role == AppRole.Receiver && !connected;
         WaitButton.Content = waiting ? "等待中…" : "等待连接";
@@ -1744,32 +2107,36 @@ public partial class MainWindow : Window
 
         var queue = _queueManager;
         var queueRunning = queue?.IsRunning == true;
-        var senderCanSend = supported &&
-                            _role == AppRole.Sender &&
-                            connected &&
-                            _dispatcher is not null &&
-                            _step0Passed &&
-                            !busy;
+        var canTransfer = supported &&
+                          connected &&
+                          _dispatcher is not null &&
+                          _step0Passed &&
+                          !busy;
 
         QueuePanel.Visibility = queue is not null
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        SendTestFileButton.IsEnabled = senderCanSend &&
+        ReceivedFilesPanel.Visibility =
+            _fileReceiver is not null || _receivedFiles.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        SendTestFileButton.IsEnabled = canTransfer &&
                                        !_isSending &&
                                        !queueRunning;
 
-        AddQueueFilesButton.IsEnabled = senderCanSend &&
+        AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
                                         !queueRunning &&
                                         queue is not null;
 
-        StartQueueButton.IsEnabled = senderCanSend &&
+        StartQueueButton.IsEnabled = canTransfer &&
                                      !_isSending &&
                                      !queueRunning &&
                                      queue?.CanStart == true;
 
-        ClearQueueButton.IsEnabled = senderCanSend &&
+        ClearQueueButton.IsEnabled = canTransfer &&
                                      !_isSending &&
                                      !queueRunning &&
                                      queue?.HasFiles == true;

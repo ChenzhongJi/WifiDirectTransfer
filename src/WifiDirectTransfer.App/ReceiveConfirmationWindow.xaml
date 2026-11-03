@@ -64,7 +64,7 @@
                    Margin="0,12,0,0"
                    Foreground="#707070"
                    TextWrapping="Wrap"
-                   Text="接受后，接收端会先完成连接确认，然后等待文件数据。" />
+                   Text="接受后，双方都可以发送和接收文件。" />
 
         <StackPanel Grid.Row="4"
                     Orientation="Horizontal"

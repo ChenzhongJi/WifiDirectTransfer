@@ -12,6 +12,9 @@
         FontSize="13"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
+        AllowDrop="True"
+        PreviewDragOver="Window_PreviewDragOver"
+        PreviewDrop="Window_PreviewDrop"
         Loaded="OnLoaded"
         Closing="OnClosing">
     <Grid Margin="24">
@@ -73,22 +76,22 @@
                             Padding="16"
                             Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Text="角色"
+                            <TextBlock Text="连接角色"
                                        FontSize="16"
                                        FontWeight="SemiBold"
                                        Foreground="#1B1B1B" />
                             <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                 <RadioButton x:Name="RoleReceiverRadio"
                                              GroupName="Role"
-                                             Content="作为接收端"
+                                             Content="作为等待连接端"
                                              Margin="0,0,24,0"
                                              Checked="RoleRadio_Checked" />
                                 <RadioButton x:Name="RoleSenderRadio"
                                              GroupName="Role"
-                                             Content="作为发送端"
+                                             Content="作为连接发起端"
                                              Checked="RoleRadio_Checked" />
                             </StackPanel>
-                            <TextBlock Text="接收端点击“等待连接”；发送端扫描并选择设备。"
+                            <TextBlock Text="连接成功后双方都可以发送和接收文件。"
                                        Margin="0,8,0,0"
                                        Foreground="#707070"
                                        TextWrapping="Wrap" />
@@ -184,6 +187,17 @@
                                     Content="发送测试文件（1 MiB）"
                                     Click="SendTestFileButton_Click" />
 
+                            <CheckBox x:Name="ClipboardSyncCheckBox"
+                                      Margin="0,12,0,0"
+                                      Content="启用剪贴板同步"
+                                      Checked="ClipboardSyncCheckBox_Checked"
+                                      Unchecked="ClipboardSyncCheckBox_Unchecked" />
+                            <TextBlock Text="对端可看到你复制的内容。"
+                                       Margin="0,4,0,0"
+                                       FontSize="11"
+                                       Foreground="#707070"
+                                       TextWrapping="Wrap" />
+
                             <StackPanel x:Name="SameNamePolicyPanel"
                                         Margin="0,12,0,0"
                                         Visibility="Collapsed">
@@ -209,6 +223,78 @@
                                        Foreground="#707070"
                                        TextWrapping="Wrap" />
                         </StackPanel>
+                    </Border>
+
+                    <Border x:Name="ReceivedFilesPanel"
+                            Margin="0,10,0,0"
+                            Visibility="Collapsed"
+                            Background="White"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Grid>
+                                <TextBlock Text="已接收文件"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           Foreground="#1B1B1B"
+                                           VerticalAlignment="Center" />
+                                <TextBlock HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Foreground="#707070"
+                                           Text="可拖出" />
+                            </Grid>
+
+                            <ListBox x:Name="ReceivedFilesList"
+                                     Grid.Row="1"
+                                     Height="112"
+                                     Margin="0,10,0,0"
+                                     SelectionMode="Extended"
+                                     Background="#FFFFFF"
+                                     BorderBrush="#E0E0E0"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     PreviewMouseLeftButtonDown="ReceivedFilesList_PreviewMouseLeftButtonDown"
+                                     PreviewMouseLeftButtonUp="ReceivedFilesList_PreviewMouseLeftButtonUp"
+                                     MouseMove="ReceivedFilesList_MouseMove">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Padding" Value="0" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="4,4">
+                                            <TextBlock Text="{Binding FileName}"
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding FilePath}" />
+                                            <TextBlock Text="{Binding DetailText}"
+                                                       Margin="0,2,0,0"
+                                                       FontSize="11"
+                                                       Foreground="#707070"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <TextBlock x:Name="ReceivedFilesEmptyText"
+                                       Grid.Row="2"
+                                       Margin="0,6,0,0"
+                                       FontSize="11"
+                                       Foreground="#8A8A8A"
+                                       Text="接收到的文件会显示在这里，可直接拖到资源管理器。" />
+                        </Grid>
                     </Border>
                 </StackPanel>
             </ScrollViewer>
@@ -448,7 +534,7 @@
                        FontWeight="SemiBold"
                        Foreground="#1B1B1B" />
             <TextBlock HorizontalAlignment="Right"
-                       Text="M1 · Step 0 验证模式"
+                       Text="M1 · 双向传输"
                        FontSize="12"
                        Foreground="#8A8A8A" />
         </Grid>

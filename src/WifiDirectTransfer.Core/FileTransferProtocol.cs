@@ -19,8 +19,8 @@ public static class FileTransferProtocol
 
     public const int MaxFileNameLength = 255;
 
-    /// <summary>默认最大文件大小 100 MiB，可在编解码器和传输 API 中覆盖。</summary>
-    public const long DefaultMaxFileSize = 100L * 1024 * 1024;
+    /// <summary>默认最大文件大小 2 GiB，可在编解码器和传输 API 中覆盖。</summary>
+    public const long DefaultMaxFileSize = 2L * 1024 * 1024 * 1024;
 
     public const int BlockSize = 64 * 1024;
 }

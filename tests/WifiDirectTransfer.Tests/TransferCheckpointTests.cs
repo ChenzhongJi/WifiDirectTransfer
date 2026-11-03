@@ -276,25 +276,32 @@ public sealed class TransferCheckpointTests
             var path = Path.Combine(directory, "settings.json");
             var store = new ReceiverPreferencesStore(path);
 
-            Assert.Equal(
-                SameNamePolicy.AutoRename,
-                store.Load().SameNamePolicy);
+            var defaults = store.Load();
+
+            Assert.Equal(SameNamePolicy.AutoRename, defaults.SameNamePolicy);
+            Assert.False(defaults.ClipboardSyncEnabled);
+            Assert.False(defaults.ClipboardConsentAcknowledged);
 
             Assert.True(
                 store.Save(
                     new ReceiverPreferences
                     {
-                        SameNamePolicy = SameNamePolicy.Skip
+                        SameNamePolicy = SameNamePolicy.Skip,
+                        ClipboardSyncEnabled = true,
+                        ClipboardConsentAcknowledged = true
                     }));
 
             var reloaded = new ReceiverPreferencesStore(path).Load();
             Assert.Equal(SameNamePolicy.Skip, reloaded.SameNamePolicy);
+            Assert.True(reloaded.ClipboardSyncEnabled);
+            Assert.True(reloaded.ClipboardConsentAcknowledged);
 
             await File.WriteAllTextAsync(path, "{ not valid json");
 
-            Assert.Equal(
-                SameNamePolicy.AutoRename,
-                store.Load().SameNamePolicy);
+            var fallback = store.Load();
+            Assert.Equal(SameNamePolicy.AutoRename, fallback.SameNamePolicy);
+            Assert.False(fallback.ClipboardSyncEnabled);
+            Assert.False(fallback.ClipboardConsentAcknowledged);
         });
     }
 

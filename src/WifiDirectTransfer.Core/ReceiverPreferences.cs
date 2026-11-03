@@ -6,6 +6,10 @@ namespace WifiDirectTransfer.Core;
 public sealed class ReceiverPreferences
 {
     public SameNamePolicy SameNamePolicy { get; set; } = SameNamePolicy.AutoRename;
+
+    public bool ClipboardSyncEnabled { get; set; }
+
+    public bool ClipboardConsentAcknowledged { get; set; }
 }
 
 /// <summary>

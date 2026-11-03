@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -16,6 +17,10 @@ public sealed class FileReceiver : IAsyncDisposable
     private const int MetaVersion = 1;
     private const int MetaHeaderLength = MetaMagicLength + 4 + 4;
     private const int MetaTrailerLength = 8 + 8;
+    private const int MetadataWriteAttempts = 3;
+    private const int MetadataRetryDelayMilliseconds = 50;
+    private const long MinimumMetadataInterval = 256L * 1024;
+    private const long MaximumMetadataInterval = 4L * 1024 * 1024;
 
     private static readonly byte[] MetaMagic =
     {
@@ -31,6 +36,7 @@ public sealed class FileReceiver : IAsyncDisposable
     private readonly FileHeaderCodec _codec;
     private readonly IProgress<FileTransferProgress>? _progress;
     private readonly Func<string, long?> _availableFreeSpaceProvider;
+    private readonly Action<string>? _log;
 
     private SameNamePolicy _sameNamePolicy;
     private long? _pendingQueueBytes;
@@ -45,6 +51,9 @@ public sealed class FileReceiver : IAsyncDisposable
     private string? _finalPath;
     private long _received;
     private long _expectedSize;
+    private long _metadataIntervalBytes;
+    private long _lastMetadataAttemptReceived;
+    private bool _metadataWarningLogged;
     private Stopwatch? _stopwatch;
     private int _disposed;
 
@@ -54,7 +63,8 @@ public sealed class FileReceiver : IAsyncDisposable
         long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
         IProgress<FileTransferProgress>? progress = null,
         SameNamePolicy sameNamePolicy = SameNamePolicy.AutoRename,
-        Func<string, long?>? availableFreeSpaceProvider = null)
+        Func<string, long?>? availableFreeSpaceProvider = null,
+        Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
@@ -71,6 +81,7 @@ public sealed class FileReceiver : IAsyncDisposable
         _sameNamePolicy = sameNamePolicy;
         _availableFreeSpaceProvider =
             availableFreeSpaceProvider ?? StorageSpace.GetAvailableFreeSpace;
+        _log = log;
 
         _dispatcher.MessageReceived += OnMessageReceivedAsync;
         _dispatcher.Disconnected += OnDisconnected;
@@ -247,6 +258,7 @@ public sealed class FileReceiver : IAsyncDisposable
         try
         {
             Directory.CreateDirectory(_destinationDirectory);
+            TryDelete(metaPath + ".tmp");
 
             var resume = await TryLoadResumeMetadataAsync(
                     metaPath,
@@ -263,6 +275,9 @@ public sealed class FileReceiver : IAsyncDisposable
             _metaPath = metaPath;
             _overwriteOnFinalMove = _sameNamePolicy == SameNamePolicy.Overwrite;
             _expectedSize = start.Header.FileSize;
+            _metadataIntervalBytes = CalculateMetadataInterval(
+                start.Header.FileSize);
+            _metadataWarningLogged = false;
             _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
             long resumeOffset;
@@ -271,6 +286,7 @@ public sealed class FileReceiver : IAsyncDisposable
             {
                 resumeOffset = resume.PersistedBytes;
                 _received = resumeOffset;
+                _lastMetadataAttemptReceived = resumeOffset;
 
                 _part = new FileStream(
                     partPath,
@@ -301,6 +317,7 @@ public sealed class FileReceiver : IAsyncDisposable
             {
                 resumeOffset = 0;
                 _received = 0;
+                _lastMetadataAttemptReceived = 0;
 
                 TryDelete(partPath);
                 TryDelete(metaPath);
@@ -314,7 +331,8 @@ public sealed class FileReceiver : IAsyncDisposable
                     FileTransferProtocol.BlockSize,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-                await WriteMetadataAsync(cancellationToken).ConfigureAwait(false);
+                await PersistMetadataBestEffortAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
                 await _dispatcher
                     .SendAsync(
@@ -419,8 +437,7 @@ public sealed class FileReceiver : IAsyncDisposable
             _hash.AppendData(payload.Span);
             _received += payload.Length;
 
-            await WriteMetadataAsync(cancellationToken).ConfigureAwait(false);
-
+            // ACK 只表示 .part 已经持久化；不要让它等待 .meta 文件操作。
             await _dispatcher
                 .SendAsync(
                     MessageType.ControlMessage,
@@ -429,6 +446,13 @@ public sealed class FileReceiver : IAsyncDisposable
                 .ConfigureAwait(false);
 
             _progress?.Report(new FileTransferProgress(_received, _expectedSize));
+
+            if (_received - _lastMetadataAttemptReceived >=
+                _metadataIntervalBytes)
+            {
+                await PersistMetadataBestEffortAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {
@@ -497,13 +521,21 @@ public sealed class FileReceiver : IAsyncDisposable
                 throw new ChecksumMismatchException();
             }
 
-            File.Move(partPath, finalPath, overwriteOnFinalMove);
+            var moved = await MovePartToFinalAsync(
+                    partPath,
+                    finalPath,
+                    safeFileName,
+                    overwriteOnFinalMove,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             TryDelete(metaPath);
+            TryDelete(metaPath + ".tmp");
             ResetState();
 
             var result = new FileReceiveResult(
-                safeFileName,
-                finalPath,
+                moved.FileName,
+                moved.FilePath,
                 header.FileSize,
                 actualDigest);
 
@@ -575,6 +607,42 @@ public sealed class FileReceiver : IAsyncDisposable
     {
         var path = Path.Combine(directory, fileName);
         return File.Exists(path) || Directory.Exists(path);
+    }
+
+    private async Task<(string FileName, string FilePath)> MovePartToFinalAsync(
+        string partPath,
+        string finalPath,
+        string safeFileName,
+        bool overwrite,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(partPath, finalPath, overwrite);
+                return (safeFileName, finalPath);
+            }
+            catch (Exception exception)
+                when (IsTransientFileError(exception) &&
+                      attempt < MetadataWriteAttempts - 1)
+            {
+                await Task.Delay(
+                        MetadataRetryDelayMilliseconds * (attempt + 1),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!overwrite && File.Exists(finalPath))
+                {
+                    safeFileName = GetAvailableFileName(
+                        _destinationDirectory,
+                        safeFileName);
+                    finalPath = Path.Combine(
+                        _destinationDirectory,
+                        safeFileName);
+                }
+            }
+        }
     }
 
     private static string GetAvailableFileName(string directory, string fileName)
@@ -718,7 +786,65 @@ public sealed class FileReceiver : IAsyncDisposable
         }
     }
 
-    private async Task WriteMetadataAsync(CancellationToken cancellationToken)
+    private static long CalculateMetadataInterval(long fileSize)
+    {
+        var interval = fileSize / 128;
+
+        if (interval < MinimumMetadataInterval)
+        {
+            interval = MinimumMetadataInterval;
+        }
+        else if (interval > MaximumMetadataInterval)
+        {
+            interval = MaximumMetadataInterval;
+        }
+
+        interval = interval / FileTransferProtocol.BlockSize *
+                   FileTransferProtocol.BlockSize;
+
+        return Math.Max(FileTransferProtocol.BlockSize, interval);
+    }
+
+    private async Task PersistMetadataBestEffortAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_metaPath is null || _rawFileName is null)
+        {
+            return;
+        }
+
+        var persistedBytes = _received;
+
+        try
+        {
+            await WriteMetadataWithRetryAsync(persistedBytes, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            TryDelete(_metaPath + ".tmp");
+
+            if (!_metadataWarningLogged)
+            {
+                _metadataWarningLogged = true;
+                _log?.Invoke(
+                    "更新断点信息失败，已继续传输：" +
+                    exception.GetType().Name);
+            }
+        }
+        finally
+        {
+            _lastMetadataAttemptReceived = persistedBytes;
+        }
+    }
+
+    private async Task WriteMetadataWithRetryAsync(
+        long persistedBytes,
+        CancellationToken cancellationToken)
     {
         if (_metaPath is null || _rawFileName is null)
         {
@@ -746,22 +872,43 @@ public sealed class FileReceiver : IAsyncDisposable
             _expectedSize);
         BinaryPrimitives.WriteInt64LittleEndian(
             bytes.AsSpan(MetaHeaderLength + fileNameBytes.Length + 8, 8),
-            _received);
+            persistedBytes);
 
-        await using (var stream = new FileStream(
-                         tempPath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         4096,
-                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        for (var attempt = 0; attempt < MetadataWriteAttempts; attempt++)
         {
-            await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
-            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
+            try
+            {
+                await using (var stream = new FileStream(
+                                 tempPath,
+                                 FileMode.Create,
+                                 FileAccess.Write,
+                                 FileShare.None,
+                                 4096,
+                                 FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    await stream.WriteAsync(bytes, cancellationToken)
+                        .ConfigureAwait(false);
+                    await stream.FlushAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
 
-        File.Move(tempPath, metaPath, overwrite: true);
+                File.Move(tempPath, metaPath, overwrite: true);
+                return;
+            }
+            catch (Exception exception)
+                when (IsTransientFileError(exception) &&
+                      attempt < MetadataWriteAttempts - 1)
+            {
+                await Task.Delay(
+                        MetadataRetryDelayMilliseconds,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
     }
+
+    private static bool IsTransientFileError(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or COMException;
 
     private void PreserveActive(Exception? error, string? fileName)
     {
@@ -848,6 +995,9 @@ public sealed class FileReceiver : IAsyncDisposable
         _overwriteOnFinalMove = false;
         _received = 0;
         _expectedSize = 0;
+        _metadataIntervalBytes = 0;
+        _lastMetadataAttemptReceived = 0;
+        _metadataWarningLogged = false;
         _stopwatch = null;
     }
 

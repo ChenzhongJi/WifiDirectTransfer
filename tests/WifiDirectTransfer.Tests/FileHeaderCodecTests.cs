@@ -68,6 +68,31 @@ public sealed class FileHeaderCodecTests
     }
 
     [Fact]
+    public void Serialize_Deserialize_AllowsTwoGiBFile()
+    {
+        var codec = new FileHeaderCodec();
+        var size = 2L * 1024 * 1024 * 1024;
+        var header = FileHeader.CreateFileStart(size, fileNameByteLength: 8);
+
+        var roundTripped = codec.Deserialize(codec.Serialize(header));
+
+        Assert.Equal(size, roundTripped.FileSize);
+    }
+
+    [Fact]
+    public void Deserialize_RejectsFileAboveTwoGiB()
+    {
+        var permissiveCodec = new FileHeaderCodec(long.MaxValue);
+        var header = FileHeader.CreateFileStart(
+            2L * 1024 * 1024 * 1024 + 1,
+            fileNameByteLength: 8);
+        var bytes = permissiveCodec.Serialize(header);
+
+        Assert.Throws<InvalidFileHeaderException>(
+            () => new FileHeaderCodec().Deserialize(bytes));
+    }
+
+    [Fact]
     public void EncodeFileName_RejectsOverlongUtf8Name()
     {
         Assert.Throws<InvalidFileHeaderException>(
