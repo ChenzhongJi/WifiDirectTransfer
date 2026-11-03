@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -39,6 +40,7 @@ public partial class MainWindow : Window
     private bool _clipboardSyncEnabled;
     private bool _clipboardConsentAcknowledged;
     private bool _isApplyingClipboardPreference;
+    private bool _clipboardDisabledDropLogged;
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
@@ -136,6 +138,8 @@ public partial class MainWindow : Window
         StatusText.Text = "未连接";
         Log("M0 界面已启动。");
         Log($"接收目录：{_receiveDirectory}");
+        Log($"日志文件：{AppLog.FilePath}");
+        Log($"本端构建：{GetBuildInfo()}");
 
         LoadKnownDevices();
         RebuildPeerList(Array.Empty<WifiDirectPeer>());
@@ -333,6 +337,7 @@ public partial class MainWindow : Window
         }
 
         _clipboardSyncEnabled = true;
+        _clipboardDisabledDropLogged = false;
         _clipboardSyncService.SetEnabled(true);
 
         var saved = SaveReceiverPreferences();
@@ -1064,7 +1069,10 @@ public partial class MainWindow : Window
         _messageLoopCts = cts;
         _messageLoopTask = dispatcher.StartReceiveLoopAsync(cts.Token);
 
-        Log($"双向传输层已就绪：role={_role}。");
+        Log(
+            $"双向传输层已就绪：role={_role}，" +
+            $"maxPayload={dispatcher.MaxPayloadLength}，" +
+            $"clipboardSync={_clipboardSyncEnabled}。");
     }
 
     private void OnFileStarted(object? sender, FileStartedEventArgs args)
@@ -1599,8 +1607,17 @@ public partial class MainWindow : Window
     {
         if (!_clipboardSyncEnabled || _isClosing)
         {
+            if (!_isClosing && !_clipboardDisabledDropLogged)
+            {
+                _clipboardDisabledDropLogged = true;
+                Log(
+                    "收到远端剪贴板数据，但本机剪贴板同步未开启，已忽略。");
+            }
+
             return;
         }
+
+        _clipboardDisabledDropLogged = false;
 
         await _clipboardSyncService
             .HandleRemotePayloadAsync(payload, cancellationToken)
@@ -2221,14 +2238,62 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 先落盘：UI 线程可能正被大图片处理阻塞，文件日志不应等待它。
+        AppLog.Write(line);
+
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(() => WriteLogLine(line)));
+            Dispatcher.BeginInvoke(new Action(() => AppendLogLine(line)));
+            return;
+        }
+
+        AppendLogLine(line);
+    }
+
+    private void AppendLogLine(string line)
+    {
+        if (_isClosing)
+        {
             return;
         }
 
         LogTextBox.AppendText(line + Environment.NewLine);
         LogTextBox.ScrollToEnd();
+    }
+
+    private static string GetBuildInfo()
+    {
+        var assembly = typeof(MainWindow).Assembly;
+        var version = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "未知";
+        var buildTime = "未知";
+        var executablePath = Environment.ProcessPath;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(executablePath))
+            {
+                buildTime = File
+                    .GetLastWriteTime(executablePath)
+                    .ToString("yyyy-MM-dd HH:mm:ss");
+            }
+        }
+        catch (IOException)
+        {
+            // 无法读取构建时间时保持“未知”。
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // 无法读取构建时间时保持“未知”。
+        }
+
+        return
+            $"version={version}, {(Environment.Is64BitProcess ? "x64" : "x86")}, " +
+            $"build={buildTime}, clipboardMax={ClipboardMessageCodec.MaxImageBytes}, " +
+            $"frameMax={ClipboardMessageCodec.MaxPayloadLength}";
     }
 
     private static string GetReceiveDirectory()

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -9,6 +10,13 @@ using WifiDirectTransfer.Core;
 
 namespace WifiDirectTransfer.App;
 
+internal enum ClipboardReadResult
+{
+    Success,
+    Empty,
+    Error
+}
+
 internal sealed class ClipboardSyncService : IDisposable
 {
     public const int WmClipboardUpdate = 0x031D;
@@ -16,6 +24,15 @@ internal sealed class ClipboardSyncService : IDisposable
     private const int ClipboardRetryCount = 3;
     private const int ClipboardRetryDelayMilliseconds = 50;
     private const int RemoteEchoSuppressMilliseconds = 2000;
+
+    // 复制大文件或从图片查看器复制时，剪贴板可能几秒内都无法读取。
+    private static readonly int[] ReadRetryDelaysMilliseconds =
+    {
+        100,
+        300,
+        800,
+        2000
+    };
 
     private static readonly HashSet<string> ImageFileExtensions =
         new(StringComparer.OrdinalIgnoreCase)
@@ -49,6 +66,9 @@ internal sealed class ClipboardSyncService : IDisposable
     private CancellationTokenSource? _sendCts;
     private byte[]? _lastLocalHash;
     private byte[]? _lastRemoteHash;
+    private int _clipboardReadGeneration;
+    private bool _notConnectedLogged;
+    private bool _disabledDropLogged;
 
     public ClipboardSyncService(
         Dispatcher dispatcher,
@@ -96,14 +116,18 @@ internal sealed class ClipboardSyncService : IDisposable
         if (enabled)
         {
             _sendCts = CreateSendCancellation();
+            _clipboardReadGeneration++;
             RegisterListener();
         }
         else
         {
+            _clipboardReadGeneration++;
             CancelSends();
             UnregisterListener();
             ClearHashes();
             _ignoreClipboardUpdateUntil = default;
+            _notConnectedLogged = false;
+            _disabledDropLogged = false;
         }
     }
 
@@ -144,20 +168,107 @@ internal sealed class ClipboardSyncService : IDisposable
 
         if (sendAsync is null)
         {
+            if (!_notConnectedLogged)
+            {
+                _notConnectedLogged = true;
+                _log("剪贴板更新：尚未建立连接，已跳过。");
+            }
+
             return;
         }
 
-        if (!TryReadClipboard(out var content) || content is null)
+        _notConnectedLogged = false;
+
+        var generation = ++_clipboardReadGeneration;
+        _log("剪贴板更新：开始读取。");
+
+        TryProcessClipboardUpdate(generation, attempt: 0, sendAsync);
+    }
+
+    private void TryProcessClipboardUpdate(
+        int generation,
+        int attempt,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync)
+    {
+        if (_disposed ||
+            !_enabled ||
+            generation != _clipboardReadGeneration ||
+            !ReferenceEquals(_sendAsync, sendAsync))
         {
             return;
         }
 
+        var result = TryReadClipboard(out var content, out var description);
+
+        if (result == ClipboardReadResult.Success && content is not null)
+        {
+            if (attempt > 0)
+            {
+                _log($"剪贴板读取在重试 {attempt} 次后成功（{description}）。");
+            }
+
+            ProcessClipboardContent(sendAsync, content, description);
+            return;
+        }
+
+        if (result == ClipboardReadResult.Empty &&
+            attempt < ReadRetryDelaysMilliseconds.Length)
+        {
+            _ = RetryClipboardUpdateAsync(
+                generation,
+                attempt + 1,
+                sendAsync,
+                ReadRetryDelaysMilliseconds[attempt]);
+            return;
+        }
+
+        if (result == ClipboardReadResult.Empty)
+        {
+            _log(
+                "剪贴板中没有可同步的内容，已放弃本次更新" +
+                $"（尝试 {attempt + 1} 次；可能剪贴板被占用或数据尚未就绪）。");
+        }
+    }
+
+    private async Task RetryClipboardUpdateAsync(
+        int generation,
+        int attempt,
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync,
+        int delayMilliseconds)
+    {
+        try
+        {
+            await Task.Delay(delayMilliseconds, _lifetimeToken)
+                .ConfigureAwait(false);
+
+            await _dispatcher
+                .InvokeAsync(
+                    () => TryProcessClipboardUpdate(
+                        generation,
+                        attempt,
+                        sendAsync),
+                    DispatcherPriority.Normal,
+                    _lifetimeToken)
+                .Task
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 窗口关闭或同步关闭。
+        }
+    }
+
+    private void ProcessClipboardContent(
+        Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync,
+        ClipboardContent content,
+        string description)
+    {
         if (content.Type == ClipboardContentType.Image &&
             content.Data.Length > ClipboardMessageCodec.MaxImageBytes)
         {
             _log(
                 "剪贴板图片过大，已跳过同步" +
-                $"（PNG {content.Data.Length} 字节）");
+                $"（PNG {content.Data.Length} 字节，{description}）");
             return;
         }
 
@@ -173,6 +284,7 @@ internal sealed class ClipboardSyncService : IDisposable
         if (HashesEqual(hash, _lastRemoteHash))
         {
             _lastLocalHash = hash;
+            _log("剪贴板内容与远端回写一致，已忽略。");
             return;
         }
 
@@ -191,7 +303,7 @@ internal sealed class ClipboardSyncService : IDisposable
         }
 
         var token = _sendCts?.Token ?? CancellationToken.None;
-        _ = SendPayloadAsync(sendAsync, payload, token);
+        _ = SendPayloadAsync(sendAsync, content, description, payload, token);
     }
 
     public async Task HandleRemotePayloadAsync(
@@ -200,8 +312,16 @@ internal sealed class ClipboardSyncService : IDisposable
     {
         if (!_enabled || _disposed)
         {
+            if (!_disabledDropLogged)
+            {
+                _disabledDropLogged = true;
+                _log("收到远端剪贴板数据，但本机剪贴板同步未开启，已忽略。");
+            }
+
             return;
         }
+
+        _disabledDropLogged = false;
 
         ClipboardContent content;
 
@@ -214,6 +334,8 @@ internal sealed class ClipboardSyncService : IDisposable
             _log($"剪贴板同步数据无效：{exception.Message}");
             return;
         }
+
+        _log($"收到远端剪贴板：{DescribeContent(content)}。");
 
         if (content.Type == ClipboardContentType.Image &&
             content.Data.Length > ClipboardMessageCodec.MaxImageBytes)
@@ -254,6 +376,7 @@ internal sealed class ClipboardSyncService : IDisposable
         }
 
         _disposed = true;
+        _clipboardReadGeneration++;
         CancelSends();
         UnregisterListener();
         _windowHandle = IntPtr.Zero;
@@ -271,16 +394,23 @@ internal sealed class ClipboardSyncService : IDisposable
         // 先记录远端哈希，再写入，避免 WM_CLIPBOARDUPDATE 回环发送。
         _lastRemoteHash = hash;
         _isApplyingRemoteClipboard = true;
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
-            if (!TryWriteRemoteContent(content))
+            if (!TryWriteRemoteContent(content, out var description))
             {
                 _lastRemoteHash = null;
                 return;
             }
 
-            if (TryReadClipboard(out var localContent) &&
+            stopwatch.Stop();
+            _log(
+                $"已写入本机剪贴板：{description}，" +
+                $"耗时 {stopwatch.ElapsedMilliseconds} ms。");
+
+            if (TryReadClipboard(out var localContent, out _) ==
+                    ClipboardReadResult.Success &&
                 localContent is not null &&
                 localContent.Type == content.Type)
             {
@@ -299,7 +429,9 @@ internal sealed class ClipboardSyncService : IDisposable
         catch (Exception exception)
         {
             _lastRemoteHash = null;
-            _log($"写入本机剪贴板失败：{exception.GetType().Name}");
+            _log(
+                $"写入本机剪贴板失败：{exception.GetType().Name}，" +
+                exception.Message);
         }
         finally
         {
@@ -307,9 +439,12 @@ internal sealed class ClipboardSyncService : IDisposable
         }
     }
 
-    private bool TryWriteRemoteContent(ClipboardContent content)
+    private bool TryWriteRemoteContent(
+        ClipboardContent content,
+        out string description)
     {
         BitmapSource? image = null;
+        description = string.Empty;
 
         for (var attempt = 0; attempt <= ClipboardRetryCount; attempt++)
         {
@@ -320,11 +455,15 @@ internal sealed class ClipboardSyncService : IDisposable
                     case ClipboardContentType.Text:
                         Clipboard.SetText(
                             ClipboardMessageCodec.DecodeText(content.Data));
+                        description = $"文本 {content.Data.Length} 字节";
                         return true;
 
                     case ClipboardContentType.Image:
                         image ??= DecodePng(content.Data);
                         Clipboard.SetImage(image);
+                        description =
+                            $"图片 {content.Data.Length} 字节，" +
+                            $"{image.PixelWidth}x{image.PixelHeight}";
                         return true;
 
                     default:
@@ -345,16 +484,18 @@ internal sealed class ClipboardSyncService : IDisposable
         return false;
     }
 
-    private bool TryReadClipboard(out ClipboardContent? content)
+    private ClipboardReadResult TryReadClipboard(
+        out ClipboardContent? content,
+        out string description)
     {
         content = null;
+        description = string.Empty;
 
         for (var attempt = 0; attempt <= ClipboardRetryCount; attempt++)
         {
             try
             {
-                content = ReadClipboardOnce();
-                return content is not null;
+                return ReadClipboardOnce(out content, out description);
             }
             catch (COMException) when (attempt < ClipboardRetryCount)
             {
@@ -363,28 +504,33 @@ internal sealed class ClipboardSyncService : IDisposable
             }
             catch (COMException)
             {
-                _log("读取剪贴板失败，已跳过本次同步。");
-                return false;
+                // 交给上层延迟重试；最终仍失败时统一打印一次。
+                return ClipboardReadResult.Empty;
             }
             catch (Exception exception)
             {
                 _log($"读取剪贴板失败：{exception.GetType().Name}");
-                return false;
+                return ClipboardReadResult.Error;
             }
         }
 
-        return false;
+        return ClipboardReadResult.Empty;
     }
 
-    private ClipboardContent? ReadClipboardOnce()
+    private ClipboardReadResult ReadClipboardOnce(
+        out ClipboardContent? content,
+        out string description)
     {
+        content = null;
+        description = string.Empty;
+
         if (Clipboard.ContainsFileDropList())
         {
             var fileDropList = Clipboard.GetFileDropList();
 
             if (fileDropList is null || fileDropList.Count == 0)
             {
-                return null;
+                return ClipboardReadResult.Empty;
             }
 
             var imagePaths = new List<string>();
@@ -401,7 +547,7 @@ internal sealed class ClipboardSyncService : IDisposable
             if (imagePaths.Count == 0)
             {
                 _log("剪贴板文件不是支持的图片，已跳过同步。");
-                return null;
+                return ClipboardReadResult.Error;
             }
 
             if (imagePaths.Count > 1)
@@ -413,15 +559,17 @@ internal sealed class ClipboardSyncService : IDisposable
 
             foreach (var imagePath in imagePaths)
             {
-                var content = TryReadImageFile(imagePath);
+                var image = TryReadImageFile(imagePath, out var imageDescription);
 
-                if (content is not null)
+                if (image is not null)
                 {
-                    return content;
+                    content = image;
+                    description = imageDescription;
+                    return ClipboardReadResult.Success;
                 }
             }
 
-            return null;
+            return ClipboardReadResult.Error;
         }
 
         if (Clipboard.ContainsImage())
@@ -430,28 +578,40 @@ internal sealed class ClipboardSyncService : IDisposable
 
             if (image is not null)
             {
-                return new ClipboardContent(
+                content = new ClipboardContent(
                     ClipboardContentType.Image,
                     EncodePng(image));
+                description =
+                    $"剪贴板位图 {image.PixelWidth}x{image.PixelHeight}";
+                return ClipboardReadResult.Success;
             }
+
+            return ClipboardReadResult.Empty;
         }
 
         if (Clipboard.ContainsText())
         {
             var text = Clipboard.GetText();
+            var bytes = Encoding.UTF8.GetBytes(text);
 
-            return new ClipboardContent(
-                ClipboardContentType.Text,
-                Encoding.UTF8.GetBytes(text));
+            content = new ClipboardContent(ClipboardContentType.Text, bytes);
+            description = $"文本 {bytes.Length} 字节";
+            return ClipboardReadResult.Success;
         }
 
-        return null;
+        return ClipboardReadResult.Empty;
     }
 
-    private ClipboardContent? TryReadImageFile(string path)
+    private ClipboardContent? TryReadImageFile(
+        string path,
+        out string description)
     {
+        description = string.Empty;
+
         try
         {
+            var fileName = Path.GetFileName(path);
+
             if (string.Equals(
                     Path.GetExtension(path),
                     ".png",
@@ -463,7 +623,7 @@ internal sealed class ClipboardSyncService : IDisposable
                 {
                     _log(
                         "剪贴板图片过大，已跳过同步" +
-                        $"（PNG {pngBytes.Length} 字节）");
+                        $"（PNG {pngBytes.Length} 字节，文件 {fileName}）");
                     return null;
                 }
 
@@ -477,6 +637,7 @@ internal sealed class ClipboardSyncService : IDisposable
                     BitmapCreateOptions.None,
                     BitmapCacheOption.OnLoad);
 
+                description = $"文件 {fileName}（原始 PNG）";
                 return new ClipboardContent(
                     ClipboardContentType.Image,
                     pngBytes);
@@ -494,13 +655,18 @@ internal sealed class ClipboardSyncService : IDisposable
 
             if (decoder.Frames.Count == 0)
             {
-                _log($"剪贴板图片文件没有可用帧：{Path.GetFileName(path)}");
+                _log($"剪贴板图片文件没有可用帧：{fileName}");
                 return null;
             }
 
+            var frame = decoder.Frames[0];
+            description =
+                $"文件 {fileName}（解码为 PNG，" +
+                $"{frame.PixelWidth}x{frame.PixelHeight}）";
+
             return new ClipboardContent(
                 ClipboardContentType.Image,
-                EncodePng(decoder.Frames[0]));
+                EncodePng(frame));
         }
         catch (Exception exception)
         {
@@ -513,12 +679,21 @@ internal sealed class ClipboardSyncService : IDisposable
 
     private async Task SendPayloadAsync(
         Func<ReadOnlyMemory<byte>, CancellationToken, Task> sendAsync,
+        ClipboardContent content,
+        string description,
         byte[] payload,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             await sendAsync(payload, cancellationToken).ConfigureAwait(false);
+            stopwatch.Stop();
+            _log(
+                $"剪贴板已发送：{DescribeContent(content)}，" +
+                $"payload {payload.Length} 字节，" +
+                $"耗时 {stopwatch.ElapsedMilliseconds} ms（{description}）。");
         }
         catch (OperationCanceledException)
         {
@@ -526,11 +701,18 @@ internal sealed class ClipboardSyncService : IDisposable
         }
         catch (Exception exception)
         {
+            stopwatch.Stop();
             _log(
                 $"剪贴板同步发送失败：{exception.GetType().Name}，" +
-                exception.Message);
+                $"{exception.Message}（{DescribeContent(content)}，" +
+                $"耗时 {stopwatch.ElapsedMilliseconds} ms）。");
         }
     }
+
+    private static string DescribeContent(ClipboardContent content) =>
+        content.Type == ClipboardContentType.Image
+            ? $"图片 {content.Data.Length} 字节"
+            : $"文本 {content.Data.Length} 字节";
 
     private CancellationTokenSource CreateSendCancellation() =>
         CancellationTokenSource.CreateLinkedTokenSource(_lifetimeToken);
