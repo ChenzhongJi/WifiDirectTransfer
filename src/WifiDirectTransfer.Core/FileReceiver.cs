@@ -338,6 +338,8 @@ public sealed class FileReceiver : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            await SendTransferErrorBestEffortAsync(exception, cancellationToken)
+                .ConfigureAwait(false);
             PreserveActive(exception, safeFileName);
         }
     }
@@ -441,6 +443,8 @@ public sealed class FileReceiver : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            await SendTransferErrorBestEffortAsync(exception, cancellationToken)
+                .ConfigureAwait(false);
             PreserveActive(exception, _safeFileName);
         }
     }
@@ -595,6 +599,15 @@ public sealed class FileReceiver : IAsyncDisposable
         string fileName,
         CancellationToken cancellationToken)
     {
+        await SendTransferErrorBestEffortAsync(error, cancellationToken)
+            .ConfigureAwait(false);
+        DeleteActive(error, fileName);
+    }
+
+    private async Task SendTransferErrorBestEffortAsync(
+        Exception error,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await SendTransferErrorAsync(error, cancellationToken)
@@ -605,23 +618,32 @@ public sealed class FileReceiver : IAsyncDisposable
             _log?.Invoke(
                 "发送传输失败通知失败：" + sendError.GetType().Name);
         }
-
-        DeleteActive(error, fileName);
     }
 
     private Task SendTransferErrorAsync(
         Exception error,
         CancellationToken cancellationToken)
     {
-        var errorCode = error is FileTransferException transferError
-            ? transferError.ErrorCode
-            : WifiDirectErrorCode.TransferInterrupted;
+        var (errorCode, message) = error switch
+        {
+            FileTransferException transferError =>
+                (transferError.ErrorCode, transferError.Message),
+            UnauthorizedAccessException =>
+                (WifiDirectErrorCode.PermissionDenied,
+                 "没有权限写入接收目录。"),
+            IOException =>
+                (WifiDirectErrorCode.TransferInterrupted,
+                 "写入接收目录失败，请检查磁盘空间或文件权限。"),
+            _ =>
+                (WifiDirectErrorCode.TransferInterrupted,
+                 "接收端无法继续接收文件。")
+        };
 
         return _dispatcher.SendAsync(
             MessageType.ControlMessage,
             ControlMessageCodec.SerializeTransferError(
                 errorCode,
-                error.Message),
+                message),
             cancellationToken);
     }
 
