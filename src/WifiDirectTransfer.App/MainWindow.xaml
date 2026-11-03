@@ -192,7 +192,7 @@
                                       Content="启用剪贴板同步"
                                       Checked="ClipboardSyncCheckBox_Checked"
                                       Unchecked="ClipboardSyncCheckBox_Unchecked" />
-                            <TextBlock Text="对端可看到你复制的内容。"
+                            <TextBlock Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
                                        Margin="0,4,0,0"
                                        FontSize="11"
                                        Foreground="#707070"

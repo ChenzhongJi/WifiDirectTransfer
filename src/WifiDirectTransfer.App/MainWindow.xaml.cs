@@ -76,6 +76,7 @@ public partial class MainWindow : Window
         _clipboardSyncService = new ClipboardSyncService(
             Dispatcher,
             Log,
+            UpdateStatus,
             _lifetimeCts.Token);
 
         PeerList.ItemsSource = _peerItems;

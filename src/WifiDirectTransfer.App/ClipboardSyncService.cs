@@ -54,6 +54,7 @@ internal sealed class ClipboardSyncService : IDisposable
 
     private readonly Dispatcher _dispatcher;
     private readonly Action<string> _log;
+    private readonly Action<string>? _status;
     private readonly CancellationToken _lifetimeToken;
 
     private IntPtr _windowHandle;
@@ -66,6 +67,7 @@ internal sealed class ClipboardSyncService : IDisposable
     private CancellationTokenSource? _sendCts;
     private byte[]? _lastLocalHash;
     private byte[]? _lastRemoteHash;
+    private byte[]? _lastSentHash;
     private int _clipboardReadGeneration;
     private bool _notConnectedLogged;
     private bool _disabledDropLogged;
@@ -73,6 +75,7 @@ internal sealed class ClipboardSyncService : IDisposable
     public ClipboardSyncService(
         Dispatcher dispatcher,
         Action<string> log,
+        Action<string>? status,
         CancellationToken lifetimeToken)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
@@ -80,6 +83,7 @@ internal sealed class ClipboardSyncService : IDisposable
 
         _dispatcher = dispatcher;
         _log = log;
+        _status = status;
         _lifetimeToken = lifetimeToken;
     }
 
@@ -288,6 +292,12 @@ internal sealed class ClipboardSyncService : IDisposable
             return;
         }
 
+        if (HashesEqual(hash, _lastSentHash))
+        {
+            _log("剪贴板内容未变化，已忽略。");
+            return;
+        }
+
         _lastLocalHash = hash;
 
         byte[] payload;
@@ -303,7 +313,13 @@ internal sealed class ClipboardSyncService : IDisposable
         }
 
         var token = _sendCts?.Token ?? CancellationToken.None;
-        _ = SendPayloadAsync(sendAsync, content, description, payload, token);
+        _ = SendPayloadAsync(
+            sendAsync,
+            content,
+            description,
+            payload,
+            hash,
+            token);
     }
 
     public async Task HandleRemotePayloadAsync(
@@ -408,6 +424,7 @@ internal sealed class ClipboardSyncService : IDisposable
             _log(
                 $"已写入本机剪贴板：{description}，" +
                 $"耗时 {stopwatch.ElapsedMilliseconds} ms。");
+            _status?.Invoke($"已同步远端剪贴板：{description}");
 
             if (TryReadClipboard(out var localContent, out _) ==
                     ClipboardReadResult.Success &&
@@ -455,15 +472,15 @@ internal sealed class ClipboardSyncService : IDisposable
                     case ClipboardContentType.Text:
                         Clipboard.SetText(
                             ClipboardMessageCodec.DecodeText(content.Data));
-                        description = $"文本 {content.Data.Length} 字节";
+                        description = $"文本 {FormatBytes(content.Data.Length)}";
                         return true;
 
                     case ClipboardContentType.Image:
                         image ??= DecodePng(content.Data);
                         Clipboard.SetImage(image);
                         description =
-                            $"图片 {content.Data.Length} 字节，" +
-                            $"{image.PixelWidth}x{image.PixelHeight}";
+                            $"图片 {image.PixelWidth}x{image.PixelHeight}" +
+                            $"（{FormatBytes(content.Data.Length)}）";
                         return true;
 
                     default:
@@ -682,6 +699,7 @@ internal sealed class ClipboardSyncService : IDisposable
         ClipboardContent content,
         string description,
         byte[] payload,
+        byte[] hash,
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -689,6 +707,7 @@ internal sealed class ClipboardSyncService : IDisposable
         try
         {
             await sendAsync(payload, cancellationToken).ConfigureAwait(false);
+            _lastSentHash = hash;
             stopwatch.Stop();
             _log(
                 $"剪贴板已发送：{DescribeContent(content)}，" +
@@ -714,6 +733,13 @@ internal sealed class ClipboardSyncService : IDisposable
             ? $"图片 {content.Data.Length} 字节"
             : $"文本 {content.Data.Length} 字节";
 
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} 字节",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.0} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):0.0} MB"
+    };
+
     private CancellationTokenSource CreateSendCancellation() =>
         CancellationTokenSource.CreateLinkedTokenSource(_lifetimeToken);
 
@@ -729,6 +755,7 @@ internal sealed class ClipboardSyncService : IDisposable
     {
         _lastLocalHash = null;
         _lastRemoteHash = null;
+        _lastSentHash = null;
     }
 
     private void RegisterListener()
