@@ -155,7 +155,9 @@ internal sealed class ClipboardSyncService : IDisposable
         if (content.Type == ClipboardContentType.Image &&
             content.Data.Length > ClipboardMessageCodec.MaxImageBytes)
         {
-            _log("剪贴板图片过大，已跳过同步");
+            _log(
+                "剪贴板图片过大，已跳过同步" +
+                $"（PNG {content.Data.Length} 字节）");
             return;
         }
 
@@ -216,7 +218,9 @@ internal sealed class ClipboardSyncService : IDisposable
         if (content.Type == ClipboardContentType.Image &&
             content.Data.Length > ClipboardMessageCodec.MaxImageBytes)
         {
-            _log("剪贴板图片过大，已跳过同步");
+            _log(
+                "剪贴板图片过大，已跳过同步" +
+                $"（PNG {content.Data.Length} 字节）");
             return;
         }
 
@@ -448,6 +452,36 @@ internal sealed class ClipboardSyncService : IDisposable
     {
         try
         {
+            if (string.Equals(
+                    Path.GetExtension(path),
+                    ".png",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var pngBytes = File.ReadAllBytes(path);
+
+                if (pngBytes.Length > ClipboardMessageCodec.MaxImageBytes)
+                {
+                    _log(
+                        "剪贴板图片过大，已跳过同步" +
+                        $"（PNG {pngBytes.Length} 字节）");
+                    return null;
+                }
+
+                // 校验文件确实是 WPF 可读取的 PNG，然后直接发送原始 PNG 字节，
+                // 避免重新编码导致体积膨胀。
+                using var validationStream = new MemoryStream(
+                    pngBytes,
+                    writable: false);
+                BitmapDecoder.Create(
+                    validationStream,
+                    BitmapCreateOptions.None,
+                    BitmapCacheOption.OnLoad);
+
+                return new ClipboardContent(
+                    ClipboardContentType.Image,
+                    pngBytes);
+            }
+
             using var stream = new FileStream(
                 path,
                 FileMode.Open,
@@ -492,7 +526,9 @@ internal sealed class ClipboardSyncService : IDisposable
         }
         catch (Exception exception)
         {
-            _log($"剪贴板同步发送失败：{exception.GetType().Name}");
+            _log(
+                $"剪贴板同步发送失败：{exception.GetType().Name}，" +
+                exception.Message);
         }
     }
 

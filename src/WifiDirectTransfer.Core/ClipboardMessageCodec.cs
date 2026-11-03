@@ -30,7 +30,7 @@ public sealed class ClipboardContent
 /// </summary>
 public static class ClipboardMessageCodec
 {
-    public const int MaxImageBytes = 20 * 1024 * 1024;
+    public const int MaxImageBytes = 32 * 1024 * 1024;
     public const int MaxPayloadLength = MaxImageBytes + 1;
 
     private static readonly UTF8Encoding StrictUtf8 = new(

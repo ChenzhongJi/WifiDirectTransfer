@@ -58,11 +58,32 @@ public sealed class ClipboardMessageCodecTests
     }
 
     [Fact]
-    public void EncodeImage_Over20Mb_Throws()
+    public void EncodeImage_OverLimit_Throws()
     {
         var pngBytes = new byte[ClipboardMessageCodec.MaxImageBytes + 1];
 
         Assert.Throws<MessageProtocolException>(
             () => ClipboardMessageCodec.EncodeImage(pngBytes));
+    }
+
+    [Fact]
+    public void EncodeImage_TypicalLargePngWithinLimit_IsAccepted()
+    {
+        // 7 MB 级别的 JPEG 重新编码为 PNG 后约为 21.5 MB，必须仍可同步。
+        var pngBytes = new byte[22 * 1024 * 1024];
+
+        var payload = ClipboardMessageCodec.EncodeImage(pngBytes);
+
+        Assert.Equal(pngBytes.Length + 1, payload.Length);
+        Assert.Equal((byte)ClipboardContentType.Image, payload[0]);
+    }
+
+    [Fact]
+    public void MaxImageBytes_Allows32MiBPng()
+    {
+        Assert.Equal(32 * 1024 * 1024, ClipboardMessageCodec.MaxImageBytes);
+        Assert.Equal(
+            ClipboardMessageCodec.MaxImageBytes + 1,
+            ClipboardMessageCodec.MaxPayloadLength);
     }
 }
