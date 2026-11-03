@@ -66,6 +66,8 @@ public partial class MainWindow : Window
     private bool _step0Passed;
     private volatile bool _isClosing;
     private bool _allowClose;
+    private bool _isHiddenToTray;
+    private TrayIconService? _trayIcon;
 
     public MainWindow()
     {
@@ -82,6 +84,7 @@ public partial class MainWindow : Window
         PeerList.ItemsSource = _peerItems;
         ReceivedFilesList.ItemsSource = _receivedFiles;
         _service.ConnectionRequested += OnConnectionRequested;
+        Application.Current.SessionEnding += OnSessionEnding;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -119,6 +122,9 @@ public partial class MainWindow : Window
             _hwndSource = null;
         }
 
+        Application.Current.SessionEnding -= OnSessionEnding;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
         _clipboardSyncService.Dispose();
         base.OnClosed(e);
     }
@@ -141,6 +147,7 @@ public partial class MainWindow : Window
         Log($"接收目录：{_receiveDirectory}");
         Log($"日志文件：{AppLog.FilePath}");
         Log($"本端构建：{GetBuildInfo()}");
+        InitializeTrayIcon();
 
         LoadKnownDevices();
         RebuildPeerList(Array.Empty<WifiDirectPeer>());
@@ -819,6 +826,14 @@ public partial class MainWindow : Window
         UpdateUi();
         Log($"收到连接请求：DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
 
+        if (!IsVisible || WindowState == WindowState.Minimized)
+        {
+            ShowFromTray();
+            _trayIcon?.ShowBalloon(
+                "连接请求",
+                $"来自 {request.Peer.DisplayName} 的 Wi-Fi Direct 连接请求。");
+        }
+
         try
         {
             var dialog = new ReceiveConfirmationWindow(request.Peer)
@@ -1124,6 +1139,9 @@ public partial class MainWindow : Window
         ReceivedFilesEmptyText.Visibility = Visibility.Collapsed;
 
         UpdateStatus("已连接，可以继续传输");
+        NotifyIfInBackground(
+            "接收完成",
+            $"{result.FileName}（{FormatBytes(result.FileSize)}）");
     }
 
     private void OnFileFailed(object? sender, FileFailedEventArgs args)
@@ -1141,6 +1159,7 @@ public partial class MainWindow : Window
                 $"ERROR: code={WifiDirectErrorCode.StorageInsufficient}, " +
                 $"message={message}");
             UpdateStatus(message);
+            NotifyIfInBackground("接收失败", message, isError: true);
             return;
         }
 
@@ -1154,6 +1173,7 @@ public partial class MainWindow : Window
             _lifetimeCts.Token);
 
         UpdateStatus(errorMessage);
+        NotifyIfInBackground("接收失败", errorMessage, isError: true);
     }
 
     private void OnFileSkipped(object? sender, FileSkippedEventArgs args)
@@ -1458,6 +1478,15 @@ public partial class MainWindow : Window
                 : args.SkippedCount > 0
                     ? $"队列完成，{args.SkippedCount} 个文件被跳过"
                     : "队列传输完成");
+
+        NotifyIfInBackground(
+            "发送队列",
+            args.WasCanceled
+                ? "队列已取消。"
+                : args.FailedCount > 0
+                    ? $"队列完成，{args.FailedCount} 个文件失败。"
+                    : $"队列完成，成功 {args.CompletedCount} 个文件。",
+            isError: args.FailedCount > 0);
 
         UpdateUi();
     }
@@ -1999,6 +2028,66 @@ public partial class MainWindow : Window
         }
     }
 
+    private void InitializeTrayIcon()
+    {
+        _trayIcon = new TrayIconService();
+        _trayIcon.ShowRequested += ShowFromTray;
+        _trayIcon.ExitRequested += OnTrayExitRequested;
+        Log("托盘图标已创建。");
+    }
+
+    private void OnSessionEnding(object? sender, SessionEndingCancelEventArgs e)
+    {
+        // 系统注销/关机时不要弹出后台确认框。
+        _allowClose = true;
+    }
+
+    private void OnTrayExitRequested()
+    {
+        Log("从托盘菜单退出应用。");
+        _ = ShutdownAsync();
+    }
+
+    public void ShowFromTray()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        ShowInTaskbar = true;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        _isHiddenToTray = false;
+        Log("已从托盘恢复窗口。");
+    }
+
+    private void HideToTray()
+    {
+        Hide();
+        _isHiddenToTray = true;
+        Log("窗口已隐藏到托盘，传输继续在后台进行。");
+        _trayIcon?.ShowBalloon(
+            "后台运行中",
+            "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
+    }
+
+    private bool HasBackgroundWork =>
+        _queueManager is { IsRunning: true } ||
+        _channel is not null ||
+        (_serviceStarted && _role == AppRole.Receiver);
+
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
         if (_allowClose)
@@ -2008,6 +2097,45 @@ public partial class MainWindow : Window
 
         e.Cancel = true;
 
+        if (_isClosing)
+        {
+            return;
+        }
+
+        Log(
+            "收到窗口关闭请求：" +
+            $"queueRunning={_queueManager?.IsRunning}，" +
+            $"connected={_channel is not null}，" +
+            $"serviceStarted={_serviceStarted}，" +
+            $"role={_role}。");
+        if (HasBackgroundWork)
+        {
+            var dialog = new BackgroundCloseWindow
+            {
+                Owner = this
+            };
+
+            Log("显示后台关闭对话框。");
+            dialog.ShowDialog();
+            Log($"关闭选择：{dialog.Choice}。");
+
+            if (dialog.Choice == BackgroundCloseChoice.Background)
+            {
+                HideToTray();
+                return;
+            }
+
+            if (dialog.Choice != BackgroundCloseChoice.Exit)
+            {
+                return;
+            }
+        }
+
+        await ShutdownAsync();
+    }
+
+    private async Task ShutdownAsync()
+    {
         if (_isClosing)
         {
             return;
@@ -2060,6 +2188,21 @@ public partial class MainWindow : Window
                 // Dispatcher 已经进入关闭流程。
             }
         }
+    }
+
+    private void NotifyIfInBackground(
+        string title,
+        string message,
+        bool isError = false)
+    {
+        if (!_isHiddenToTray &&
+            IsVisible &&
+            WindowState != WindowState.Minimized)
+        {
+            return;
+        }
+
+        _trayIcon?.ShowBalloon(title, message, isError);
     }
 
     private void ClearLogButton_Click(object sender, RoutedEventArgs e)
@@ -2261,6 +2404,14 @@ public partial class MainWindow : Window
         LogTextBox.AppendText(line + Environment.NewLine);
         LogTextBox.ScrollToEnd();
     }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} 字节",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.0} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):0.0} MB",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):0.0} GB"
+    };
 
     private static string GetBuildInfo()
     {
