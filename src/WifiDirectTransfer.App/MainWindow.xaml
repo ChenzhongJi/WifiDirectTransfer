@@ -1,0 +1,456 @@
+<Window x:Class="WifiDirectTransfer.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Wi-Fi Direct 文件传输"
+        Width="1120"
+        Height="760"
+        MinWidth="980"
+        MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="#F3F3F3"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Loaded="OnLoaded"
+        Closing="OnClosing">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="Wi-Fi Direct 文件传输"
+                           FontSize="26"
+                           FontWeight="SemiBold"
+                           Foreground="#1B1B1B" />
+                <TextBlock Text="M1 · PeerFinder + StreamSocket"
+                           Margin="0,4,0,0"
+                           Foreground="#616161" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <Ellipse x:Name="CapabilityDot"
+                         Width="10"
+                         Height="10"
+                         Margin="0,0,8,0"
+                         VerticalAlignment="Center"
+                         Fill="#8A8A8A" />
+                <TextBlock x:Name="CapabilityText"
+                           MaxWidth="520"
+                           Text="正在检查 Wi-Fi Direct 能力…"
+                           TextAlignment="Right"
+                           TextWrapping="Wrap"
+                           Foreground="#616161" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="390" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Background="White"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16"
+                            Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="角色"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1B1B1B" />
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <RadioButton x:Name="RoleReceiverRadio"
+                                             GroupName="Role"
+                                             Content="作为接收端"
+                                             Margin="0,0,24,0"
+                                             Checked="RoleRadio_Checked" />
+                                <RadioButton x:Name="RoleSenderRadio"
+                                             GroupName="Role"
+                                             Content="作为发送端"
+                                             Checked="RoleRadio_Checked" />
+                            </StackPanel>
+                            <TextBlock Text="接收端点击“等待连接”；发送端扫描并选择设备。"
+                                       Margin="0,8,0,0"
+                                       Foreground="#707070"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="White"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16"
+                            Margin="0,0,0,10">
+                        <StackPanel>
+                            <Grid>
+                                <TextBlock Text="设备"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           Foreground="#1B1B1B"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="ScanButton"
+                                        HorizontalAlignment="Right"
+                                        Padding="12,4"
+                                        Content="扫描设备"
+                                        Click="ScanButton_Click" />
+                            </Grid>
+
+                            <ListBox x:Name="PeerList"
+                                     Height="140"
+                                     Margin="0,10,0,0"
+                                     Background="#FFFFFF"
+                                     BorderBrush="#E0E0E0"
+                                     SelectionChanged="PeerList_SelectionChanged">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="4,6">
+                                            <TextBlock Text="{Binding DisplayNameText}"
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding DetailText}"
+                                                       Margin="0,2,0,0"
+                                                       FontSize="11"
+                                                       Foreground="#707070"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="ConnectButton"
+                                        Padding="12,6"
+                                        Content="连接选中设备"
+                                        Click="ConnectButton_Click" />
+                                <Button x:Name="QuickReconnectButton"
+                                        Grid.Column="2"
+                                        Padding="12,6"
+                                        Content="快速重连"
+                                        Click="QuickReconnectButton_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="White"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="操作"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1B1B1B" />
+
+                            <Button x:Name="WaitButton"
+                                    Margin="0,10,0,0"
+                                    Padding="12,6"
+                                    Content="等待连接"
+                                    Click="WaitButton_Click" />
+
+                            <Button x:Name="SendTestFileButton"
+                                    Margin="0,6,0,0"
+                                    Padding="12,6"
+                                    Content="发送测试文件（1 MiB）"
+                                    Click="SendTestFileButton_Click" />
+
+                            <StackPanel x:Name="SameNamePolicyPanel"
+                                        Margin="0,12,0,0"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="同名文件"
+                                           FontSize="12"
+                                           Foreground="#616161" />
+                                <ComboBox x:Name="SameNamePolicyComboBox"
+                                          Margin="0,4,0,0"
+                                          SelectedIndex="0"
+                                          SelectionChanged="SameNamePolicyComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="自动重命名（追加 (1)、(2)）"
+                                                  Tag="AutoRename" />
+                                    <ComboBoxItem Content="覆盖"
+                                                  Tag="Overwrite" />
+                                    <ComboBoxItem Content="跳过"
+                                                  Tag="Skip" />
+                                </ComboBox>
+                            </StackPanel>
+
+                            <TextBlock x:Name="ReceiveDirectoryText"
+                                       Margin="0,10,0,0"
+                                       FontSize="11"
+                                       Foreground="#707070"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border x:Name="QueuePanel"
+                        Visibility="Collapsed"
+                        Background="White"
+                        BorderBrush="#E0E0E0"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid>
+                            <TextBlock Text="传输队列"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1B1B1B"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center">
+                                <Button x:Name="AddQueueFilesButton"
+                                        Padding="10,2"
+                                        Content="添加文件…"
+                                        Click="AddQueueFilesButton_Click" />
+                                <Button x:Name="StartQueueButton"
+                                        Margin="6,0,0,0"
+                                        Padding="10,2"
+                                        Content="开始传输"
+                                        Click="StartQueueButton_Click" />
+                                <Button x:Name="ClearQueueButton"
+                                        Margin="6,0,0,0"
+                                        Padding="10,2"
+                                        Content="清空"
+                                        Click="ClearQueueButton_Click" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="1" Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding CurrentPositionText}"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                           Margin="0,2,0,0"
+                                           Foreground="#1B1B1B"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1"
+                                       VerticalAlignment="Center"
+                                       Foreground="#707070"
+                                       Text="{Binding CurrentFile.StatusText, TargetNullValue=等待添加文件, FallbackValue=等待添加文件}" />
+                        </Grid>
+
+                        <Grid Grid.Row="2" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="当前文件"
+                                           FontSize="11"
+                                           Foreground="#707070" />
+                                <ProgressBar Height="8"
+                                             Margin="0,4,0,0"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <Grid>
+                                    <TextBlock Text="总体进度"
+                                               FontSize="11"
+                                               Foreground="#707070" />
+                                    <TextBlock HorizontalAlignment="Right"
+                                               FontSize="11"
+                                               Foreground="#707070"
+                                               Text="{Binding OverallProgressText}" />
+                                </Grid>
+                                <ProgressBar Height="8"
+                                             Margin="0,4,0,0"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Value="{Binding OverallProgressPercent, Mode=OneWay}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <ListBox x:Name="QueueList"
+                                 Grid.Row="3"
+                                 Height="112"
+                                 Margin="0,10,0,0"
+                                 ItemsSource="{Binding Files}"
+                                 Background="#FFFFFF"
+                                 BorderBrush="#E0E0E0"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="4,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding FileName}"
+                                                       FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding SourcePath}" />
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="0,2,0,0">
+                                                <TextBlock FontSize="11"
+                                                           Foreground="#707070"
+                                                           Text="{Binding Size, StringFormat={}{0:N0} 字节}" />
+                                                <TextBlock FontSize="11"
+                                                           Foreground="#707070"
+                                                           Text=" · " />
+                                                <TextBlock FontSize="11"
+                                                           Text="{Binding StatusText}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#707070" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Status}" Value="Transferring">
+                                                                    <Setter Property="Foreground" Value="#0B5CAD" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                                                                    <Setter Property="Foreground" Value="#1B7F3B" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                                    <Setter Property="Foreground" Value="#B3261E" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <TextBlock Margin="0,2,0,0"
+                                                       FontSize="11"
+                                                       Foreground="#B3261E"
+                                                       TextWrapping="Wrap"
+                                                       Text="{Binding ErrorMessage}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <ProgressBar Grid.Column="1"
+                                                     Width="90"
+                                                     Height="6"
+                                                     Margin="12,0,0,0"
+                                                     VerticalAlignment="Center"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{Binding ProgressPercent, Mode=OneWay}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Margin="0,12,0,0"
+                        Background="White"
+                        BorderBrush="#E0E0E0"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="0,0,0,10">
+                            <TextBlock Text="日志"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1B1B1B"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="ClearLogButton"
+                                    HorizontalAlignment="Right"
+                                    Padding="10,2"
+                                    Content="清空"
+                                    Click="ClearLogButton_Click" />
+                        </Grid>
+
+                        <TextBox x:Name="LogTextBox"
+                                 Grid.Row="1"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas"
+                                 FontSize="12"
+                                 Background="#FAFAFA"
+                                 BorderBrush="#E0E0E0"
+                                 Padding="10" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <TextBlock x:Name="StatusText"
+                       Text="未连接"
+                       FontWeight="SemiBold"
+                       Foreground="#1B1B1B" />
+            <TextBlock HorizontalAlignment="Right"
+                       Text="M1 · Step 0 验证模式"
+                       FontSize="12"
+                       Foreground="#8A8A8A" />
+        </Grid>
+    </Grid>
+</Window>
