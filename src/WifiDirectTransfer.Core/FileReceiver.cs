@@ -1,9 +1,7 @@
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace WifiDirectTransfer.Core;
 
@@ -13,23 +11,10 @@ namespace WifiDirectTransfer.Core;
 /// </summary>
 public sealed class FileReceiver : IAsyncDisposable
 {
-    private const int MetaMagicLength = 8;
-    private const int MetaVersion = 1;
-    private const int MetaHeaderLength = MetaMagicLength + 4 + 4;
-    private const int MetaTrailerLength = 8 + 8;
     private const int MetadataWriteAttempts = 3;
     private const int MetadataRetryDelayMilliseconds = 50;
     private const long MinimumMetadataInterval = 256L * 1024;
     private const long MaximumMetadataInterval = 4L * 1024 * 1024;
-
-    private static readonly byte[] MetaMagic =
-    {
-        0x57, 0x46, 0x44, 0x31, 0x4D, 0x45, 0x54, 0x41
-    };
-
-    private static readonly UTF8Encoding StrictUtf8 = new(
-        encoderShouldEmitUTF8Identifier: false,
-        throwOnInvalidBytes: true);
 
     private readonly MessageDispatcher _dispatcher;
     private readonly string _destinationDirectory;
@@ -725,7 +710,7 @@ public sealed class FileReceiver : IAsyncDisposable
         throw new IOException("无法生成可用的同名文件名称。");
     }
 
-    private async Task<ResumeMetadata?> TryLoadResumeMetadataAsync(
+    private async Task<TransferMetadata?> TryLoadResumeMetadataAsync(
         string metaPath,
         string partPath,
         FileStartPayload start,
@@ -758,7 +743,7 @@ public sealed class FileReceiver : IAsyncDisposable
         return metadata;
     }
 
-    private static async Task<ResumeMetadata?> TryReadMetadataAsync(
+    private static async Task<TransferMetadata?> TryReadMetadataAsync(
         string metaPath,
         CancellationToken cancellationToken)
     {
@@ -772,64 +757,9 @@ public sealed class FileReceiver : IAsyncDisposable
             var bytes = await File.ReadAllBytesAsync(metaPath, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (bytes.Length < MetaHeaderLength + MetaTrailerLength)
-            {
-                return null;
-            }
-
-            if (!bytes.AsSpan(0, MetaMagicLength).SequenceEqual(MetaMagic))
-            {
-                return null;
-            }
-
-            var version = BinaryPrimitives.ReadInt32LittleEndian(
-                bytes.AsSpan(MetaMagicLength, 4));
-
-            if (version != MetaVersion)
-            {
-                return null;
-            }
-
-            var nameLength = BinaryPrimitives.ReadInt32LittleEndian(
-                bytes.AsSpan(MetaMagicLength + 4, 4));
-
-            if (nameLength is < 1 or > FileTransferProtocol.MaxFileNameLength)
-            {
-                return null;
-            }
-
-            var expectedLength =
-                MetaHeaderLength + nameLength + MetaTrailerLength;
-
-            if (bytes.Length != expectedLength)
-            {
-                return null;
-            }
-
-            string fileName;
-
-            try
-            {
-                fileName = StrictUtf8.GetString(bytes.AsSpan(MetaHeaderLength, nameLength));
-            }
-            catch (DecoderFallbackException)
-            {
-                return null;
-            }
-
-            var fileSize = BinaryPrimitives.ReadInt64LittleEndian(
-                bytes.AsSpan(MetaHeaderLength + nameLength, 8));
-            var persistedBytes = BinaryPrimitives.ReadInt64LittleEndian(
-                bytes.AsSpan(MetaHeaderLength + nameLength + 8, 8));
-
-            if (fileSize < 0 ||
-                persistedBytes < 0 ||
-                persistedBytes > fileSize)
-            {
-                return null;
-            }
-
-            return new ResumeMetadata(fileName, fileSize, persistedBytes);
+            return TransferMetadataCodec.TryDeserialize(bytes, out var metadata)
+                ? metadata
+                : null;
         }
         catch (Exception)
         {
@@ -902,28 +832,13 @@ public sealed class FileReceiver : IAsyncDisposable
             return;
         }
 
-        var fileNameBytes = FileHeaderCodec.EncodeFileName(_rawFileName);
         var metaPath = _metaPath;
         var tempPath = metaPath + ".tmp";
-        var bytes = new byte[
-            MetaHeaderLength +
-            fileNameBytes.Length +
-            MetaTrailerLength];
-
-        MetaMagic.CopyTo(bytes, 0);
-        BinaryPrimitives.WriteInt32LittleEndian(
-            bytes.AsSpan(MetaMagicLength, 4),
-            MetaVersion);
-        BinaryPrimitives.WriteInt32LittleEndian(
-            bytes.AsSpan(MetaMagicLength + 4, 4),
-            fileNameBytes.Length);
-        fileNameBytes.CopyTo(bytes, MetaHeaderLength);
-        BinaryPrimitives.WriteInt64LittleEndian(
-            bytes.AsSpan(MetaHeaderLength + fileNameBytes.Length, 8),
-            _expectedSize);
-        BinaryPrimitives.WriteInt64LittleEndian(
-            bytes.AsSpan(MetaHeaderLength + fileNameBytes.Length + 8, 8),
-            persistedBytes);
+        var bytes = TransferMetadataCodec.Serialize(
+            new TransferMetadata(
+                _rawFileName,
+                _expectedSize,
+                persistedBytes));
 
         for (var attempt = 0; attempt < MetadataWriteAttempts; attempt++)
         {
@@ -1123,9 +1038,4 @@ public sealed class FileReceiver : IAsyncDisposable
             // 保留原始传输异常，删除失败不覆盖它。
         }
     }
-
-    private sealed record ResumeMetadata(
-        string FileName,
-        long FileSize,
-        long PersistedBytes);
 }

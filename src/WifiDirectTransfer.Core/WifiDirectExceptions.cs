@@ -103,3 +103,30 @@ public sealed class WifiDirectInvalidStateException : WifiDirectException
     {
     }
 }
+
+public sealed class HandshakeTimeoutException : WifiDirectException
+{
+    public HandshakeTimeoutException()
+        : base(
+            WifiDirectErrorCode.ConnectionTimeout,
+            "对端未完成版本协商。请确认两端使用同一构建后重试。")
+    {
+    }
+}
+
+public sealed class ProtocolVersionMismatchException : WifiDirectException
+{
+    public ProtocolVersionMismatchException(int localVersion, int peerVersion)
+        : base(
+            WifiDirectErrorCode.InvalidProtocolData,
+            $"两端协议版本不一致（本端 v{localVersion}，对端 v{peerVersion}）。" +
+            "请更新到同一构建。")
+    {
+        LocalVersion = localVersion;
+        PeerVersion = peerVersion;
+    }
+
+    public int LocalVersion { get; }
+
+    public int PeerVersion { get; }
+}

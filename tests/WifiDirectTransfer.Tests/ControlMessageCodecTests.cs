@@ -112,6 +112,41 @@ public sealed class ControlMessageCodecTests
     }
 
     [Fact]
+    public void Hello_RoundTripsVersionLimitAndBuild()
+    {
+        var payload = ControlMessageCodec.SerializeHello(
+            MessageProtocol.ProtocolVersion,
+            33_554_433,
+            "1.0.0+abc123");
+
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Equal(ControlMessageSubtype.Hello, message.Subtype);
+        Assert.Equal(MessageProtocol.ProtocolVersion, message.ProtocolVersion);
+        Assert.Equal(33_554_433, message.MaxPayloadLength);
+        Assert.Equal("1.0.0+abc123", message.Message);
+    }
+
+    [Fact]
+    public void Hello_RejectsInvalidPayloads()
+    {
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.SerializeHello(0, 1024, "build"));
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.SerializeHello(1, 0, "build"));
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.Deserialize(
+                new[]
+                {
+                    (byte)ControlMessageSubtype.Hello,
+                    (byte)0,
+                    (byte)0,
+                    (byte)0,
+                    (byte)1
+                }));
+    }
+
+    [Fact]
     public void TransferError_AllowsEmptyMessage()
     {
         var payload = ControlMessageCodec.SerializeTransferError(

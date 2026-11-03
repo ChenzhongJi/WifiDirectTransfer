@@ -10,6 +10,12 @@
     <Nullable>enable</Nullable>
     <RootNamespace>WifiDirectTransfer.App</RootNamespace>
     <StartupObject>WifiDirectTransfer.App.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      WFAC010 建议改用 WinForms 的 ApplicationHighDpiMode，但本项目是 WPF 应用，
+      DPI 感知由 app.manifest 的 PerMonitorV2 声明负责，WinForms 只用于托盘图标。
+    -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

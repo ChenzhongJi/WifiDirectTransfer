@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using WifiDirectTransfer.Core;
 using WifiDirectTransfer.Windows;
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
     private bool _isSending;
     private bool _isHandlingRequest;
     private bool _step0Passed;
+    private bool _messageLayerReady;
     private volatile bool _isClosing;
     private bool _allowClose;
     private bool _isHiddenToTray;
@@ -163,6 +165,10 @@ public partial class MainWindow : Window
         RoleReceiverRadio.IsChecked = true;
 
         UpdateUi();
+
+        _ = Dispatcher.BeginInvoke(
+            new Action(ShowIncompleteTransfersIfAny),
+            DispatcherPriority.Background);
     }
 
     private void CheckCapability()
@@ -657,7 +663,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            StartMessageLayer(channel);
+            if (!await StartMessageLayerAsync(channel))
+            {
+                return;
+            }
+
             RecordKnownDevice(peer);
             UpdateStatus("已连接，双方都可以发送文件");
         }
@@ -737,12 +747,15 @@ public partial class MainWindow : Window
                 await ResetConnectionAsync();
                 fallbackToScan = true;
             }
-            else
+            else if (await StartMessageLayerAsync(channel))
             {
-                StartMessageLayer(channel);
                 RecordKnownDevice(peer);
                 UpdateStatus("已连接，双方都可以发送文件");
                 Log("快速重连成功。");
+            }
+            else
+            {
+                fallbackToScan = true;
             }
         }
         catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
@@ -872,7 +885,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            StartMessageLayer(channel);
+            if (!await StartMessageLayerAsync(channel))
+            {
+                return;
+            }
+
             RecordKnownDevice(request.Peer);
             UpdateStatus("已连接，双方都可以发送文件");
             Log("连接已建立，双方都可以发送文件。");
@@ -912,6 +929,7 @@ public partial class MainWindow : Window
     {
         _channel = channel;
         _step0Passed = false;
+        _messageLayerReady = false;
         Log("连接已建立。");
         LogEndpointInfo(channel);
         UpdateUi();
@@ -1027,7 +1045,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void StartMessageLayer(IDuplexChannel channel)
+    private async Task<bool> StartMessageLayerAsync(IDuplexChannel channel)
     {
         if (_dispatcher is not null)
         {
@@ -1039,6 +1057,65 @@ public partial class MainWindow : Window
             channel.Output,
             ClipboardMessageCodec.MaxPayloadLength);
         _dispatcher = dispatcher;
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        _messageLoopCts = cts;
+
+        // 先创建握手对象再启动接收循环，避免漏掉对端的 Hello。
+        using var handshake = new ConnectionHandshake(
+            dispatcher,
+            GetBuildId(),
+            ClipboardMessageCodec.MaxPayloadLength,
+            TimeSpan.FromSeconds(10));
+
+        _messageLoopTask = dispatcher.StartReceiveLoopAsync(cts.Token);
+
+        UpdateStatus("正在协商协议版本…");
+        Log(
+            $"开始协议协商：localProtocol={MessageProtocol.ProtocolVersion}，" +
+            $"localBuild={GetBuildId()}。");
+
+        HelloMessage peerHello;
+
+        try
+        {
+            peerHello = await handshake.ExchangeAsync(_lifetimeCts.Token);
+        }
+        catch (HandshakeTimeoutException exception)
+        {
+            Log($"ERROR: {exception.Message}");
+            await ResetConnectionAsync();
+            UpdateStatus(exception.Message);
+            return false;
+        }
+        catch (ProtocolVersionMismatchException exception)
+        {
+            Log($"ERROR: {exception.Message}");
+            await ResetConnectionAsync();
+            UpdateStatus(exception.Message);
+            return false;
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt,
+                _lifetimeCts.Token);
+            await ResetConnectionAsync();
+            UpdateStatus(message);
+            return false;
+        }
+
+        Log(
+            $"协议协商成功：peerProtocol={peerHello.ProtocolVersion}，" +
+            $"peerBuild={peerHello.Build}，" +
+            $"peerMaxPayload={peerHello.MaxPayloadLength}。");
+
         _clipboardSyncService.SetSender(
             (payload, token) =>
             {
@@ -1081,14 +1158,16 @@ public partial class MainWindow : Window
         dispatcher.MessageReceived += OnDispatcherMessageAsync;
         dispatcher.Disconnected += OnDispatcherDisconnected;
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        _messageLoopCts = cts;
-        _messageLoopTask = dispatcher.StartReceiveLoopAsync(cts.Token);
+        _messageLayerReady = true;
+        UpdateUi();
 
         Log(
             $"双向传输层已就绪：role={_role}，" +
             $"maxPayload={dispatcher.MaxPayloadLength}，" +
+            $"peerMaxPayload={peerHello.MaxPayloadLength}，" +
             $"clipboardSync={_clipboardSyncEnabled}。");
+
+        return true;
     }
 
     private void OnFileStarted(object? sender, FileStartedEventArgs args)
@@ -1799,6 +1878,7 @@ public partial class MainWindow : Window
     {
         if (_channel is null ||
             _dispatcher is null ||
+            !_messageLayerReady ||
             !_step0Passed ||
             _isSending ||
             _queueManager?.IsRunning == true)
@@ -1925,6 +2005,7 @@ public partial class MainWindow : Window
             _messageLoopCts = null;
             _messageLoopTask = null;
             _step0Passed = false;
+            _messageLayerReady = false;
             QueuePanel.DataContext = null;
             _clipboardSyncService.SetSender(null);
 
@@ -2025,6 +2106,51 @@ public partial class MainWindow : Window
         finally
         {
             _resetGate.Release();
+        }
+    }
+
+    private void ShowIncompleteTransfersIfAny()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        IReadOnlyList<IncompleteTransfer> transfers;
+
+        try
+        {
+            transfers = IncompleteTransferScanner.Scan(_receiveDirectory);
+        }
+        catch (Exception exception)
+        {
+            Log($"扫描未完成传输失败：{exception.GetType().Name}");
+            return;
+        }
+
+        if (transfers.Count == 0)
+        {
+            return;
+        }
+
+        Log($"发现 {transfers.Count} 个未完成传输。");
+
+        var dialog = new IncompleteTransfersWindow(transfers)
+        {
+            Owner = this
+        };
+
+        dialog.ShowDialog();
+
+        if (dialog.DeleteAll)
+        {
+            IncompleteTransferScanner.Delete(transfers);
+            Log("已删除未完成传输文件。");
+            UpdateStatus("已删除未完成传输文件");
+        }
+        else
+        {
+            Log("已保留未完成传输文件，等待续传。");
         }
     }
 
@@ -2270,6 +2396,7 @@ public partial class MainWindow : Window
         var queueRunning = queue?.IsRunning == true;
         var canTransfer = supported &&
                           connected &&
+                          _messageLayerReady &&
                           _dispatcher is not null &&
                           _step0Passed &&
                           !busy;
@@ -2413,14 +2540,21 @@ public partial class MainWindow : Window
         _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):0.0} GB"
     };
 
-    private static string GetBuildInfo()
+    private static string GetBuildId()
     {
         var assembly = typeof(MainWindow).Assembly;
-        var version = assembly
+
+        return assembly
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion
             ?? assembly.GetName().Version?.ToString()
-            ?? "未知";
+            ?? "unknown";
+    }
+
+    private static string GetBuildInfo()
+    {
+        var assembly = typeof(MainWindow).Assembly;
+        var version = GetBuildId();
         var buildTime = "未知";
         var executablePath = Environment.ProcessPath;
 
