@@ -183,7 +183,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     public event EventHandler<TransferQueueCompletedEventArgs>? QueueCompleted;
 
     /// <summary>
-    /// 将文件加入队尾。路径不存在时仍会入队，并在发送时标记为失败，
+    /// 将文件加入队尾。运行期间也可以追加，队列会在当前文件完成后继续。
+    /// 路径不存在时仍会入队，并在发送时标记为失败，
     /// 这样单个无效路径不会阻止其他文件。
     /// </summary>
     public IReadOnlyList<PendingFile> EnqueueFiles(IEnumerable<string> paths)
@@ -209,11 +210,6 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
         lock (_gate)
         {
-            if (_isRunning)
-            {
-                throw new InvalidOperationException("传输队列运行期间不能添加文件。");
-            }
-
             foreach (var file in added)
             {
                 _files.Add(file);
@@ -320,6 +316,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 {
                     if (_pending.Count == 0)
                     {
+                        // 与 EnqueueFiles 使用同一把锁收回“可追加”状态：
+                        // 此后的追加会作为新的等待队列，由用户再次开始。
+                        _isRunning = false;
                         break;
                     }
 
@@ -379,16 +378,19 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     canceled = true;
                 }
 
-                while (_pending.Count > 0)
+                // 正常排空时，完成瞬间追加的文件保留为等待状态，由用户再次开始；
+                // 取消或错误停止时仍把剩余文件标记为跳过。
+                if (canceled || stopReason is not null)
                 {
-                    var file = _pending.Dequeue();
-                    file.Status = PendingFileStatus.Skipped;
-                    file.ErrorMessage = canceled
-                        ? "队列已取消，未传输。"
-                        : stopReason is not null
-                            ? $"传输已停止：{stopReason}"
-                            : "队列已结束，未传输。";
-                    _skippedCount++;
+                    while (_pending.Count > 0)
+                    {
+                        var file = _pending.Dequeue();
+                        file.Status = PendingFileStatus.Skipped;
+                        file.ErrorMessage = canceled
+                            ? "队列已取消，未传输。"
+                            : $"传输已停止：{stopReason}";
+                        _skippedCount++;
+                    }
                 }
 
                 _isRunning = false;

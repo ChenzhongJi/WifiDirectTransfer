@@ -1522,12 +1522,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_queueManager.IsRunning)
-        {
-            ShowDropPrompt("传输队列正在运行，请等待完成后再拖入文件。");
-            return;
-        }
-
         e.Effects = DragDropEffects.Copy;
 
         try
@@ -1541,15 +1535,20 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var wasRunning = _queueManager.IsRunning;
             var added = _queueManager.EnqueueFiles(files);
-            Log($"拖入添加 {added.Count} 个文件到队列。");
-            UpdateStatus($"已从拖入添加 {added.Count} 个文件");
+            Log(wasRunning
+                ? $"队列运行中追加 {added.Count} 个文件。"
+                : $"拖入添加 {added.Count} 个文件到队列。");
+            UpdateStatus(wasRunning
+                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
+                : $"已从拖入添加 {added.Count} 个文件");
             UpdateUi();
         }
         catch (InvalidOperationException exception)
         {
             Log($"拖入失败：{exception.Message}");
-            ShowDropPrompt("传输队列正在运行，请等待完成后再拖入文件。");
+            ShowDropPrompt($"添加文件失败：{exception.Message}");
         }
         catch (Exception exception)
         {
@@ -1694,13 +1693,19 @@ public partial class MainWindow : Window
             $"skipped={args.SkippedCount}, " +
             $"canceled={args.WasCanceled}");
 
+        var hasWaiting =
+            args.TotalCount >
+            args.CompletedCount + args.FailedCount + args.SkippedCount;
+
         UpdateStatus(args.WasCanceled
             ? "队列已取消"
             : args.FailedCount > 0
                 ? "队列完成，部分文件失败"
-                : args.SkippedCount > 0
-                    ? $"队列完成，{args.SkippedCount} 个文件被跳过"
-                    : "队列传输完成");
+                : hasWaiting
+                    ? "队列已结束，仍有等待文件"
+                    : args.SkippedCount > 0
+                        ? $"队列完成，{args.SkippedCount} 个文件被跳过"
+                        : "队列传输完成");
 
         NotifyIfInBackground(
             "发送队列",
@@ -1708,7 +1713,9 @@ public partial class MainWindow : Window
                 ? "队列已取消。"
                 : args.FailedCount > 0
                     ? $"队列完成，{args.FailedCount} 个文件失败。"
-                    : $"队列完成，成功 {args.CompletedCount} 个文件。",
+                    : hasWaiting
+                        ? $"队列已结束，仍有 {args.TotalCount - args.CompletedCount - args.FailedCount - args.SkippedCount} 个文件等待开始。"
+                        : $"队列完成，成功 {args.CompletedCount} 个文件。",
             isError: args.FailedCount > 0);
 
         UpdateUi();
@@ -1903,8 +1910,7 @@ public partial class MainWindow : Window
 
     private void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isSending ||
-            _queueManager is not { IsRunning: false } queue)
+        if (_isSending || _queueManager is not { } queue)
         {
             return;
         }
@@ -1923,6 +1929,7 @@ public partial class MainWindow : Window
 
         try
         {
+            var wasRunning = queue.IsRunning;
             var added = queue.EnqueueFiles(dialog.FileNames);
 
             if (added.Count == 0)
@@ -1930,8 +1937,12 @@ public partial class MainWindow : Window
                 return;
             }
 
-            Log($"已添加 {added.Count} 个文件到队列。");
-            UpdateStatus($"队列已添加 {added.Count} 个文件");
+            Log(wasRunning
+                ? $"队列运行中追加 {added.Count} 个文件。"
+                : $"已添加 {added.Count} 个文件到队列。");
+            UpdateStatus(wasRunning
+                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
+                : $"队列已添加 {added.Count} 个文件");
             UpdateUi();
         }
         catch (Exception exception)
@@ -2967,7 +2978,6 @@ public partial class MainWindow : Window
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
-                                        !queueRunning &&
                                         queue is not null;
 
         StartQueueButton.IsEnabled = canTransfer &&

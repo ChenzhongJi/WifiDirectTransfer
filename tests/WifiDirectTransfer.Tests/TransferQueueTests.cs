@@ -144,6 +144,96 @@ public sealed class TransferQueueTests
     }
 
     [Fact]
+    public Task StartAsync_FileAppendedWhileRunning_IsDrainedInSameRun()
+    {
+        return InTempDirectoryAsync(async root =>
+        {
+            var sourceDirectory = Path.Combine(root, "source");
+            var receiveDirectory = Path.Combine(root, "receive");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(receiveDirectory);
+
+            var firstData = CreatePayload(256 * 1024);
+            var secondData = CreatePayload(256 * 1024);
+            var firstPath = Path.Combine(sourceDirectory, "first.bin");
+            var secondPath = Path.Combine(sourceDirectory, "second.bin");
+            File.WriteAllBytes(firstPath, firstData);
+            File.WriteAllBytes(secondPath, secondData);
+
+            await using var session = new TransferTestSession(receiveDirectory);
+            var queue = new TransferQueueManager(session.SenderDispatcher);
+
+            var completed = new TaskCompletionSource<
+                TransferQueueCompletedEventArgs>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            queue.QueueCompleted += (_, args) => completed.TrySetResult(args);
+
+            var received = new List<FileReceiveResult>();
+            var receivedGate = new object();
+            var allReceived = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            session.Receiver.FileReceived += (_, args) =>
+            {
+                lock (receivedGate)
+                {
+                    received.Add(args.Result);
+
+                    if (received.Count == 2)
+                    {
+                        allReceived.TrySetResult();
+                    }
+                }
+            };
+
+            session.Receiver.FileFailed += (_, args) =>
+                allReceived.TrySetException(args.Error);
+
+            queue.FileStarted += (_, args) =>
+            {
+                if (args.File.FileName == "first.bin")
+                {
+                    queue.EnqueueFiles(new[] { secondPath });
+                }
+            };
+
+            queue.EnqueueFiles(new[] { firstPath });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await queue.StartAsync(cts.Token);
+
+            var summary = await completed.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+            await allReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(2, summary.TotalCount);
+            Assert.Equal(2, summary.CompletedCount);
+            Assert.Equal(0, summary.FailedCount);
+            Assert.Equal(0, summary.SkippedCount);
+            Assert.Equal(2, queue.TotalCount);
+            Assert.Equal(2, queue.CompletedCount);
+            Assert.Equal(PendingFileStatus.Completed, queue.Files[0].Status);
+            Assert.Equal(PendingFileStatus.Completed, queue.Files[1].Status);
+            Assert.Equal(100d, queue.OverallProgressPercent);
+            Assert.False(queue.IsRunning);
+
+            lock (receivedGate)
+            {
+                Assert.Equal(2, received.Count);
+                Assert.Equal(
+                    firstData,
+                    File.ReadAllBytes(received[0].FilePath));
+                Assert.Equal(
+                    secondData,
+                    File.ReadAllBytes(received[1].FilePath));
+            }
+
+            Assert.Empty(Directory.GetFiles(receiveDirectory, "*.part"));
+            Assert.Empty(Directory.GetFiles(receiveDirectory, "*.meta"));
+        });
+    }
+
+    [Fact]
     public Task StartAsync_FailedFile_DoesNotBlockSubsequentFiles()
     {
         return InTempDirectoryAsync(async root =>
