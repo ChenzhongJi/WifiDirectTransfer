@@ -51,6 +51,7 @@ public partial class MainWindow : Window
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
+    private CurrentReceiveItem? _currentReceiveItem;
 
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
@@ -88,6 +89,9 @@ public partial class MainWindow : Window
         _receiveDirectory = GetDefaultReceiveDirectory();
 
         InitializeComponent();
+
+        SendPanel.Visibility = Visibility.Visible;
+        ReceivePanel.Visibility = Visibility.Collapsed;
 
         _historyStore = new TransferHistoryStore(log: Log);
 
@@ -1228,8 +1232,8 @@ public partial class MainWindow : Window
             dispatcher,
             _receiveDirectory,
             progress: new ThrottledProgress<FileTransferProgress>(
-                value => UpdateStatus(
-                    $"正在接收：{value.BytesTransferred}/{value.TotalBytes} 字节"),
+                value => Dispatcher.BeginInvoke(
+                    new Action(() => UpdateReceiveProgress(value))),
                 TimeSpan.FromMilliseconds(150),
                 value => value.TotalBytes > 0 &&
                          value.BytesTransferred >= value.TotalBytes),
@@ -1277,15 +1281,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileStarted(sender, args)));
+            return;
+        }
+
         var info = args.StartInfo;
 
         Log(info.IsResume
-            ? $"接收：从断点继续，偏移 {info.StartOffset} 字节"
-            : "接收：从头开始");
+            ? $"接收：{info.FileName} 从断点继续，偏移 {info.StartOffset} 字节"
+            : $"接收：{info.FileName}，{info.TotalBytes} 字节");
 
         UpdateStatus(info.IsResume
-            ? $"正在接收（从 {info.StartOffset} 字节继续）…"
-            : "正在接收…");
+            ? $"正在接收：{info.FileName}（从 {FormatBytes(info.StartOffset)} 续传）…"
+            : $"正在接收：{info.FileName}（{FormatBytes(info.TotalBytes)}）…");
+
+        _currentReceiveItem = new CurrentReceiveItem(info);
+        CurrentReceivePanel.DataContext = _currentReceiveItem;
+        CurrentReceivePanel.Visibility = Visibility.Visible;
+        UpdateTransferTabHeaders();
     }
 
     private void OnFileReceived(object? sender, FileReceivedEventArgs args)
@@ -1316,6 +1332,7 @@ public partial class MainWindow : Window
             0,
             new ReceivedFileItem(result, DateTimeOffset.Now));
         ReceivedFilesEmptyText.Visibility = Visibility.Collapsed;
+        ClearCurrentReceive();
 
         UpdateStatus("已连接，可以继续传输");
         NotifyIfInBackground(
@@ -1353,6 +1370,7 @@ public partial class MainWindow : Window
                 TransferOutcome.Failed,
                 null,
                 message);
+            ClearCurrentReceive();
             return;
         }
 
@@ -1374,6 +1392,7 @@ public partial class MainWindow : Window
             TransferOutcome.Failed,
             null,
             errorMessage);
+        ClearCurrentReceive();
     }
 
     private void OnFileSkipped(object? sender, FileSkippedEventArgs args)
@@ -1393,6 +1412,7 @@ public partial class MainWindow : Window
             TransferOutcome.Skipped,
             null,
             "同名文件已跳过");
+        ClearCurrentReceive();
     }
 
     private void ReceivedFilesList_PreviewMouseLeftButtonDown(
@@ -1608,6 +1628,8 @@ public partial class MainWindow : Window
         UpdateStatus(args.StartInfo.IsResume
             ? $"正在发送 {args.File.FileName}（从 {args.StartInfo.StartOffset} 字节继续）…"
             : $"正在发送 {args.File.FileName}…");
+
+        UpdateTransferTabHeaders();
     }
 
     private void OnQueueFileCompleted(object? sender, QueueFileCompletedEventArgs args)
@@ -1632,6 +1654,8 @@ public partial class MainWindow : Window
             result.FileSize,
             TransferOutcome.Completed,
             args.File.SourcePath);
+
+        UpdateTransferTabHeaders();
     }
 
     private void OnQueueFileFailed(object? sender, QueueFileFailedEventArgs args)
@@ -1661,6 +1685,8 @@ public partial class MainWindow : Window
             TransferOutcome.Failed,
             args.File.SourcePath,
             args.File.ErrorMessage ?? errorMessage);
+
+        UpdateTransferTabHeaders();
     }
 
     private void OnQueueFileSkipped(object? sender, QueueFileSkippedEventArgs args)
@@ -1684,6 +1710,8 @@ public partial class MainWindow : Window
             TransferOutcome.Skipped,
             args.File.SourcePath,
             args.Reason);
+
+        UpdateTransferTabHeaders();
     }
 
     private void OnQueueCompleted(object? sender, TransferQueueCompletedEventArgs args)
@@ -2186,6 +2214,7 @@ public partial class MainWindow : Window
             _messageLayerReady = false;
             QueuePanel.DataContext = null;
             _clipboardSyncService.SetSender(null);
+            ClearCurrentReceive();
 
             if (dispatcher is not null)
             {
@@ -2909,6 +2938,108 @@ public partial class MainWindow : Window
         }
     }
 
+    private void TransferTab_Checked(object sender, RoutedEventArgs e)
+    {
+        if (SendPanel is null || ReceivePanel is null)
+        {
+            return;
+        }
+
+        var showSend = ReferenceEquals(sender, SendTabButton);
+
+        SendPanel.Visibility =
+            showSend ? Visibility.Visible : Visibility.Collapsed;
+        ReceivePanel.Visibility =
+            showSend ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void UpdateTransferTabHeaders()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(UpdateTransferTabHeaders));
+            return;
+        }
+
+        if (SendTabButton is null || ReceiveTabButton is null)
+        {
+            return;
+        }
+
+        var sendText = "发送";
+        var queue = _queueManager;
+
+        if (queue is not null)
+        {
+            if (queue.IsRunning)
+            {
+                sendText = "发送 · 进行中";
+            }
+            else if (queue.TotalCount > 0)
+            {
+                sendText = $"发送 · {queue.TotalCount}";
+            }
+        }
+
+        SendTabButton.Content = sendText;
+
+        var receiveText = "接收";
+
+        if (_currentReceiveItem is not null)
+        {
+            receiveText =
+                $"接收 · {(int)Math.Round(_currentReceiveItem.ProgressPercent)}%";
+        }
+        else if (_receivedFiles.Count > 0)
+        {
+            receiveText = $"接收 · {_receivedFiles.Count}";
+        }
+
+        ReceiveTabButton.Content = receiveText;
+    }
+
+    private void UpdateReceiveProgress(FileTransferProgress value)
+    {
+        if (_isClosing || _currentReceiveItem is null)
+        {
+            return;
+        }
+
+        _currentReceiveItem.UpdateProgress(value.BytesTransferred);
+
+        UpdateStatus(
+            $"正在接收：{_currentReceiveItem.FileName} " +
+            $"{FormatBytes(value.BytesTransferred)} / {FormatBytes(value.TotalBytes)}");
+
+        UpdateTransferTabHeaders();
+    }
+
+    private void ClearCurrentReceive()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(ClearCurrentReceive));
+            return;
+        }
+
+        _currentReceiveItem = null;
+        CurrentReceivePanel.DataContext = null;
+        CurrentReceivePanel.Visibility = Visibility.Collapsed;
+        UpdateTransferTabHeaders();
+    }
+
     private void UpdateUi()
     {
         if (_isClosing)
@@ -2974,21 +3105,16 @@ public partial class MainWindow : Window
                           _step0Passed &&
                           !busy;
 
-        QueuePanel.Visibility = queue is not null
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-
-        ReceivedFilesPanel.Visibility =
-            _fileReceiver is not null || _receivedFiles.Count > 0
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
         SendTestFileButton.IsEnabled = canTransfer &&
                                        !_isSending &&
                                        !queueRunning;
 
         SendTextButton.IsEnabled = canTransfer;
         TextInboxButton.IsEnabled = true;
+
+        QueueEmptyText.Visibility = queue is { HasFiles: true }
+            ? Visibility.Collapsed
+            : Visibility.Visible;
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
@@ -3005,6 +3131,8 @@ public partial class MainWindow : Window
                                      queue?.HasFiles == true;
 
         ChangeReceiveDirectoryButton.IsEnabled = !connected && !busy;
+
+        UpdateTransferTabHeaders();
 
         ScanButton.Content = _isScanning ? "搜索中…" : "扫描设备";
     }
