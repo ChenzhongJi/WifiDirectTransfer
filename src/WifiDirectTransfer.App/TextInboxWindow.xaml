@@ -10,7 +10,8 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         ShowInTaskbar="False"
-        Style="{StaticResource DialogWindowStyle}">
+        Style="{StaticResource DialogWindowStyle}"
+        PreviewKeyDown="TextInboxWindow_PreviewKeyDown">
     <Window.Resources>
         <Style TargetType="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -116,7 +117,7 @@
                 Margin="0,12,0,0"
                 HorizontalAlignment="Right"
                 Content="关闭"
-                IsCancel="True"
-                MinWidth="88" />
+                MinWidth="88"
+                Click="CloseButton_Click" />
     </Grid>
 </Window>
