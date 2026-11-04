@@ -52,6 +52,10 @@ public partial class MainWindow : Window
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
     private CurrentReceiveItem? _currentReceiveItem;
+    private bool _isDraggingReceivedFile;
+
+    private const string ReceivedFileDragFormat =
+        "WifiDirectTransfer.ReceivedFileDrag";
 
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
@@ -1486,10 +1490,13 @@ public partial class MainWindow : Window
         // 虚拟文件的延迟内容读取能力，源文件被移动或删除时拖放会失败。
         var data = new DataObject();
         data.SetData(DataFormats.FileDrop, paths.ToArray());
+        // 标记来源，避免松手在窗口内时被拖入处理器当成本地文件重新入队。
+        data.SetData(ReceivedFileDragFormat, "1");
 
         try
         {
             e.Handled = true;
+            _isDraggingReceivedFile = true;
             DragDrop.DoDragDrop(
                 ReceivedFilesList,
                 data,
@@ -1498,6 +1505,10 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             Log($"拖出文件失败：{exception.GetType().Name}");
+        }
+        finally
+        {
+            _isDraggingReceivedFile = false;
         }
     }
 
@@ -1517,6 +1528,16 @@ public partial class MainWindow : Window
 
     private void Window_PreviewDragOver(object sender, DragEventArgs e)
     {
+        if (_isDraggingReceivedFile ||
+            e.Data.GetDataPresent(ReceivedFileDragFormat))
+        {
+            // 从“接收”列表拖出的文件只用于拖到资源管理器，
+            // 不允许作为本窗口的拖入发送来源。
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
             ? DragDropEffects.Copy
             : DragDropEffects.None;
@@ -1526,6 +1547,13 @@ public partial class MainWindow : Window
     private void Window_PreviewDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
+
+        if (_isDraggingReceivedFile ||
+            e.Data.GetDataPresent(ReceivedFileDragFormat))
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
 
         if (_isClosing)
         {
