@@ -90,6 +90,7 @@ public partial class HistoryWindow : Window
         CountText.Text = $"共 {items.Length} 条记录";
         EmptyText.Visibility =
             items.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClearHistoryButton.IsEnabled = items.Length > 0;
         DetailText.Text = string.Empty;
         OpenFolderButton.IsEnabled = false;
     }

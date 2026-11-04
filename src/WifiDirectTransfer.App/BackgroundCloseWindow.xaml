@@ -10,12 +10,8 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -23,51 +19,44 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Text="传输仍在进行"
-                   FontSize="20"
-                   FontWeight="SemiBold"
-                   Foreground="#1B1B1B" />
+        <TextBlock Style="{StaticResource DialogTitleText}"
+                   Text="传输仍在进行" />
 
         <Border Grid.Row="1"
-                Margin="0,16,0,0"
-                Padding="16"
-                Background="#FFF7E6"
-                BorderBrush="#F0C36D"
-                BorderThickness="1"
-                CornerRadius="8">
-            <TextBlock Text="当前连接或传输尚未结束。直接关闭窗口会中断传输。"
-                       FontSize="14"
-                       Foreground="#7A4D00"
+                Margin="0,12,0,0"
+                Style="{StaticResource DialogWarningBorder}">
+            <TextBlock FontSize="12.5"
+                       Foreground="{StaticResource WarningBrush}"
+                       Text="当前连接或传输尚未结束。直接关闭窗口会中断传输。"
                        TextWrapping="Wrap" />
         </Border>
 
         <TextBlock Grid.Row="2"
-                   Margin="0,14,0,0"
-                   Foreground="#707070"
-                   TextWrapping="Wrap"
+                   Margin="0,12,0,0"
+                   Style="{StaticResource DialogBodyText}"
                    Text="选择“后台继续”会隐藏主窗口，传输在托盘中继续；双击托盘图标可恢复。" />
 
         <StackPanel Grid.Row="3"
+                    Margin="0,14,0,0"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right">
             <Button x:Name="CancelButton"
                     Content="返回"
                     IsCancel="True"
                     MinWidth="88"
-                    Padding="16,6"
                     Margin="0,0,8,0"
                     Click="CancelButton_Click" />
             <Button x:Name="ExitButton"
                     Content="取消传输并退出"
                     MinWidth="132"
-                    Padding="16,6"
                     Margin="0,0,8,0"
+                    Style="{StaticResource DangerButtonStyle}"
                     Click="ExitButton_Click" />
             <Button x:Name="BackgroundButton"
                     Content="后台继续"
                     IsDefault="True"
                     MinWidth="100"
-                    Padding="16,6"
+                    Style="{StaticResource PrimaryButtonStyle}"
                     Click="BackgroundButton_Click" />
         </StackPanel>
     </Grid>

@@ -10,12 +10,8 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -24,27 +20,22 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Text="发送文本"
-                   FontSize="20"
-                   FontWeight="SemiBold"
-                   Foreground="#1B1B1B" />
+        <TextBlock Style="{StaticResource DialogTitleText}"
+                   Text="发送文本" />
 
         <TextBlock Grid.Row="1"
-                   Margin="0,8,0,0"
-                   Foreground="#707070"
-                   TextWrapping="Wrap"
+                   Margin="0,6,0,0"
+                   Style="{StaticResource DialogSubtitleText}"
                    Text="文本会显示在对端的文本收件箱中，最多 64 KiB。" />
 
         <TextBox x:Name="TextTextBox"
                  Grid.Row="2"
-                 Margin="0,14,0,0"
+                 Margin="0,12,0,0"
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto"
                  MaxLength="70000"
-                 Padding="10"
-                 Background="White"
-                 BorderBrush="#E0E0E0"
+                 Style="{StaticResource DialogTextBoxStyle}"
                  TextChanged="TextTextBox_TextChanged" />
 
         <TextBlock x:Name="ByteCountText"
@@ -52,7 +43,7 @@
                    Margin="0,6,0,0"
                    HorizontalAlignment="Right"
                    FontSize="11"
-                   Foreground="#707070" />
+                   Foreground="{StaticResource TextTertiaryBrush}" />
 
         <StackPanel Grid.Row="4"
                     Margin="0,14,0,0"
@@ -62,13 +53,12 @@
                     Content="取消"
                     IsCancel="True"
                     MinWidth="88"
-                    Padding="16,6"
                     Margin="0,0,8,0"
                     Click="CancelButton_Click" />
             <Button x:Name="SendButton"
                     Content="发送"
                     MinWidth="88"
-                    Padding="16,6"
+                    Style="{StaticResource PrimaryButtonStyle}"
                     Click="SendButton_Click" />
         </StackPanel>
     </Grid>

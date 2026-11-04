@@ -10,12 +10,8 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -24,47 +20,40 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Text="收到文件传输请求"
-                   FontSize="20"
-                   FontWeight="SemiBold"
-                   Foreground="#1B1B1B" />
+        <TextBlock Style="{StaticResource DialogTitleText}"
+                   Text="收到文件传输请求" />
 
         <Border Grid.Row="1"
-                Margin="0,16,0,0"
-                Padding="16"
-                Background="White"
-                BorderBrush="#E0E0E0"
-                BorderThickness="1"
-                CornerRadius="8">
+                Margin="0,12,0,0"
+                Style="{StaticResource DialogCardBorder}">
             <StackPanel>
-                <TextBlock Text="发送端"
-                           FontSize="12"
-                           Foreground="#707070" />
+                <TextBlock Style="{StaticResource DialogHintText}"
+                           Text="发送端" />
                 <TextBlock x:Name="SenderNameText"
                            Margin="0,4,0,0"
-                           FontSize="16"
+                           FontSize="14"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
                 <TextBlock x:Name="SenderIdText"
                            Margin="0,4,0,0"
-                           FontFamily="Consolas"
-                           FontSize="12"
-                           Foreground="#616161"
+                           FontFamily="{StaticResource MonoFont}"
+                           FontSize="10.5"
+                           Foreground="{StaticResource TextSecondaryBrush}"
                            TextWrapping="Wrap" />
             </StackPanel>
         </Border>
 
         <TextBlock x:Name="CountdownText"
                    Grid.Row="2"
-                   Margin="0,16,0,0"
-                   FontSize="14"
-                   Foreground="#B54708"
+                   Margin="0,12,0,0"
+                   FontSize="12"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource WarningBrush}"
                    Text="15 秒后自动拒绝" />
 
         <TextBlock Grid.Row="3"
-                   Margin="0,12,0,0"
-                   Foreground="#707070"
-                   TextWrapping="Wrap"
+                   Margin="0,8,0,0"
+                   Style="{StaticResource DialogBodyText}"
                    Text="接受后，双方都可以发送和接收文件。" />
 
         <StackPanel Grid.Row="4"
@@ -73,12 +62,11 @@
             <Button Content="拒绝"
                     IsCancel="True"
                     MinWidth="88"
-                    Padding="16,6"
                     Margin="0,0,8,0"
                     Click="RejectButton_Click" />
             <Button Content="接受"
                     MinWidth="88"
-                    Padding="16,6"
+                    Style="{StaticResource PrimaryButtonStyle}"
                     Click="AcceptButton_Click" />
         </StackPanel>
     </Grid>

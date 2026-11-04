@@ -9,12 +9,67 @@
         MinHeight="420"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Window.Resources>
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridViewColumnHeader">
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <Thumb x:Name="PART_HeaderGripper"
+                                   Width="8"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Stretch"
+                                   Cursor="SizeWE">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Border Background="Transparent" />
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource RowSeparatorBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -23,25 +78,19 @@
         </Grid.RowDefinitions>
 
         <Grid>
-            <TextBlock Text="传输历史"
-                       FontSize="20"
-                       FontWeight="SemiBold"
-                       Foreground="#1B1B1B" />
+            <TextBlock Style="{StaticResource DialogTitleText}"
+                       Text="传输历史" />
             <TextBlock x:Name="CountText"
                        HorizontalAlignment="Right"
                        VerticalAlignment="Center"
-                       Foreground="#707070" />
+                       Style="{StaticResource DialogSubtitleText}" />
         </Grid>
 
         <Border Grid.Row="1"
-                Margin="0,14,0,0"
-                Background="White"
-                BorderBrush="#E0E0E0"
-                BorderThickness="1"
-                CornerRadius="8">
+                Margin="0,12,0,0"
+                Style="{StaticResource DialogListBorder}">
             <Grid>
                 <ListView x:Name="HistoryList"
-                          Margin="6"
                           BorderThickness="0"
                           Background="Transparent"
                           SelectionChanged="HistoryList_SelectionChanged"
@@ -55,8 +104,17 @@
                                             Width="55"
                                             DisplayMemberBinding="{Binding DirectionText}" />
                             <GridViewColumn Header="文件名"
-                                            Width="280"
-                                            DisplayMemberBinding="{Binding FileName}" />
+                                            Width="280">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding FileName}"
+                                                   Margin="10,0"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding FileName}" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
                             <GridViewColumn Header="大小"
                                             Width="85"
                                             DisplayMemberBinding="{Binding SizeText}" />
@@ -67,16 +125,16 @@
                                         <TextBlock Text="{Binding OutcomeText}">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#707070" />
+                                                    <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding Outcome}" Value="Completed">
-                                                            <Setter Property="Foreground" Value="#1B7F3B" />
+                                                            <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding Outcome}" Value="Failed">
-                                                            <Setter Property="Foreground" Value="#B3261E" />
+                                                            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding Outcome}" Value="Skipped">
-                                                            <Setter Property="Foreground" Value="#9A6700" />
+                                                            <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -96,7 +154,8 @@
                            Text="暂无传输记录"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
-                           Foreground="#8A8A8A"
+                           FontSize="11"
+                           Foreground="{StaticResource TextTertiaryBrush}"
                            Visibility="Collapsed" />
             </Grid>
         </Border>
@@ -105,30 +164,27 @@
                    Grid.Row="2"
                    Margin="0,10,0,0"
                    MinHeight="18"
-                   Foreground="#707070"
-                   TextWrapping="Wrap" />
+                   Style="{StaticResource DialogHintText}" />
 
         <Grid Grid.Row="3" Margin="0,14,0,0">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="OpenFolderButton"
                         Content="打开所在文件夹"
                         MinWidth="130"
-                        Padding="16,6"
                         IsEnabled="False"
                         Click="OpenFolderButton_Click" />
                 <Button x:Name="ClearHistoryButton"
                         Margin="8,0,0,0"
                         Content="清空历史"
                         MinWidth="96"
-                        Padding="16,6"
+                        Style="{StaticResource DangerButtonStyle}"
                         Click="ClearHistoryButton_Click" />
             </StackPanel>
 
             <Button HorizontalAlignment="Right"
                     Content="关闭"
                     IsCancel="True"
-                    MinWidth="88"
-                    Padding="16,6" />
+                    MinWidth="88" />
         </Grid>
     </Grid>
 </Window>

@@ -42,6 +42,7 @@ public partial class TextInboxWindow : Window
         MessagesList.ItemsSource = items;
         EmptyText.Visibility =
             items.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClearButton.IsEnabled = items.Length > 0;
 
         _inbox.MarkAllRead();
         InboxChanged?.Invoke(this, EventArgs.Empty);

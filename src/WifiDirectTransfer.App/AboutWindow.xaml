@@ -9,12 +9,8 @@
         MinHeight="400"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -23,19 +19,16 @@
         </Grid.RowDefinitions>
 
         <StackPanel>
-            <TextBlock Text="Wi-Fi Direct 文件传输"
-                       FontSize="22"
-                       FontWeight="SemiBold"
-                       Foreground="#1B1B1B" />
-            <TextBlock Text="点对点文件与剪贴板传输 · 无需互联网"
-                       Margin="0,6,0,0"
-                       Foreground="#616161" />
+            <TextBlock Style="{StaticResource DialogProductTitleText}"
+                       Text="Wi-Fi Direct 文件传输" />
+            <TextBlock Margin="0,4,0,0"
+                       Style="{StaticResource DialogSubtitleText}"
+                       Text="点对点文件与剪贴板传输 · 无需互联网" />
         </StackPanel>
 
         <TextBlock Grid.Row="1"
-                   Margin="0,16,0,0"
-                   Foreground="#707070"
-                   TextWrapping="Wrap"
+                   Margin="0,14,0,0"
+                   Style="{StaticResource DialogBodyText}"
                    Text="以下信息可用于反馈问题，不包含文件内容。" />
 
         <TextBox x:Name="DetailsTextBox"
@@ -45,24 +38,19 @@
                  AcceptsReturn="True"
                  TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto"
-                 FontFamily="Consolas"
-                 FontSize="12"
-                 Background="#FAFAFA"
-                 BorderBrush="#E0E0E0"
-                 Padding="10" />
+                 Style="{StaticResource MonoTextBoxStyle}" />
 
         <Grid Grid.Row="3" Margin="0,14,0,0">
             <Button x:Name="CopyButton"
                     HorizontalAlignment="Left"
                     Content="复制信息"
                     MinWidth="96"
-                    Padding="16,6"
+                    Style="{StaticResource PrimaryButtonStyle}"
                     Click="CopyButton_Click" />
             <Button HorizontalAlignment="Right"
                     Content="关闭"
                     IsCancel="True"
-                    MinWidth="88"
-                    Padding="16,6" />
+                    MinWidth="88" />
         </Grid>
     </Grid>
 </Window>

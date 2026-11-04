@@ -10,12 +10,24 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         ShowInTaskbar="False"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
-        FontSize="13"
-        UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
-    <Grid Margin="24">
+        Style="{StaticResource DialogWindowStyle}">
+    <Window.Resources>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -23,41 +35,30 @@
         </Grid.RowDefinitions>
 
         <Grid>
-            <TextBlock Text="文本消息"
-                       FontSize="20"
-                       FontWeight="SemiBold"
-                       Foreground="#1B1B1B" />
+            <TextBlock Style="{StaticResource DialogTitleText}"
+                       Text="文本消息" />
             <Button x:Name="ClearButton"
                     HorizontalAlignment="Right"
                     Content="清空"
-                    Padding="12,3"
+                    Style="{StaticResource DangerButtonStyle}"
                     Click="ClearButton_Click" />
         </Grid>
 
         <Border Grid.Row="1"
-                Margin="0,14,0,0"
-                Background="White"
-                BorderBrush="#E0E0E0"
-                BorderThickness="1"
-                CornerRadius="8">
+                Margin="0,12,0,0"
+                Style="{StaticResource DialogListBorder}">
             <Grid>
                 <ListBox x:Name="MessagesList"
                          Margin="8"
                          BorderThickness="0"
                          Background="Transparent"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="Padding" Value="0" />
-                        </Style>
-                    </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border Margin="0,0,0,8"
                                     Padding="12"
-                                    Background="#FAFAFA"
-                                    BorderBrush="#E0E0E0"
+                                    Background="{StaticResource SurfaceAltBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6">
                                 <Grid>
@@ -67,14 +68,21 @@
                                     </Grid.RowDefinitions>
 
                                     <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
                                         <TextBlock Text="{Binding HeaderText}"
+                                                   Margin="0,0,8,0"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="11.5"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#1B1B1B"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <Button Content="复制"
+                                        <Button Grid.Column="1"
+                                                Content="复制"
                                                 Tag="{Binding}"
-                                                HorizontalAlignment="Right"
-                                                Padding="10,2"
+                                                Style="{StaticResource SmallSubtleButtonStyle}"
                                                 Click="CopyButton_Click" />
                                     </Grid>
 
@@ -84,8 +92,9 @@
                                                   VerticalScrollBarVisibility="Auto"
                                                   HorizontalScrollBarVisibility="Disabled">
                                         <TextBlock Text="{Binding Text}"
+                                                   FontSize="12.5"
                                                    TextWrapping="Wrap"
-                                                   Foreground="#333333" />
+                                                   Foreground="{StaticResource TextBrush}" />
                                     </ScrollViewer>
                                 </Grid>
                             </Border>
@@ -97,17 +106,17 @@
                            Text="暂无文本消息"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
-                           Foreground="#8A8A8A"
+                           FontSize="11"
+                           Foreground="{StaticResource TextTertiaryBrush}"
                            Visibility="Collapsed" />
             </Grid>
         </Border>
 
         <Button Grid.Row="2"
-                Margin="0,14,0,0"
+                Margin="0,12,0,0"
                 HorizontalAlignment="Right"
                 Content="关闭"
                 IsCancel="True"
-                MinWidth="88"
-                Padding="16,6" />
+                MinWidth="88" />
     </Grid>
 </Window>
