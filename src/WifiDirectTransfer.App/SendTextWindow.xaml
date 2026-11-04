@@ -1,0 +1,75 @@
+<Window x:Class="WifiDirectTransfer.App.SendTextWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="发送文本"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="580"
+        Height="480"
+        MinWidth="520"
+        MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False"
+        Background="#F3F3F3"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="发送文本"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Foreground="#1B1B1B" />
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,8,0,0"
+                   Foreground="#707070"
+                   TextWrapping="Wrap"
+                   Text="文本会显示在对端的文本收件箱中，最多 64 KiB。" />
+
+        <TextBox x:Name="TextTextBox"
+                 Grid.Row="2"
+                 Margin="0,14,0,0"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 MaxLength="70000"
+                 Padding="10"
+                 Background="White"
+                 BorderBrush="#E0E0E0"
+                 TextChanged="TextTextBox_TextChanged" />
+
+        <TextBlock x:Name="ByteCountText"
+                   Grid.Row="3"
+                   Margin="0,6,0,0"
+                   HorizontalAlignment="Right"
+                   FontSize="11"
+                   Foreground="#707070" />
+
+        <StackPanel Grid.Row="4"
+                    Margin="0,14,0,0"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button x:Name="CancelButton"
+                    Content="取消"
+                    IsCancel="True"
+                    MinWidth="88"
+                    Padding="16,6"
+                    Margin="0,0,8,0"
+                    Click="CancelButton_Click" />
+            <Button x:Name="SendButton"
+                    Content="发送"
+                    MinWidth="88"
+                    Padding="16,6"
+                    Click="SendButton_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

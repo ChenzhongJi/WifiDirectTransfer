@@ -20,7 +20,8 @@ public enum ControlMessageSubtype : byte
     QueueInfo = 0x04,
     FileSkipped = 0x05,
     FileVerified = 0x06,
-    Hello = 0x07
+    Hello = 0x07,
+    TextRejected = 0x08
 }
 
 public enum SameNamePolicy

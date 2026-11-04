@@ -1,0 +1,113 @@
+<Window x:Class="WifiDirectTransfer.App.TextInboxWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="文本消息"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="660"
+        Height="560"
+        MinWidth="560"
+        MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False"
+        Background="#F3F3F3"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <TextBlock Text="文本消息"
+                       FontSize="20"
+                       FontWeight="SemiBold"
+                       Foreground="#1B1B1B" />
+            <Button x:Name="ClearButton"
+                    HorizontalAlignment="Right"
+                    Content="清空"
+                    Padding="12,3"
+                    Click="ClearButton_Click" />
+        </Grid>
+
+        <Border Grid.Row="1"
+                Margin="0,14,0,0"
+                Background="White"
+                BorderBrush="#E0E0E0"
+                BorderThickness="1"
+                CornerRadius="8">
+            <Grid>
+                <ListBox x:Name="MessagesList"
+                         Margin="8"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,8"
+                                    Padding="12"
+                                    Background="#FAFAFA"
+                                    BorderBrush="#E0E0E0"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <Grid>
+                                        <TextBlock Text="{Binding HeaderText}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#1B1B1B"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Content="复制"
+                                                Tag="{Binding}"
+                                                HorizontalAlignment="Right"
+                                                Padding="10,2"
+                                                Click="CopyButton_Click" />
+                                    </Grid>
+
+                                    <ScrollViewer Grid.Row="1"
+                                                  Margin="0,8,0,0"
+                                                  MaxHeight="180"
+                                                  VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <TextBlock Text="{Binding Text}"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="#333333" />
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock x:Name="EmptyText"
+                           Text="暂无文本消息"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="#8A8A8A"
+                           Visibility="Collapsed" />
+            </Grid>
+        </Border>
+
+        <Button Grid.Row="2"
+                Margin="0,14,0,0"
+                HorizontalAlignment="Right"
+                Content="关闭"
+                IsCancel="True"
+                MinWidth="88"
+                Padding="16,6" />
+    </Grid>
+</Window>

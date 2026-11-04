@@ -74,6 +74,28 @@ public sealed class ControlMessageCodecTests
     }
 
     [Fact]
+    public void TextRejected_RoundTrips()
+    {
+        var payload = ControlMessageCodec.SerializeTextRejected();
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Single(payload);
+        Assert.Equal(ControlMessageSubtype.TextRejected, message.Subtype);
+    }
+
+    [Fact]
+    public void TextRejected_RejectsInvalidLength()
+    {
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.Deserialize(
+                new[]
+                {
+                    (byte)ControlMessageSubtype.TextRejected,
+                    (byte)1
+                }));
+    }
+
+    [Fact]
     public void FileVerified_RoundTripsDigest()
     {
         var digest = new byte[MessageProtocol.FileEndDigestLength];

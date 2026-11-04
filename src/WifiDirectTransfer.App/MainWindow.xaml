@@ -188,12 +188,40 @@
                                     Content="发送测试文件（1 MiB）"
                                     Click="SendTestFileButton_Click" />
 
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="SendTextButton"
+                                        Padding="12,6"
+                                        Content="发送文本"
+                                        Click="SendTextButton_Click" />
+                                <Button x:Name="TextInboxButton"
+                                        Grid.Column="2"
+                                        Padding="12,6"
+                                        Content="收到的文本"
+                                        Click="TextInboxButton_Click" />
+                            </Grid>
+
                             <CheckBox x:Name="ClipboardSyncCheckBox"
                                       Margin="0,12,0,0"
                                       Content="启用剪贴板同步"
                                       Checked="ClipboardSyncCheckBox_Checked"
                                       Unchecked="ClipboardSyncCheckBox_Unchecked" />
                             <TextBlock Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
+                                       Margin="0,4,0,0"
+                                       FontSize="11"
+                                       Foreground="#707070"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="TextReceiveCheckBox"
+                                      Margin="0,12,0,0"
+                                      Content="允许接收远程文本"
+                                      Checked="TextReceiveCheckBox_Checked"
+                                      Unchecked="TextReceiveCheckBox_Unchecked" />
+                            <TextBlock Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
                                        Margin="0,4,0,0"
                                        FontSize="11"
                                        Foreground="#707070"

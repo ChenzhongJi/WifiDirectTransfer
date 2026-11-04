@@ -43,6 +43,11 @@ public partial class MainWindow : Window
     private bool _clipboardConsentAcknowledged;
     private bool _isApplyingClipboardPreference;
     private bool _clipboardDisabledDropLogged;
+    private readonly TextInbox _textInbox = new();
+    private TextInboxWindow? _textInboxWindow;
+    private bool _textReceiveEnabled;
+    private bool _textConsentAcknowledged;
+    private bool _isApplyingTextPreference;
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
@@ -170,6 +175,7 @@ public partial class MainWindow : Window
         RoleReceiverRadio.IsChecked = true;
 
         UpdateUi();
+        UpdateTextInboxButton();
 
         _ = Dispatcher.BeginInvoke(
             new Action(ShowIncompleteTransfersIfAny),
@@ -251,6 +257,10 @@ public partial class MainWindow : Window
         _clipboardSyncEnabled =
             preferences.ClipboardSyncEnabled &&
             _clipboardConsentAcknowledged;
+        _textConsentAcknowledged = preferences.TextConsentAcknowledged;
+        _textReceiveEnabled =
+            preferences.TextReceiveEnabled &&
+            _textConsentAcknowledged;
 
         _isApplyingReceiverPreferences = true;
 
@@ -277,6 +287,17 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingClipboardPreference = false;
+        }
+
+        _isApplyingTextPreference = true;
+
+        try
+        {
+            TextReceiveCheckBox.IsChecked = _textReceiveEnabled;
+        }
+        finally
+        {
+            _isApplyingTextPreference = false;
         }
 
         _clipboardSyncService.SetEnabled(_clipboardSyncEnabled);
@@ -320,6 +341,8 @@ public partial class MainWindow : Window
                 SameNamePolicy = _sameNamePolicy,
                 ClipboardSyncEnabled = _clipboardSyncEnabled,
                 ClipboardConsentAcknowledged = _clipboardConsentAcknowledged,
+                TextReceiveEnabled = _textReceiveEnabled,
+                TextConsentAcknowledged = _textConsentAcknowledged,
                 ReceiveDirectory = _receiveDirectory
             });
 
@@ -380,6 +403,62 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("剪贴板同步已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void TextReceiveCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingTextPreference || _isClosing)
+        {
+            return;
+        }
+
+        if (!_textConsentAcknowledged)
+        {
+            var dialog = new TextReceiveConfirmationWindow
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                _isApplyingTextPreference = true;
+
+                try
+                {
+                    TextReceiveCheckBox.IsChecked = false;
+                }
+                finally
+                {
+                    _isApplyingTextPreference = false;
+                }
+
+                return;
+            }
+
+            _textConsentAcknowledged = true;
+        }
+
+        _textReceiveEnabled = true;
+
+        var saved = SaveReceiverPreferences();
+        Log("接收远程文本已启用。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void TextReceiveCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingTextPreference || _isClosing)
+        {
+            return;
+        }
+
+        _textReceiveEnabled = false;
+
+        var saved = SaveReceiverPreferences();
+        Log("接收远程文本已关闭。" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private static string GetSameNamePolicyText(SameNamePolicy policy) => policy switch
@@ -1691,13 +1770,23 @@ public partial class MainWindow : Window
             switch (args.Type)
             {
                 case MessageType.TextMessage:
-                    Log($"文本消息：{TextMessageCodec.Decode(args.Payload.Span)}");
+                    HandleIncomingText(args.Payload);
                     break;
 
                 case MessageType.ControlMessage:
                 {
                     var control = ControlMessageCodec.Deserialize(args.Payload.Span);
-                    Log($"控制消息：{FormatControlMessage(control)}");
+
+                    if (control.Subtype == ControlMessageSubtype.TextRejected)
+                    {
+                        Log("文本消息被拒绝：对端未开启接收远程文本。");
+                        UpdateStatus("对端未开启接收文本");
+                    }
+                    else
+                    {
+                        Log($"控制消息：{FormatControlMessage(control)}");
+                    }
+
                     break;
                 }
 
@@ -2266,6 +2355,8 @@ public partial class MainWindow : Window
 
     private void HideToTray()
     {
+        _textInboxWindow?.Close();
+        _textInboxWindow = null;
         Hide();
         _isHiddenToTray = true;
         Log("窗口已隐藏到托盘，传输继续在后台进行。");
@@ -2464,6 +2555,182 @@ public partial class MainWindow : Window
         ReceiveDirectoryText.Text = $"接收目录：{_receiveDirectory}";
     }
 
+    private async void SendTextButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dispatcher = _dispatcher;
+
+        if (dispatcher is null || !_messageLayerReady || _channel is null)
+        {
+            return;
+        }
+
+        var dialog = new SendTextWindow
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var text = dialog.Text;
+
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        try
+        {
+            var payload = TextMessageCodec.Encode(text);
+
+            await dispatcher.SendAsync(
+                MessageType.TextMessage,
+                payload,
+                _lifetimeCts.Token);
+
+            Log($"文本已发送：{payload.Length} 字节");
+            UpdateStatus("文本已发送");
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            // 窗口关闭或连接重置。
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Transfer,
+                WifiDirectErrorContext.WinRt,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+    }
+
+    private void TextInboxButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_textInboxWindow is { IsLoaded: true } existing)
+        {
+            if (!existing.IsVisible)
+            {
+                existing.Show();
+            }
+
+            existing.Activate();
+            existing.Refresh();
+            return;
+        }
+
+        var window = new TextInboxWindow(_textInbox)
+        {
+            Owner = this
+        };
+
+        window.InboxChanged += (_, _) => UpdateTextInboxButton();
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_textInboxWindow, window))
+            {
+                _textInboxWindow = null;
+            }
+
+            UpdateTextInboxButton();
+        };
+
+        _textInboxWindow = window;
+        window.Show();
+        window.Refresh();
+    }
+
+    private void UpdateTextInboxButton()
+    {
+        var unread = _textInbox.UnreadCount;
+        TextInboxButton.Content = unread > 0
+            ? $"收到的文本 ({unread})"
+            : "收到的文本";
+    }
+
+    private void HandleIncomingText(ReadOnlyMemory<byte> payload)
+    {
+        if (payload.Length > TextMessageCodec.MaxPayloadBytes)
+        {
+            Log("收到文本消息但超过 64 KiB 上限，已忽略。");
+            _ = SendTextRejectedAsync();
+            return;
+        }
+
+        string text;
+
+        try
+        {
+            text = TextMessageCodec.Decode(payload.Span);
+        }
+        catch (Exception exception)
+        {
+            Log($"文本消息无效：{exception.Message}");
+            return;
+        }
+
+        if (!_textReceiveEnabled)
+        {
+            Log("收到文本消息，但本机未开启接收远程文本。");
+            _ = SendTextRejectedAsync();
+            UpdateStatus("收到文本消息，但本机未开启接收");
+            NotifyIfInBackground(
+                "文本消息",
+                "收到文本消息，但本机未开启接收远程文本。");
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(
+            new Action(() => AddIncomingText(text)));
+    }
+
+    private async Task SendTextRejectedAsync()
+    {
+        var dispatcher = _dispatcher;
+
+        if (dispatcher is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await dispatcher.SendAsync(
+                MessageType.ControlMessage,
+                ControlMessageCodec.SerializeTextRejected(),
+                CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            // 连接已断开时无法回执。
+        }
+    }
+
+    private void AddIncomingText(string text)
+    {
+        var sender = string.IsNullOrWhiteSpace(_connectedPeerName)
+            ? "对端"
+            : _connectedPeerName!;
+
+        _textInbox.Add(
+            new ReceivedTextMessage(
+                DateTimeOffset.Now,
+                sender,
+                text));
+
+        UpdateTextInboxButton();
+        _textInboxWindow?.Refresh();
+
+        Log($"收到文本消息：{text.Length} 字符，来自 {sender}");
+        UpdateStatus("收到新的文本消息");
+        NotifyIfInBackground(
+            "收到文本",
+            $"来自 {sender} 的文本消息。");
+    }
+
     private void ClearLogButton_Click(object sender, RoutedEventArgs e)
     {
         LogTextBox.Clear();
@@ -2579,6 +2846,8 @@ public partial class MainWindow : Window
             $"接收目录：{_receiveDirectory}{Environment.NewLine}" +
             $"同名文件策略：{GetSameNamePolicyText(_sameNamePolicy)}{Environment.NewLine}" +
             $"剪贴板同步：{(_clipboardSyncEnabled ? "已启用" : "已关闭")}{Environment.NewLine}" +
+            $"接收远程文本：{(_textReceiveEnabled ? "已启用" : "已关闭")}{Environment.NewLine}" +
+            $"文本收件箱：{_textInbox.Messages.Count} 条，{_textInbox.UnreadCount} 条未读{Environment.NewLine}" +
             $"连接状态：{(_channel is null ? "未连接" : "已连接")}{Environment.NewLine}" +
             $"系统：{RuntimeInformation.OSDescription}{Environment.NewLine}" +
             $".NET：{RuntimeInformation.FrameworkDescription}{Environment.NewLine}" +
@@ -2692,6 +2961,9 @@ public partial class MainWindow : Window
         SendTestFileButton.IsEnabled = canTransfer &&
                                        !_isSending &&
                                        !queueRunning;
+
+        SendTextButton.IsEnabled = canTransfer;
+        TextInboxButton.IsEnabled = true;
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&

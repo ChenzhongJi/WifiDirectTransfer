@@ -66,6 +66,11 @@ public static class ControlMessageCodec
         return new[] { (byte)ControlMessageSubtype.FileSkipped };
     }
 
+    public static byte[] SerializeTextRejected()
+    {
+        return new[] { (byte)ControlMessageSubtype.TextRejected };
+    }
+
     /// <summary>
     /// 接收端在 SHA-256 校验通过且正式文件落盘后发送，携带接收端计算的摘要。
     /// </summary>
@@ -172,6 +177,7 @@ public static class ControlMessageCodec
             ControlMessageSubtype.FileSkipped => DeserializeFileSkipped(payload),
             ControlMessageSubtype.FileVerified => DeserializeFileVerified(payload),
             ControlMessageSubtype.Hello => DeserializeHello(payload),
+            ControlMessageSubtype.TextRejected => DeserializeTextRejected(payload),
             _ => throw new MessageProtocolException(
                 $"未知的 ControlMessage 子类型：0x{payload[0]:X2}。")
         };
@@ -205,6 +211,22 @@ public static class ControlMessageCodec
             ControlMessageSubtype.FileSkipped,
             0,
             WifiDirectErrorCode.FileSkipped,
+            string.Empty);
+    }
+
+    private static ControlMessage DeserializeTextRejected(
+        ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length != 1)
+        {
+            throw new MessageProtocolException(
+                "TextRejected payload 长度必须为 1 字节。");
+        }
+
+        return new ControlMessage(
+            ControlMessageSubtype.TextRejected,
+            0,
+            default,
             string.Empty);
     }
 

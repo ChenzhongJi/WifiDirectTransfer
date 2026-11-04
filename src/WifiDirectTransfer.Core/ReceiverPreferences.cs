@@ -11,6 +11,10 @@ public sealed class ReceiverPreferences
 
     public bool ClipboardConsentAcknowledged { get; set; }
 
+    public bool TextReceiveEnabled { get; set; }
+
+    public bool TextConsentAcknowledged { get; set; }
+
     public string? ReceiveDirectory { get; set; }
 }
 
