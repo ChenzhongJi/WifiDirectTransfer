@@ -442,10 +442,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             }
         });
 
-        var progress = new InlineProgress<FileTransferProgress>(value =>
-        {
-            file.BytesTransferred = value.BytesTransferred;
-        });
+        var progress = new ThrottledProgress<FileTransferProgress>(
+            value => file.BytesTransferred = value.BytesTransferred,
+            TimeSpan.FromMilliseconds(150),
+            value => value.TotalBytes > 0 &&
+                     value.BytesTransferred >= value.TotalBytes);
 
         try
         {

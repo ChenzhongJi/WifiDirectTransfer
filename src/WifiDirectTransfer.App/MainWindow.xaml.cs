@@ -78,6 +78,10 @@ public partial class MainWindow : Window
     private bool _allowClose;
     private bool _isHiddenToTray;
     private TrayIconService? _trayIcon;
+    private int _uiLogLineCount;
+
+    private const int MaxUiLogLines = 2000;
+    private const int UiLogTrimBatch = 500;
 
     public MainWindow()
     {
@@ -1223,8 +1227,12 @@ public partial class MainWindow : Window
         var receiver = new FileReceiver(
             dispatcher,
             _receiveDirectory,
-            progress: new Progress<FileTransferProgress>(value =>
-                UpdateStatus($"正在接收：{value.BytesTransferred}/{value.TotalBytes} 字节")),
+            progress: new ThrottledProgress<FileTransferProgress>(
+                value => UpdateStatus(
+                    $"正在接收：{value.BytesTransferred}/{value.TotalBytes} 字节"),
+                TimeSpan.FromMilliseconds(150),
+                value => value.TotalBytes > 0 &&
+                         value.BytesTransferred >= value.TotalBytes),
             sameNamePolicy: _sameNamePolicy,
             log: Log);
 
@@ -1789,8 +1797,9 @@ public partial class MainWindow : Window
                         Log("文本消息被拒绝：对端未开启接收远程文本。");
                         UpdateStatus("对端未开启接收文本");
                     }
-                    else
+                    else if (control.Subtype != ControlMessageSubtype.Ack)
                     {
+                        // 每个 64 KiB 块都会产生 Ack，逐条写 UI 日志会拖垮界面。
                         Log($"控制消息：{FormatControlMessage(control)}");
                     }
 
@@ -2068,8 +2077,12 @@ public partial class MainWindow : Window
 
         try
         {
-            var progress = new Progress<FileTransferProgress>(value =>
-                UpdateStatus($"正在发送：{value.BytesTransferred}/{value.TotalBytes} 字节"));
+            var progress = new ThrottledProgress<FileTransferProgress>(
+                value => UpdateStatus(
+                    $"正在发送：{value.BytesTransferred}/{value.TotalBytes} 字节"),
+                TimeSpan.FromMilliseconds(150),
+                value => value.TotalBytes > 0 &&
+                         value.BytesTransferred >= value.TotalBytes);
 
             var startProgress = new Progress<FileTransferStartInfo>(info =>
                 Log(info.IsResume
@@ -2745,6 +2758,7 @@ public partial class MainWindow : Window
     private void ClearLogButton_Click(object sender, RoutedEventArgs e)
     {
         LogTextBox.Clear();
+        _uiLogLineCount = 0;
     }
 
     private void HistoryButton_Click(object sender, RoutedEventArgs e)
@@ -3092,7 +3106,50 @@ public partial class MainWindow : Window
         }
 
         LogTextBox.AppendText(line + Environment.NewLine);
+        _uiLogLineCount++;
+
+        if (_uiLogLineCount > MaxUiLogLines)
+        {
+            TrimLogTextBox();
+        }
+
         LogTextBox.ScrollToEnd();
+    }
+
+    private void TrimLogTextBox()
+    {
+        var removeLines = Math.Min(
+            _uiLogLineCount - MaxUiLogLines + UiLogTrimBatch,
+            _uiLogLineCount);
+
+        if (removeLines <= 0)
+        {
+            return;
+        }
+
+        var text = LogTextBox.Text;
+        var index = 0;
+
+        for (var line = 0; line < removeLines; line++)
+        {
+            var next = text.IndexOf('\n', index);
+
+            if (next < 0)
+            {
+                index = text.Length;
+                break;
+            }
+
+            index = next + 1;
+        }
+
+        if (index <= 0)
+        {
+            return;
+        }
+
+        LogTextBox.Text = text[index..];
+        _uiLogLineCount = Math.Max(0, _uiLogLineCount - removeLines);
     }
 
     private static string FormatBytes(long bytes) => bytes switch
