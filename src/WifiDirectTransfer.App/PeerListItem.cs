@@ -18,6 +18,12 @@ internal sealed class PeerListItem
 
     public bool IsKnown => KnownDevice is not null;
 
+    public string DisplayName => Peer.DisplayName;
+
+    public string LastConnectedText => KnownDevice is null
+        ? "已发现"
+        : $"上次连接 {KnownDevice.LastConnectedAt.LocalDateTime:MM-dd HH:mm}";
+
     public string DisplayNameText => IsKnown
         ? $"{Peer.DisplayName}（最近连接）"
         : Peer.DisplayName;

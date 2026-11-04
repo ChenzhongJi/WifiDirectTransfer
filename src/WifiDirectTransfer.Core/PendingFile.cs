@@ -46,6 +46,7 @@ public sealed class PendingFile : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(ProgressPercent));
+            OnPropertyChanged(nameof(ProgressText));
         }
     }
 
@@ -87,6 +88,7 @@ public sealed class PendingFile : INotifyPropertyChanged
             _bytesTransferred = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ProgressPercent));
+            OnPropertyChanged(nameof(ProgressText));
         }
     }
 
@@ -128,6 +130,10 @@ public sealed class PendingFile : INotifyPropertyChanged
                 100d);
         }
     }
+
+    public string ProgressText => Status == PendingFileStatus.Waiting
+        ? "—"
+        : $"{ProgressPercent:0}%";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

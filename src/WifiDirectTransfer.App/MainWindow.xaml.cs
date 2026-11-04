@@ -88,7 +88,7 @@ public partial class MainWindow : Window
 
     private const int MaxUiLogLines = 2000;
     private const int UiLogTrimBatch = 500;
-    private const double ExpandedLogHeight = 200;
+    private const double ExpandedLogHeight = 160;
 
     public MainWindow()
     {
@@ -1263,7 +1263,7 @@ public partial class MainWindow : Window
         queue.FileSkipped += OnQueueFileSkipped;
         queue.QueueCompleted += OnQueueCompleted;
         _queueManager = queue;
-        QueuePanel.DataContext = queue;
+        SendPanel.DataContext = queue;
 
         dispatcher.MessageReceived += OnDispatcherMessageAsync;
         dispatcher.Disconnected += OnDispatcherDisconnected;
@@ -1337,7 +1337,7 @@ public partial class MainWindow : Window
         _receivedFiles.Insert(
             0,
             new ReceivedFileItem(result, DateTimeOffset.Now));
-        ReceivedFilesEmptyText.Visibility = Visibility.Collapsed;
+        ReceivedFilesEmptyPanel.Visibility = Visibility.Collapsed;
         ClearCurrentReceive();
 
         UpdateStatus("已连接，可以继续传输");
@@ -2242,7 +2242,9 @@ public partial class MainWindow : Window
             _messageLoopTask = null;
             _step0Passed = false;
             _messageLayerReady = false;
-            QueuePanel.DataContext = null;
+            SendPanel.DataContext = null;
+            QueueDetailsPanel.Visibility = Visibility.Collapsed;
+            QueueDetailsToggleButton.Content = "详情";
             _clipboardSyncService.SetSender(null);
             ClearCurrentReceive();
 
@@ -2825,6 +2827,55 @@ public partial class MainWindow : Window
         SetLogCollapsed(!_isLogCollapsed);
     }
 
+    private void QueueDetailsToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (QueueDetailsPanel is null)
+        {
+            return;
+        }
+
+        var show = QueueDetailsPanel.Visibility != Visibility.Visible;
+
+        QueueDetailsPanel.Visibility =
+            show ? Visibility.Visible : Visibility.Collapsed;
+        QueueDetailsToggleButton.Content = show ? "收起详情" : "详情";
+    }
+
+    private void AdvancedSettingsToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (AdvancedSettingsPanel is null)
+        {
+            return;
+        }
+
+        var show = AdvancedSettingsToggle.IsChecked == true;
+
+        AdvancedSettingsPanel.Visibility =
+            show ? Visibility.Visible : Visibility.Collapsed;
+        AdvancedSettingsChevron.Text = show ? "⌃" : "⌄";
+
+        if (show)
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    var position = AdvancedSettingsToggle.TranslatePoint(
+                        new Point(0, 0),
+                        LeftRailScrollViewer);
+                    var target = LeftRailScrollViewer.VerticalOffset +
+                                 position.Y - 8;
+
+                    LeftRailScrollViewer.ScrollToVerticalOffset(
+                        Math.Max(0, target));
+                }),
+                DispatcherPriority.Background);
+        }
+        else
+        {
+            LeftRailScrollViewer.ScrollToTop();
+        }
+    }
+
     private void SetLogCollapsed(bool collapsed)
     {
         _isLogCollapsed = collapsed;
@@ -3007,6 +3058,13 @@ public partial class MainWindow : Window
             showSend ? Visibility.Visible : Visibility.Collapsed;
         ReceivePanel.Visibility =
             showSend ? Visibility.Collapsed : Visibility.Visible;
+
+        if (WorkspaceHintText is not null)
+        {
+            WorkspaceHintText.Text = showSend
+                ? "拖入文件即可加入发送队列"
+                : "接收完成后可直接拖出到资源管理器";
+        }
     }
 
     private void UpdateTransferTabHeaders()
@@ -3168,7 +3226,7 @@ public partial class MainWindow : Window
         SendTextButton.IsEnabled = canTransfer;
         TextInboxButton.IsEnabled = true;
 
-        QueueEmptyText.Visibility = queue is { HasFiles: true }
+        QueueEmptyPanel.Visibility = queue is { HasFiles: true }
             ? Visibility.Collapsed
             : Visibility.Visible;
 
@@ -3188,9 +3246,39 @@ public partial class MainWindow : Window
 
         ChangeReceiveDirectoryButton.IsEnabled = !connected && !busy;
 
+        UpdateConnectionHeader();
         UpdateTransferTabHeaders();
 
         ScanButton.Content = _isScanning ? "搜索中…" : "扫描设备";
+    }
+
+    private void UpdateConnectionHeader()
+    {
+        var connected = _channel is not null;
+
+        ConnectionChip.Background = connected
+            ? Brushes.Honeydew
+            : Brushes.WhiteSmoke;
+        ConnectionDot.Fill = connected
+            ? Brushes.SeaGreen
+            : _isConnecting
+                ? Brushes.DarkOrange
+                : Brushes.Gray;
+        ConnectionStatusText.Foreground = connected
+            ? Brushes.ForestGreen
+            : Brushes.DimGray;
+
+        ConnectionStatusText.Text = connected
+            ? "已连接"
+            : _isConnecting
+                ? "连接中…"
+                : _isScanning
+                    ? "搜索中…"
+                    : "未连接";
+
+        ConnectionPeerText.Text = connected
+            ? _connectedPeerName ?? "对端设备"
+            : "选择设备并连接";
     }
 
     private void UpdateStatus(string status)

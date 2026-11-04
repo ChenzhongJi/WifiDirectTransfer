@@ -8,8 +8,8 @@
         MinWidth="980"
         MinHeight="640"
         WindowStartupLocation="CenterScreen"
-        Background="#F3F3F3"
-        FontFamily="Segoe UI"
+        Background="{StaticResource WindowBackgroundBrush}"
+        FontFamily="{StaticResource UiFont}"
         FontSize="13"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
@@ -19,261 +19,376 @@
         Loaded="OnLoaded"
         Closing="OnClosing">
     <Window.Resources>
-        <Style x:Key="TransferTabStyle" TargetType="RadioButton">
-            <Setter Property="Foreground" Value="#616161" />
-            <Setter Property="FontSize" Value="15" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="TabBorder"
-                                Margin="0,0,8,0"
-                                Padding="14,6"
-                                Background="Transparent"
-                                BorderBrush="Transparent"
-                                BorderThickness="0,0,0,2"
-                                CornerRadius="4">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="TabBorder"
-                                        Property="BorderBrush"
-                                        Value="#0B5CAD" />
-                                <Setter Property="Foreground" Value="#0B5CAD" />
-                                <Setter Property="FontWeight" Value="SemiBold" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="TabBorder"
-                                        Property="Background"
-                                        Value="#F0F4FA" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <Style TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}" />
+
+        <Geometry x:Key="FileIconGeometry">M4,1.8 H9.5 L13,5.3 V14.2 H4 Z M9.5,1.8 V5.3 H13</Geometry>
+        <Geometry x:Key="DeviceIconGeometry">M2.5,3.5 H13.5 V11 H2.5 Z M1.5,13.5 H14.5</Geometry>
+        <Geometry x:Key="FolderIconGeometry">M1.8,4.2 H6.2 L7.6,6.1 H14.2 V12.8 H1.8 Z</Geometry>
+
+        <Style x:Key="SmallGlyphPath" TargetType="Path">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="Fill" Value="Transparent" />
+            <Setter Property="Stroke" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="StrokeThickness" Value="1.2" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+        </Style>
+
+        <Style x:Key="QueueStatusTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Transferring">
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Failed">
+                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Skipped">
+                    <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="QueueProgressBarStyle"
+               TargetType="ProgressBar"
+               BasedOn="{StaticResource {x:Type ProgressBar}}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Failed">
+                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Skipped">
+                    <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CurrentStatusTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Transferring">
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Completed">
+                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Failed">
+                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="24">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="56" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
-        <Grid>
+        <!-- 顶部状态栏：连接状态 + 能力状态 -->
+        <Border Grid.Row="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="20,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Border x:Name="ConnectionChip"
+                        Padding="10,4"
+                        VerticalAlignment="Center"
+                        Background="{StaticResource SurfaceAltBrush}"
+                        CornerRadius="14">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="ConnectionDot"
+                                 Width="7"
+                                 Height="7"
+                                 VerticalAlignment="Center"
+                                 Fill="#8A8F98" />
+                        <TextBlock x:Name="ConnectionStatusText"
+                                   Margin="7,0,0,0"
+                                   VerticalAlignment="Center"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Text="未连接" />
+                        <Border Width="1"
+                                Height="12"
+                                Margin="8,0"
+                                VerticalAlignment="Center"
+                                Background="#D8D8D8" />
+                        <TextBlock x:Name="ConnectionPeerText"
+                                   MaxWidth="220"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="选择设备并连接"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Grid.Column="1"
+                           Margin="16,0"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Text="连接后双方都可以发送和接收文件"
+                           TextTrimming="CharacterEllipsis" />
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Ellipse x:Name="CapabilityDot"
+                             Width="8"
+                             Height="8"
+                             VerticalAlignment="Center"
+                             Fill="#8A8F98" />
+                    <TextBlock x:Name="CapabilityText"
+                               MaxWidth="360"
+                               Margin="6,0,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Text="正在检查 Wi-Fi Direct 能力…"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel>
-                <TextBlock Text="Wi-Fi Direct 文件传输"
-                           FontSize="26"
-                           FontWeight="SemiBold"
-                           Foreground="#1B1B1B" />
-                <TextBlock Text="M1 · PeerFinder + StreamSocket"
-                           Margin="0,4,0,0"
-                           Foreground="#616161" />
-            </StackPanel>
-
-            <StackPanel Grid.Column="1"
-                        Orientation="Horizontal"
-                        VerticalAlignment="Center">
-                <Ellipse x:Name="CapabilityDot"
-                         Width="10"
-                         Height="10"
-                         Margin="0,0,8,0"
-                         VerticalAlignment="Center"
-                         Fill="#8A8A8A" />
-                <TextBlock x:Name="CapabilityText"
-                           MaxWidth="520"
-                           Text="正在检查 Wi-Fi Direct 能力…"
-                           TextAlignment="Right"
-                           TextWrapping="Wrap"
-                           Foreground="#616161" />
-            </StackPanel>
-        </Grid>
-
-        <Grid Grid.Row="1" Margin="0,18,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="390" />
-                <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <ScrollViewer Grid.Column="0"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
-                <StackPanel>
-                    <Border Background="White"
-                            BorderBrush="#E0E0E0"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="16"
-                            Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Text="连接角色"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       Foreground="#1B1B1B" />
-                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <!-- 左侧：连接与设备 -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource SurfaceAltBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <ScrollViewer x:Name="LeftRailScrollViewer"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14,16,14,16">
+                        <TextBlock Style="{StaticResource SectionLabelText}"
+                                   Text="连接方式" />
+                        <Border Margin="0,6,0,0"
+                                Padding="2"
+                                Background="#ECECEC"
+                                CornerRadius="6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
                                 <RadioButton x:Name="RoleReceiverRadio"
                                              GroupName="Role"
-                                             Content="作为等待连接端"
-                                             Margin="0,0,24,0"
+                                             Content="等待连接"
+                                             Style="{StaticResource SegmentRadioStyle}"
                                              Checked="RoleRadio_Checked" />
                                 <RadioButton x:Name="RoleSenderRadio"
+                                             Grid.Column="1"
                                              GroupName="Role"
-                                             Content="作为连接发起端"
+                                             Content="连接设备"
+                                             Style="{StaticResource SegmentRadioStyle}"
                                              Checked="RoleRadio_Checked" />
-                            </StackPanel>
-                            <TextBlock Text="连接成功后双方都可以发送和接收文件。"
-                                       Margin="0,8,0,0"
-                                       Foreground="#707070"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border Background="White"
-                            BorderBrush="#E0E0E0"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="16"
-                            Margin="0,0,0,10">
-                        <StackPanel>
-                            <Grid>
-                                <TextBlock Text="设备"
-                                           FontSize="16"
-                                           FontWeight="SemiBold"
-                                           Foreground="#1B1B1B"
-                                           VerticalAlignment="Center" />
-                                <Button x:Name="ScanButton"
-                                        HorizontalAlignment="Right"
-                                        Padding="12,4"
-                                        Content="扫描设备"
-                                        Click="ScanButton_Click" />
                             </Grid>
+                        </Border>
+                        <Grid Margin="0,14,0,8">
+                            <TextBlock Style="{StaticResource SectionTitleText}"
+                                       Text="设备"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="ScanButton"
+                                    HorizontalAlignment="Right"
+                                    Content="扫描设备"
+                                    Style="{StaticResource SmallSubtleButtonStyle}"
+                                    Click="ScanButton_Click" />
+                        </Grid>
 
-                            <ListBox x:Name="PeerList"
-                                     Height="140"
-                                     Margin="0,10,0,0"
-                                     Background="#FFFFFF"
-                                     BorderBrush="#E0E0E0"
-                                     SelectionChanged="PeerList_SelectionChanged">
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="4,6">
-                                            <TextBlock Text="{Binding DisplayNameText}"
+                        <ListBox x:Name="PeerList"
+                                 MinHeight="60"
+                                 MaxHeight="168"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ItemContainerStyle="{StaticResource PeerListItemStyle}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 SelectionChanged="PeerList_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="28"
+                                                Height="28"
+                                                Background="#F1F3F6"
+                                                CornerRadius="5">
+                                            <Path Data="{StaticResource DeviceIconGeometry}"
+                                                  Style="{StaticResource SmallGlyphPath}"
+                                                  Stroke="#65707D" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                    Margin="9,0,6,0"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       FontSize="12"
                                                        FontWeight="SemiBold"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding DetailText}"
-                                                       Margin="0,2,0,0"
-                                                       FontSize="11"
-                                                       Foreground="#707070"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding DetailText}" />
+                                            <TextBlock Margin="0,2,0,0"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                                       Text="{Binding LastConnectedText}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                        <Border Grid.Column="2"
+                                                Padding="5,1"
+                                                VerticalAlignment="Center"
+                                                Background="{StaticResource SuccessSoftBrush}"
+                                                CornerRadius="999">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsKnown}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock FontSize="9.5"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource SuccessBrush}"
+                                                       Text="最近" />
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
 
-                            <Grid Margin="0,10,0,0">
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="ConnectButton"
+                                    Content="连接选中设备"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Click="ConnectButton_Click" />
+                            <Button x:Name="QuickReconnectButton"
+                                    Grid.Column="2"
+                                    Content="快速重连"
+                                    Click="QuickReconnectButton_Click" />
+                        </Grid>
+
+                        <Button x:Name="WaitButton"
+                                Margin="0,8,0,0"
+                                Content="等待连接"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="WaitButton_Click" />
+
+                        <Border Height="1"
+                                Margin="0,16,0,12"
+                                Background="{StaticResource BorderBrush}" />
+
+                        <TextBlock Style="{StaticResource SectionTitleText}"
+                                   Text="文本" />
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="SendTextButton"
+                                    Content="发送文本"
+                                    ToolTip="向对端发送一段文本"
+                                    Click="SendTextButton_Click" />
+                            <Button x:Name="TextInboxButton"
+                                    Grid.Column="2"
+                                    Content="收到的文本"
+                                    ToolTip="查看收到的文本"
+                                    Click="TextInboxButton_Click" />
+                        </Grid>
+
+                        <Border Height="1"
+                                Margin="0,16,0,10"
+                                Background="{StaticResource BorderBrush}" />
+
+                        <ToggleButton x:Name="AdvancedSettingsToggle"
+                                      AutomationProperties.Name="更多设置"
+                                      AutomationProperties.HelpText="展开剪贴板、远程文本和接收目录设置"
+                                      Style="{StaticResource AdvancedToggleStyle}"
+                                      Checked="AdvancedSettingsToggle_Changed"
+                                      Unchecked="AdvancedSettingsToggle_Changed">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="8" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Button x:Name="ConnectButton"
-                                        Padding="12,6"
-                                        Content="连接选中设备"
-                                        Click="ConnectButton_Click" />
-                                <Button x:Name="QuickReconnectButton"
-                                        Grid.Column="2"
-                                        Padding="12,6"
-                                        Content="快速重连"
-                                        Click="QuickReconnectButton_Click" />
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="更多设置" />
+                                <TextBlock x:Name="AdvancedSettingsChevron"
+                                           Grid.Column="2"
+                                           VerticalAlignment="Center"
+                                           FontSize="13"
+                                           Text="⌄" />
                             </Grid>
-                        </StackPanel>
-                    </Border>
+                        </ToggleButton>
 
-                    <Border Background="White"
-                            BorderBrush="#E0E0E0"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="16">
-                        <StackPanel>
-                            <TextBlock Text="操作"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       Foreground="#1B1B1B" />
-
-                            <Button x:Name="WaitButton"
-                                    Margin="0,10,0,0"
-                                    Padding="12,6"
-                                    Content="等待连接"
-                                    Click="WaitButton_Click" />
-
-                            <Button x:Name="SendTestFileButton"
-                                    Margin="0,6,0,0"
-                                    Padding="12,6"
-                                    Content="发送测试文件（1 MiB）"
-                                    Click="SendTestFileButton_Click" />
-
-                            <Grid Margin="0,6,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="8" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button x:Name="SendTextButton"
-                                        Padding="12,6"
-                                        Content="发送文本"
-                                        Click="SendTextButton_Click" />
-                                <Button x:Name="TextInboxButton"
-                                        Grid.Column="2"
-                                        Padding="12,6"
-                                        Content="收到的文本"
-                                        Click="TextInboxButton_Click" />
-                            </Grid>
-
+                        <StackPanel x:Name="AdvancedSettingsPanel"
+                                    Margin="4,4,4,0"
+                                    Visibility="Collapsed">
                             <CheckBox x:Name="ClipboardSyncCheckBox"
-                                      Margin="0,12,0,0"
+                                      Margin="0,6,0,0"
                                       Content="启用剪贴板同步"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
                                       Checked="ClipboardSyncCheckBox_Checked"
                                       Unchecked="ClipboardSyncCheckBox_Unchecked" />
-                            <TextBlock Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
-                                       Margin="0,4,0,0"
-                                       FontSize="11"
-                                       Foreground="#707070"
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
                                        TextWrapping="Wrap" />
 
                             <CheckBox x:Name="TextReceiveCheckBox"
-                                      Margin="0,12,0,0"
+                                      Margin="0,10,0,0"
                                       Content="允许接收远程文本"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
                                       Checked="TextReceiveCheckBox_Checked"
                                       Unchecked="TextReceiveCheckBox_Unchecked" />
-                            <TextBlock Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
-                                       Margin="0,4,0,0"
-                                       FontSize="11"
-                                       Foreground="#707070"
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
                                        TextWrapping="Wrap" />
 
                             <StackPanel x:Name="SameNamePolicyPanel"
-                                        Margin="0,12,0,0"
-                                        Visibility="Collapsed">
-                                <TextBlock Text="同名文件"
-                                           FontSize="12"
-                                           Foreground="#616161" />
+                                        Margin="0,12,0,0">
+                                <TextBlock Style="{StaticResource MetaText}"
+                                           Text="同名文件" />
                                 <ComboBox x:Name="SameNamePolicyComboBox"
                                           Margin="0,4,0,0"
                                           SelectedIndex="0"
+                                          Style="{StaticResource CompactComboBoxStyle}"
                                           SelectionChanged="SameNamePolicyComboBox_SelectionChanged">
                                     <ComboBoxItem Content="自动重命名（追加 (1)、(2)）"
                                                   Tag="AutoRename" />
@@ -284,395 +399,736 @@
                                 </ComboBox>
                             </StackPanel>
 
-                            <Grid Margin="0,10,0,0">
+                            <TextBlock Margin="0,12,0,0"
+                                       Style="{StaticResource MetaText}"
+                                       Text="接收目录" />
+                            <Grid Margin="0,4,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="ReceiveDirectoryText"
-                                           FontSize="11"
-                                           Foreground="#707070"
-                                           TextWrapping="Wrap"
-                                           VerticalAlignment="Center" />
+                                           VerticalAlignment="Center"
+                                           FontSize="10.5"
+                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                 <Button x:Name="ChangeReceiveDirectoryButton"
                                         Grid.Column="1"
                                         Margin="8,0,0,0"
-                                        Padding="8,2"
                                         Content="更改…"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
                                         Click="ChangeReceiveDirectoryButton_Click" />
                             </Grid>
+
+                            <Button x:Name="SendTestFileButton"
+                                    Margin="0,10,0,0"
+                                    HorizontalAlignment="Left"
+                                    Content="发送测试文件（1 MiB）"
+                                    Style="{StaticResource SmallSubtleButtonStyle}"
+                                    Click="SendTestFileButton_Click" />
                         </StackPanel>
-                    </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
 
-                </StackPanel>
-            </ScrollViewer>
-
-            <Grid Grid.Column="2">
+            <!-- 右侧：传输工作区 -->
+            <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*" MinHeight="260" />
+                    <RowDefinition Height="48" />
+                    <RowDefinition Height="*" />
                     <RowDefinition x:Name="LogRow"
-                                   Height="200"
+                                   Height="160"
                                    MinHeight="120" />
                 </Grid.RowDefinitions>
 
-                <Border Background="White"
-                        BorderBrush="#E0E0E0"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="18">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
+                <Border Grid.Row="0"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <Grid Margin="16,0">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="SendTabButton"
                                          Content="发送"
-                                         Style="{StaticResource TransferTabStyle}"
                                          GroupName="TransferTabs"
                                          IsChecked="True"
+                                         Style="{StaticResource TransferTabStyle}"
                                          Checked="TransferTab_Checked" />
                             <RadioButton x:Name="ReceiveTabButton"
                                          Content="接收"
-                                         Style="{StaticResource TransferTabStyle}"
                                          GroupName="TransferTabs"
+                                         Style="{StaticResource TransferTabStyle}"
                                          Checked="TransferTab_Checked" />
                         </StackPanel>
-
-                        <Grid Grid.Row="1" Margin="0,12,0,0">
-                            <Grid x:Name="SendPanel">
-                                <Grid x:Name="QueuePanel">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="*" />
-                                    </Grid.RowDefinitions>
-
-                        <Grid>
-                            <TextBlock Text="传输队列"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       Foreground="#1B1B1B"
-                                       VerticalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center">
-                                <Button x:Name="AddQueueFilesButton"
-                                        Padding="10,2"
-                                        Content="添加文件…"
-                                        Click="AddQueueFilesButton_Click" />
-                                <Button x:Name="StartQueueButton"
-                                        Margin="6,0,0,0"
-                                        Padding="10,2"
-                                        Content="开始传输"
-                                        Click="StartQueueButton_Click" />
-                                <Button x:Name="ClearQueueButton"
-                                        Margin="6,0,0,0"
-                                        Padding="10,2"
-                                        Content="清空"
-                                        Click="ClearQueueButton_Click" />
-                            </StackPanel>
-                        </Grid>
-
-                        <Grid Grid.Row="1" Margin="0,12,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="{Binding CurrentPositionText}"
-                                           FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
-                                           Margin="0,2,0,0"
-                                           Foreground="#1B1B1B"
-                                           TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="1"
-                                       VerticalAlignment="Center"
-                                       Foreground="#707070"
-                                       Text="{Binding CurrentFile.StatusText, TargetNullValue=等待添加文件, FallbackValue=等待添加文件}" />
-                        </Grid>
-
-                        <Grid Grid.Row="2" Margin="0,10,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="18" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="当前文件"
-                                           FontSize="11"
-                                           Foreground="#707070" />
-                                <ProgressBar Height="8"
-                                             Margin="0,4,0,0"
-                                             Minimum="0"
-                                             Maximum="100"
-                                             Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <Grid>
-                                    <TextBlock Text="总体进度"
-                                               FontSize="11"
-                                               Foreground="#707070" />
-                                    <TextBlock HorizontalAlignment="Right"
-                                               FontSize="11"
-                                               Foreground="#707070"
-                                               Text="{Binding OverallProgressText}" />
-                                </Grid>
-                                <ProgressBar Height="8"
-                                             Margin="0,4,0,0"
-                                             Minimum="0"
-                                             Maximum="100"
-                                             Value="{Binding OverallProgressPercent, Mode=OneWay}" />
-                            </StackPanel>
-                        </Grid>
-
-                        <Grid Grid.Row="3" Margin="0,10,0,0">
-                            <ListBox x:Name="QueueList"
-                                     MinHeight="80"
-                                     ItemsSource="{Binding Files}"
-                                     Background="#FFFFFF"
-                                     BorderBrush="#E0E0E0"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                <ListBox.ItemContainerStyle>
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                        <Setter Property="Padding" Value="0" />
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="4,4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel>
-                                                <TextBlock Text="{Binding FileName}"
-                                                           FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           ToolTip="{Binding SourcePath}" />
-                                                <StackPanel Orientation="Horizontal"
-                                                            Margin="0,2,0,0">
-                                                    <TextBlock FontSize="11"
-                                                               Foreground="#707070"
-                                                               Text="{Binding Size, StringFormat={}{0:N0} 字节}" />
-                                                    <TextBlock FontSize="11"
-                                                               Foreground="#707070"
-                                                               Text=" · " />
-                                                    <TextBlock FontSize="11"
-                                                               Text="{Binding StatusText}">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="#707070" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding Status}" Value="Transferring">
-                                                                        <Setter Property="Foreground" Value="#0B5CAD" />
-                                                                    </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Status}" Value="Completed">
-                                                                        <Setter Property="Foreground" Value="#1B7F3B" />
-                                                                    </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Status}" Value="Failed">
-                                                                        <Setter Property="Foreground" Value="#B3261E" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                    </TextBlock>
-                                                </StackPanel>
-                                                <TextBlock Margin="0,2,0,0"
-                                                           FontSize="11"
-                                                           Foreground="#B3261E"
-                                                           TextWrapping="Wrap"
-                                                           Text="{Binding ErrorMessage}">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}">
-                                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </StackPanel>
-                                            <ProgressBar Grid.Column="1"
-                                                         Width="90"
-                                                         Height="6"
-                                                         Margin="12,0,0,0"
-                                                         VerticalAlignment="Center"
-                                                         Minimum="0"
-                                                         Maximum="100"
-                                                         Value="{Binding ProgressPercent, Mode=OneWay}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-
-                            <TextBlock x:Name="QueueEmptyText"
-                                       Text="尚未添加文件，连接后可添加或拖入。"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="#8A8A8A"
-                                       IsHitTestVisible="False" />
-                        </Grid>
-                                </Grid>
-                            </Grid>
-
-                            <Grid x:Name="ReceivePanel" Visibility="Collapsed">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
-                                <Border x:Name="CurrentReceivePanel"
-                                        Margin="0,0,0,12"
-                                        Padding="12"
-                                        Background="#F2F7FF"
-                                        BorderBrush="#C9DCF3"
-                                        BorderThickness="1"
-                                        CornerRadius="6"
-                                        Visibility="Collapsed">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <TextBlock Text="正在接收"
-                                                   FontSize="11"
-                                                   Foreground="#0B5CAD" />
-                                        <TextBlock Grid.Row="1"
-                                                   Margin="0,4,0,0"
-                                                   Text="{Binding FileName}"
-                                                   FontWeight="SemiBold"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="2"
-                                                   Margin="0,4,0,0"
-                                                   Text="{Binding DetailText}"
-                                                   FontSize="11"
-                                                   Foreground="#616161"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <ProgressBar Grid.Row="3"
-                                                     Height="8"
-                                                     Margin="0,6,0,0"
-                                                     Minimum="0"
-                                                     Maximum="100"
-                                                     Value="{Binding ProgressPercent, Mode=OneWay}" />
-                                    </Grid>
-                                </Border>
-
-                                <Grid Grid.Row="1" Margin="0,0,0,8">
-                                    <TextBlock Text="本次已接收文件"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"
-                                               Foreground="#1B1B1B"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               FontSize="11"
-                                               Foreground="#707070"
-                                               Text="可拖出" />
-                                </Grid>
-
-                                <ListBox x:Name="ReceivedFilesList"
-                                         Grid.Row="2"
-                                         SelectionMode="Extended"
-                                         Background="#FFFFFF"
-                                         BorderBrush="#E0E0E0"
-                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                         PreviewMouseLeftButtonDown="ReceivedFilesList_PreviewMouseLeftButtonDown"
-                                         PreviewMouseLeftButtonUp="ReceivedFilesList_PreviewMouseLeftButtonUp"
-                                         MouseMove="ReceivedFilesList_MouseMove">
-                                    <ListBox.ItemContainerStyle>
-                                        <Style TargetType="ListBoxItem">
-                                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                            <Setter Property="Padding" Value="0" />
-                                        </Style>
-                                    </ListBox.ItemContainerStyle>
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Margin="4,4">
-                                                <TextBlock Text="{Binding FileName}"
-                                                           FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           ToolTip="{Binding FilePath}" />
-                                                <TextBlock Text="{Binding DetailText}"
-                                                           Margin="0,2,0,0"
-                                                           FontSize="11"
-                                                           Foreground="#707070"
-                                                           TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-
-                                <TextBlock x:Name="ReceivedFilesEmptyText"
-                                           Grid.Row="3"
-                                           Margin="0,6,0,0"
-                                           FontSize="11"
-                                           Foreground="#8A8A8A"
-                                           Text="接收到的文件会显示在这里，可直接拖到资源管理器。" />
-                            </Grid>
-                        </Grid>
+                        <TextBlock x:Name="WorkspaceHintText"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                   Text="拖入文件即可加入发送队列" />
                     </Grid>
                 </Border>
 
-                <Border x:Name="LogPanel"
-                        Grid.Row="1"
-                        Margin="0,12,0,0"
-                        Background="White"
-                        BorderBrush="#E0E0E0"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="18">
-                    <Grid>
+                <Grid Grid.Row="1" Margin="16,12,16,0">
+                    <!-- 发送 -->
+                    <Grid x:Name="SendPanel">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
                         <Grid Margin="0,0,0,10">
-                            <TextBlock Text="日志"
-                                       FontSize="16"
-                                       FontWeight="SemiBold"
-                                       Foreground="#1B1B1B"
+                            <TextBlock Style="{StaticResource SectionTitleText}"
+                                       Text="传输队列"
                                        VerticalAlignment="Center" />
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="Right">
-                                <Button x:Name="LogToggleButton"
-                                        Padding="10,2"
-                                        Content="折叠"
-                                        ToolTip="折叠或展开日志"
-                                        Click="LogToggleButton_Click" />
-                                <Button x:Name="HistoryButton"
+                                <Button x:Name="AddQueueFilesButton"
+                                        Content="添加文件…"
+                                        Style="{StaticResource SmallButtonStyle}"
+                                        Click="AddQueueFilesButton_Click" />
+                                <Button x:Name="StartQueueButton"
                                         Margin="6,0,0,0"
-                                        Padding="10,2"
+                                        Content="开始传输"
+                                        Style="{StaticResource SmallPrimaryButtonStyle}"
+                                        Click="StartQueueButton_Click" />
+                                <Button x:Name="ClearQueueButton"
+                                        Margin="4,0,0,0"
+                                        Content="清空"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        Click="ClearQueueButton_Click" />
+                                <Button x:Name="QueueDetailsToggleButton"
+                                        Margin="2,0,0,0"
+                                        Content="详情"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        ToolTip="展开或收起当前传输详情"
+                                        Click="QueueDetailsToggleButton_Click" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Border Grid.Row="1"
+                                Margin="0,0,0,10"
+                                Padding="12"
+                                Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Grid>
+                                    <StackPanel Orientation="Horizontal"
+                                                VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding CurrentPositionText}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontSize" Value="11.5" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                                     Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Margin="6,0"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                                   Text="·">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                                     Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock MaxWidth="420"
+                                                   FontSize="11.5"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding CurrentFile.SourcePath}" />
+                                    </StackPanel>
+                                    <TextBlock HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource CurrentStatusTextStyle}"
+                                               Text="{Binding CurrentFile.StatusText, TargetNullValue=等待添加文件, FallbackValue=等待添加文件}" />
+                                </Grid>
+
+                                <Grid Grid.Row="1" Margin="0,8,0,0">
+                                    <Grid.Style>
+                                        <Style TargetType="Grid">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                             Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Grid.Style>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <Grid>
+                                            <TextBlock Style="{StaticResource TinyText}"
+                                                       Text="当前文件" />
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="{Binding CurrentFile.ProgressPercent, StringFormat={}{0:0}%}" />
+                                        </Grid>
+                                        <ProgressBar Height="6"
+                                                     Margin="0,4,0,0"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <Grid>
+                                            <TextBlock Style="{StaticResource TinyText}"
+                                                       Text="总体进度" />
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="{Binding OverallProgressText}" />
+                                        </Grid>
+                                        <ProgressBar Height="6"
+                                                     Margin="0,4,0,0"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{Binding OverallProgressPercent, Mode=OneWay}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="31" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0"
+                                          Background="{StaticResource SurfaceAltBrush}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid Grid.Column="1" Margin="12,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="64" />
+                                                <ColumnDefinition Width="72" />
+                                                <ColumnDefinition Width="116" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock VerticalAlignment="Center"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="文件" />
+                                            <TextBlock Grid.Column="1"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="大小" />
+                                            <TextBlock Grid.Column="2"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="状态" />
+                                            <TextBlock Grid.Column="3"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="进度" />
+                                        </Grid>
+                                    </Grid>
+
+                                    <Grid Grid.Row="1">
+                                        <ListBox x:Name="QueueList"
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 ItemContainerStyle="{StaticResource QueueListItemStyle}"
+                                                 ItemsSource="{Binding Files}"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{StaticResource RowSeparatorBrush}"
+                                                            BorderThickness="0,0,0,1">
+                                                        <Grid Height="48" Margin="12,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="64" />
+                                                                <ColumnDefinition Width="72" />
+                                                                <ColumnDefinition Width="116" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Grid VerticalAlignment="Center">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <Border Width="24"
+                                                                        Height="24"
+                                                                        Background="#F1F3F6"
+                                                                        CornerRadius="4">
+                                                                    <Path Data="{StaticResource FileIconGeometry}"
+                                                                          Style="{StaticResource SmallGlyphPath}"
+                                                                          Stroke="#65707D" />
+                                                                </Border>
+                                                                <StackPanel Grid.Column="1"
+                                                                            Margin="8,0,0,0"
+                                                                            VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding FileName}"
+                                                                               FontSize="12"
+                                                                               FontWeight="SemiBold"
+                                                                               TextTrimming="CharacterEllipsis"
+                                                                               ToolTip="{Binding SourcePath}" />
+                                                                    <TextBlock Margin="0,2,0,0"
+                                                                               FontSize="10"
+                                                                               Foreground="{StaticResource TextTertiaryBrush}"
+                                                                               Text="{Binding SourcePath}"
+                                                                               TextTrimming="CharacterEllipsis" />
+                                                                </StackPanel>
+                                                            </Grid>
+                                                            <TextBlock Grid.Column="1"
+                                                                       VerticalAlignment="Center"
+                                                                       FontSize="10.5"
+                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       Text="{Binding Size, Converter={StaticResource ByteSizeConverter}}" />
+                                                            <TextBlock Grid.Column="2"
+                                                                       VerticalAlignment="Center"
+                                                                       Style="{StaticResource QueueStatusTextStyle}"
+                                                                       Text="{Binding StatusText}" />
+                                                            <Grid Grid.Column="3" VerticalAlignment="Center">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <ProgressBar Height="4"
+                                                                             VerticalAlignment="Center"
+                                                                             Maximum="100"
+                                                                             Minimum="0"
+                                                                             Style="{StaticResource QueueProgressBarStyle}"
+                                                                             Value="{Binding ProgressPercent, Mode=OneWay}" />
+                                                                <TextBlock Grid.Column="1"
+                                                                           Width="34"
+                                                                           Margin="8,0,0,0"
+                                                                           VerticalAlignment="Center"
+                                                                           FontSize="10"
+                                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                                           Text="{Binding ProgressText}"
+                                                                           TextAlignment="Right" />
+                                                            </Grid>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+
+                                    </Grid>
+
+                                    <Grid x:Name="QueueEmptyPanel"
+                                          Grid.RowSpan="2"
+                                          Background="{StaticResource SurfaceBrush}">
+                                        <StackPanel Width="360"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center">
+                                            <Border Width="44"
+                                                    Height="44"
+                                                    HorizontalAlignment="Center"
+                                                    Background="{StaticResource AccentSoftBrush}"
+                                                    CornerRadius="10">
+                                                <Path Width="22"
+                                                      Height="22"
+                                                      Data="{StaticResource FolderIconGeometry}"
+                                                      Fill="Transparent"
+                                                      Stretch="Uniform"
+                                                      Stroke="{StaticResource AccentBrush}"
+                                                      StrokeThickness="1.3" />
+                                            </Border>
+                                            <TextBlock x:Name="QueueEmptyText"
+                                                       HorizontalAlignment="Center"
+                                                       Margin="0,12,0,0"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Text="队列为空" />
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       Margin="0,6,0,0"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                                       Text="拖入文件或文件夹，或从资源管理器添加"
+                                                       TextAlignment="Center"
+                                                       TextWrapping="Wrap" />
+                                            <Button Margin="0,14,0,0"
+                                                    HorizontalAlignment="Center"
+                                                    Content="添加文件…"
+                                                    IsEnabled="{Binding IsEnabled, ElementName=AddQueueFilesButton}"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Click="AddQueueFilesButton_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+
+                            <Border x:Name="QueueDetailsPanel"
+                                    Grid.Column="1"
+                                    Width="240"
+                                    Margin="12,0,0,0"
+                                    Padding="12"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Visibility="Collapsed">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <Grid>
+                                            <TextBlock Style="{StaticResource SectionTitleText}"
+                                                       Text="当前传输详情" />
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource CurrentStatusTextStyle}"
+                                                       Text="{Binding CurrentFile.StatusText, TargetNullValue=尚未开始, FallbackValue=尚未开始}" />
+                                        </Grid>
+                                        <TextBlock Margin="0,10,0,0"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Margin="0,4,0,0"
+                                                   Style="{StaticResource TinyText}"
+                                                   Text="{Binding CurrentFile.SourcePath, TargetNullValue=添加文件后显示完整路径, FallbackValue=添加文件后显示完整路径}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Margin="0,10,0,0"
+                                                   Text="开始传输后显示大小、续传偏移和队列位置。">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource TinyText}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                                     Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <StackPanel x:Name="QueueDetailsFields">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                                     Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <ProgressBar Height="6"
+                                                         Margin="0,10,0,0"
+                                                         Maximum="100"
+                                                         Minimum="0"
+                                                         Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+
+                                        <Grid Margin="0,12,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="64" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Style="{StaticResource TinyText}" Text="大小" />
+                                            <TextBlock Grid.Column="1"
+                                                       FontSize="10.5"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Text="{Binding CurrentFile.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="1"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="已发送" />
+                                            <TextBlock Grid.Row="1"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Text="{Binding CurrentFile.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="2"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="续传偏移" />
+                                            <TextBlock Grid.Row="2"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Text="{Binding CurrentFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="3"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="队列位置" />
+                                            <TextBlock Grid.Row="3"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Text="{Binding CurrentPositionText, TargetNullValue=—}" />
+                                        </Grid>
+                                        </StackPanel>
+
+                                        <TextBlock Margin="0,10,0,0"
+                                                   FontSize="10.5"
+                                                   Foreground="{StaticResource DangerBrush}"
+                                                   Text="{Binding CurrentFile.ErrorMessage}"
+                                                   TextWrapping="Wrap">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentFile.ErrorMessage}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Border>
+                        </Grid>
+                    </Grid>
+
+                    <!-- 接收 -->
+                    <Grid x:Name="ReceivePanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border x:Name="CurrentReceivePanel"
+                                Margin="0,0,0,10"
+                                Padding="12"
+                                Background="{StaticResource AccentSoftBrush}"
+                                BorderBrush="{StaticResource AccentLineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Visibility="Collapsed">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="6"
+                                             Height="6"
+                                             Margin="0,0,6,0"
+                                             VerticalAlignment="Center"
+                                             Fill="{StaticResource AccentBrush}" />
+                                    <TextBlock FontSize="10.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               Text="正在接收" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1"
+                                           Margin="0,4,0,0"
+                                           Text="{Binding FileName}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Row="2"
+                                           Margin="0,4,0,0"
+                                           Text="{Binding DetailText}"
+                                           FontSize="10.5"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <ProgressBar Grid.Row="3"
+                                             Height="6"
+                                             Margin="0,7,0,0"
+                                             Maximum="100"
+                                             Minimum="0"
+                                             Value="{Binding ProgressPercent, Mode=OneWay}" />
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="1">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Style="{StaticResource SectionTitleText}"
+                                           Text="本次已接收文件"
+                                           VerticalAlignment="Center" />
+                                <TextBlock HorizontalAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           FontSize="10.5"
+                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                           Text="可拖出到资源管理器" />
+                            </Grid>
+
+                            <Border Grid.Row="1"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <ListBox x:Name="ReceivedFilesList"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             ItemContainerStyle="{StaticResource ReceivedListItemStyle}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                             SelectionMode="Extended"
+                                             PreviewMouseLeftButtonDown="ReceivedFilesList_PreviewMouseLeftButtonDown"
+                                             PreviewMouseLeftButtonUp="ReceivedFilesList_PreviewMouseLeftButtonUp"
+                                             MouseMove="ReceivedFilesList_MouseMove">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="{StaticResource RowSeparatorBrush}"
+                                                        BorderThickness="0,0,0,1">
+                                                    <Grid Height="50" Margin="12,0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="26"
+                                                                Height="26"
+                                                                VerticalAlignment="Center"
+                                                                Background="#F1F3F6"
+                                                                CornerRadius="4">
+                                                            <Path Data="{StaticResource FileIconGeometry}"
+                                                                  Style="{StaticResource SmallGlyphPath}"
+                                                                  Stroke="#65707D" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1"
+                                                                    Margin="9,0,0,0"
+                                                                    VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding FileName}"
+                                                                       FontSize="12"
+                                                                       FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       ToolTip="{Binding FilePath}" />
+                                                            <TextBlock Margin="0,2,0,0"
+                                                                       FontSize="10"
+                                                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                                                       Text="{Binding DetailText}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+
+                                    <StackPanel x:Name="ReceivedFilesEmptyPanel"
+                                                Width="340"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                IsHitTestVisible="False">
+                                        <Border Width="40"
+                                                Height="40"
+                                                HorizontalAlignment="Center"
+                                                Background="{StaticResource AccentSoftBrush}"
+                                                CornerRadius="10">
+                                            <Path Width="20"
+                                                  Height="20"
+                                                  Data="{StaticResource FolderIconGeometry}"
+                                                  Fill="Transparent"
+                                                  Stretch="Uniform"
+                                                  Stroke="{StaticResource AccentBrush}"
+                                                  StrokeThickness="1.3" />
+                                        </Border>
+                                        <TextBlock x:Name="ReceivedFilesEmptyText"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,10,0,0"
+                                                   FontSize="13"
+                                                   FontWeight="SemiBold"
+                                                   Text="暂无接收文件" />
+                                        <TextBlock HorizontalAlignment="Center"
+                                                   Margin="0,5,0,0"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                                   Text="接收完成后会显示在这里，可直接拖到资源管理器"
+                                                   TextAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Grid>
+
+                <Border x:Name="LogPanel"
+                        Grid.Row="2"
+                        Margin="16,10,16,10"
+                        Padding="12"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="0,0,0,8">
+                            <TextBlock Style="{StaticResource SectionTitleText}"
+                                       Text="日志"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right">
+                                <Button x:Name="HistoryButton"
                                         Content="传输历史"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        ToolTip="查看传输历史"
                                         Click="HistoryButton_Click" />
                                 <Button x:Name="ExportDiagnosticsButton"
-                                        Margin="6,0,0,0"
-                                        Padding="10,2"
-                                        Content="导出诊断"
+                                        Margin="2,0,0,0"
+                                        Content="诊断"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        ToolTip="导出日志、设置和构建信息"
                                         Click="ExportDiagnosticsButton_Click" />
                                 <Button x:Name="AboutButton"
-                                        Margin="6,0,0,0"
-                                        Padding="10,2"
+                                        Margin="2,0,0,0"
                                         Content="关于"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
                                         Click="AboutButton_Click" />
                                 <Button x:Name="ClearLogButton"
-                                        Margin="6,0,0,0"
-                                        Padding="10,2"
+                                        Margin="2,0,0,0"
                                         Content="清空"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        ToolTip="清空界面日志"
                                         Click="ClearLogButton_Click" />
+                                <Button x:Name="LogToggleButton"
+                                        Margin="4,0,0,0"
+                                        Content="折叠"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        ToolTip="折叠或展开日志"
+                                        Click="LogToggleButton_Click" />
                             </StackPanel>
                         </Grid>
 
@@ -680,28 +1136,37 @@
                                  Grid.Row="1"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"
-                                 TextWrapping="NoWrap"
+                                 TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
-                                 HorizontalScrollBarVisibility="Auto"
-                                 FontFamily="Consolas"
-                                 FontSize="12"
-                                 Background="#FAFAFA"
-                                 BorderBrush="#E0E0E0"
-                                 Padding="10" />
+                                 HorizontalScrollBarVisibility="Disabled"
+                                 Style="{StaticResource LogTextBoxStyle}" />
                     </Grid>
                 </Border>
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="2" Margin="0,12,0,0">
-            <TextBlock x:Name="StatusText"
-                       Text="未连接"
-                       FontWeight="SemiBold"
-                       Foreground="#1B1B1B" />
-            <TextBlock HorizontalAlignment="Right"
-                       Text="M1 · 双向传输"
-                       FontSize="12"
-                       Foreground="#8A8A8A" />
-        </Grid>
+        <!-- 底部状态栏 -->
+        <Border Grid.Row="2"
+                Background="#F9F9F9"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid Margin="12,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           Text="未连接"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           VerticalAlignment="Center"
+                           FontSize="10.5"
+                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Text="双向传输 · 协议 v3" />
+            </Grid>
+        </Border>
     </Grid>
 </Window>
