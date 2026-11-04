@@ -80,9 +80,11 @@ public partial class MainWindow : Window
     private bool _isHiddenToTray;
     private TrayIconService? _trayIcon;
     private int _uiLogLineCount;
+    private bool _isLogCollapsed;
 
     private const int MaxUiLogLines = 2000;
     private const int UiLogTrimBatch = 500;
+    private const double ExpandedLogHeight = 200;
 
     public MainWindow()
     {
@@ -2788,6 +2790,32 @@ public partial class MainWindow : Window
     {
         LogTextBox.Clear();
         _uiLogLineCount = 0;
+    }
+
+    private void LogToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetLogCollapsed(!_isLogCollapsed);
+    }
+
+    private void SetLogCollapsed(bool collapsed)
+    {
+        _isLogCollapsed = collapsed;
+
+        if (collapsed)
+        {
+            LogRow.MinHeight = 0;
+            LogRow.Height = GridLength.Auto;
+            LogTextBox.Visibility = Visibility.Collapsed;
+            LogToggleButton.Content = "展开";
+        }
+        else
+        {
+            LogRow.MinHeight = 120;
+            LogRow.Height = new GridLength(ExpandedLogHeight);
+            LogTextBox.Visibility = Visibility.Visible;
+            LogToggleButton.Content = "折叠";
+            LogTextBox.ScrollToEnd();
+        }
     }
 
     private void HistoryButton_Click(object sender, RoutedEventArgs e)
