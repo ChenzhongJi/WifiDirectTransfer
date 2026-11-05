@@ -99,7 +99,8 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - “未发现”表示对端本次不在扫描结果中。确认对端已点击“等待连接”，然后重新扫描。
 - 选择标有“已发现”的设备再点击“连接选中设备”。
 - 如果两台设备显示名称相同，请以本次扫描出现的那一行为准。
-- 部分无线网卡每次扫描都会更换设备 ID；1.0.0 会按唯一显示名称回退匹配，并在设备列表中区分“已发现”和“未发现”。
+- 部分无线网卡每次扫描都会更换设备 ID；1.0.1 会按唯一显示名称回退匹配，并在设备列表中区分“已发现”和“未发现”。
+- 发送端点击一次“扫描设备”后会持续自动重试约 15 秒；连续空结果会自动重启 Wi-Fi Direct 发现。仍失败时，确认对端已点击“等待连接”后再次扫描。
 
 ### 连接时 Windows 弹出网络或防火墙提示
 
@@ -151,12 +152,12 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.0.0-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.0.1-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
 ```powershell
-.\publish.ps1 -Label 1.0.0          # 自定义 zip 标签
+.\publish.ps1 -Label 1.0.1          # 自定义 zip 标签
 .\publish.ps1 -IncludePdb           # 把 pdb 一并打包
 .\publish.ps1 -SkipTests            # 跳过测试（不建议用于发布）
 .\publish.ps1 -AllowDirty           # 允许未提交改动，zip 标签会带 -dirty
@@ -173,4 +174,4 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.0.0`，协议版本 v3。具体构建号和协议版本可在“关于”或日志中查看。
+当前版本 `1.0.1`，协议版本 v3。具体构建号和协议版本可在“关于”或日志中查看。

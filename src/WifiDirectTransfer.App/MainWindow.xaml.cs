@@ -721,31 +721,105 @@ public partial class MainWindow : Window
         _isScanning = true;
         UpdateUi();
         UpdateStatus("正在搜索设备…");
-        Log("FindAllPeersAsync 开始：超时 10 秒。");
+        Log("FindAllPeersAsync 开始：搜索窗口 15 秒，自动重试。");
 
         using var scanCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        var attempt = 0;
+        var restarted = false;
+        IReadOnlyList<WifiDirectPeer> peers = Array.Empty<WifiDirectPeer>();
 
         try
         {
-            var peers = await _service.FindPeersAsync(
-                TimeSpan.FromSeconds(10),
-                scanCts.Token);
+            while (!_isClosing && DateTimeOffset.UtcNow < deadline)
+            {
+                attempt++;
+                var remaining = deadline - DateTimeOffset.UtcNow;
+
+                if (remaining <= TimeSpan.Zero)
+                {
+                    break;
+                }
+
+                try
+                {
+                    peers = await _service.FindPeersAsync(
+                        remaining,
+                        scanCts.Token);
+                }
+                catch (DiscoveryTimeoutException)
+                {
+                    peers = Array.Empty<WifiDirectPeer>();
+                }
+                catch (OperationCanceledException) when (scanCts.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception) when (attempt <= 2 && !_lifetimeCts.IsCancellationRequested)
+                {
+                    Log($"FindAllPeersAsync 第 {attempt} 次异常，准备重试。");
+                    peers = Array.Empty<WifiDirectPeer>();
+                }
+
+                Log($"FindAllPeersAsync 第 {attempt} 次返回 {peers.Count} 台设备。");
+
+                foreach (var peer in peers)
+                {
+                    Log($"  peer: DisplayName={peer.DisplayName}, Id={peer.Id}");
+                }
+
+                if (peers.Count > 0)
+                {
+                    break;
+                }
+
+                if (!restarted &&
+                    attempt >= 3 &&
+                    DateTimeOffset.UtcNow < deadline)
+                {
+                    restarted = true;
+                    UpdateStatus("未发现设备，正在重新启动搜索…");
+                    Log("连续 3 次未发现设备，重启 PeerFinder。");
+
+                    if (!await TryRestartDiscoveryAsync(scanCts.Token))
+                    {
+                        break;
+                    }
+
+                    UpdateStatus("正在搜索设备…");
+                    continue;
+                }
+
+                if (attempt >= 3)
+                {
+                    UpdateStatus("仍在搜索，请确认对端已点击“等待连接”…");
+                }
+
+                try
+                {
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(700),
+                        scanCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+
+            if (_isClosing)
+            {
+                return false;
+            }
 
             RebuildPeerList(peers);
 
-            Log($"FindAllPeersAsync 返回 {peers.Count} 台设备。");
-
-            foreach (var peer in peers)
-            {
-                Log($"  peer: DisplayName={peer.DisplayName}, Id={peer.Id}");
-            }
-
             if (peers.Count == 0)
             {
-                Log("未发现可用设备。");
-                UpdateStatus(_knownDevices.Count > 0
-                    ? "未发现新设备，可尝试快速重连"
-                    : "未发现设备");
+                Log($"搜索结束：尝试 {attempt} 次，未发现设备。");
+                UpdateStatus(
+                    "未发现设备。请确认对端已选择“等待连接”并点击“等待连接”，" +
+                    "两台电脑保持前台后重试。");
             }
             else
             {
@@ -774,6 +848,35 @@ public partial class MainWindow : Window
             _isScanning = false;
             UpdateUi();
         }
+    }
+
+    private async Task<bool> TryRestartDiscoveryAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _service.StopAsync(cancellationToken);
+            _serviceStarted = false;
+            Log("PeerFinder 已停止，准备重新启动搜索。");
+        }
+        catch (Exception exception)
+        {
+            Log($"停止 PeerFinder 失败：{exception.GetType().Name}");
+            _serviceStarted = false;
+        }
+
+        if (_isClosing || cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        if (!await EnsureServiceStartedAsync())
+        {
+            return false;
+        }
+
+        Log("PeerFinder 已重新启动。");
+        return true;
     }
 
     private void PeerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
