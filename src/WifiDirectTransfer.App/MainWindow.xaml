@@ -996,11 +996,20 @@
                                 <TextBlock Style="{StaticResource SectionTitleText}"
                                            Text="本次已接收文件"
                                            VerticalAlignment="Center" />
-                                <TextBlock HorizontalAlignment="Right"
-                                           VerticalAlignment="Center"
-                                           FontSize="10.5"
-                                           Foreground="{StaticResource TextTertiaryBrush}"
-                                           Text="可拖出到资源管理器" />
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Margin="0,0,8,0"
+                                               VerticalAlignment="Center"
+                                               FontSize="10.5"
+                                               Foreground="{StaticResource TextTertiaryBrush}"
+                                               Text="可拖出到资源管理器" />
+                                    <Button x:Name="OpenReceivedFolderButton"
+                                            Content="打开所在文件夹"
+                                            IsEnabled="False"
+                                            Style="{StaticResource SmallButtonStyle}"
+                                            Click="OpenReceivedFolderButton_Click" />
+                                </StackPanel>
                             </Grid>
 
                             <Border Grid.Row="1"
@@ -1016,9 +1025,11 @@
                                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                                              SelectionMode="Extended"
+                                             SelectionChanged="ReceivedFilesList_SelectionChanged"
                                              PreviewMouseLeftButtonDown="ReceivedFilesList_PreviewMouseLeftButtonDown"
                                              PreviewMouseLeftButtonUp="ReceivedFilesList_PreviewMouseLeftButtonUp"
-                                             MouseMove="ReceivedFilesList_MouseMove">
+                                             MouseMove="ReceivedFilesList_MouseMove"
+                                             MouseDoubleClick="ReceivedFilesList_MouseDoubleClick">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Border BorderBrush="{StaticResource RowSeparatorBrush}"
@@ -1047,9 +1058,19 @@
                                                                        ToolTip="{Binding FilePath}" />
                                                             <TextBlock Margin="0,2,0,0"
                                                                        FontSize="10"
-                                                                       Foreground="{StaticResource TextTertiaryBrush}"
                                                                        Text="{Binding DetailText}"
-                                                                       TextTrimming="CharacterEllipsis" />
+                                                                       TextTrimming="CharacterEllipsis">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                                                                                <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
                                                         </StackPanel>
                                                     </Grid>
                                                 </Border>

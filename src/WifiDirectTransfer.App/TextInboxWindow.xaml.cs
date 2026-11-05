@@ -8,7 +8,7 @@ namespace WifiDirectTransfer.App;
 internal sealed record TextInboxItem(ReceivedTextMessage Message)
 {
     public string HeaderText =>
-        $"{Message.ReceivedAt.ToLocalTime():HH:mm:ss}  ·  来自 {Message.SenderName}";
+        $"{Message.ReceivedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}  ·  来自 {Message.SenderName}";
 
     public string Text => Message.Text;
 }

@@ -155,6 +155,16 @@ public partial class MainWindow : Window
         base.OnClosed(e);
     }
 
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+
+        if (_initialized && !_isClosing)
+        {
+            RefreshReceivedFilesAvailability();
+        }
+    }
+
     private bool CapabilitySupported =>
         _capability is { IsSupported: true, IsBrowseSupported: true };
 
@@ -1484,6 +1494,133 @@ public partial class MainWindow : Window
         _receivedDragItem = GetReceivedFileItem(e.OriginalSource as DependencyObject);
     }
 
+    private void ReceivedFilesList_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        UpdateReceivedFileActions();
+    }
+
+    private void ReceivedFilesList_MouseDoubleClick(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        if (ReceivedFilesList.SelectedItem is not ReceivedFileItem item)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        OpenReceivedFileInExplorer(item);
+    }
+
+    private void OpenReceivedFolderButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (ReceivedFilesList.SelectedItem is not ReceivedFileItem item)
+        {
+            return;
+        }
+
+        OpenReceivedFileInExplorer(item);
+    }
+
+    private void UpdateReceivedFileActions()
+    {
+        var selected = ReceivedFilesList.SelectedItems
+            .OfType<ReceivedFileItem>()
+            .ToArray();
+
+        foreach (var item in selected)
+        {
+            item.RefreshAvailability();
+        }
+
+        OpenReceivedFolderButton.IsEnabled =
+            selected.Length > 0 &&
+            selected.All(item => !item.IsMissing);
+    }
+
+    private void RefreshReceivedFilesAvailability()
+    {
+        if (_isClosing || _receivedFiles.Count == 0)
+        {
+            UpdateReceivedFileActions();
+            return;
+        }
+
+        foreach (var item in _receivedFiles)
+        {
+            item.RefreshAvailability();
+        }
+
+        UpdateReceivedFileActions();
+    }
+
+    private void OpenReceivedFileInExplorer(ReceivedFileItem item)
+    {
+        if (!item.RefreshAvailability())
+        {
+            ShowMissingReceivedFiles(new[] { item });
+            UpdateReceivedFileActions();
+            return;
+        }
+
+        try
+        {
+            Process.Start(
+                new ProcessStartInfo(
+                    "explorer.exe",
+                    $"/select,\"{item.FilePath}\"")
+                {
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception exception)
+        {
+            Log($"打开接收文件所在文件夹失败：{exception.GetType().Name}");
+            MessageBox.Show(
+                this,
+                $"无法打开文件夹：{exception.Message}",
+                "接收文件",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void ShowMissingReceivedFiles(
+        IReadOnlyList<ReceivedFileItem> items)
+    {
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        var names = string.Join(
+            Environment.NewLine,
+            items.Take(8).Select(item => item.FileName));
+
+        if (items.Count > 8)
+        {
+            names += $"{Environment.NewLine}… 等 {items.Count} 个文件";
+        }
+
+        Log(
+            "接收文件已不存在：" +
+            string.Join(", ", items.Select(item => item.FilePath)));
+        UpdateStatus("接收文件已不存在，可能已被移动或删除");
+        MessageBox.Show(
+            this,
+            "以下接收文件已不存在，可能已被移动或删除：" +
+            Environment.NewLine +
+            Environment.NewLine +
+            names,
+            "接收文件",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void ReceivedFilesList_PreviewMouseLeftButtonUp(
         object sender,
         MouseButtonEventArgs e)
@@ -1518,6 +1655,17 @@ public partial class MainWindow : Window
         if (!items.Contains(dragItem))
         {
             items = new List<ReceivedFileItem> { dragItem };
+        }
+
+        var missingItems = items
+            .Where(item => !item.RefreshAvailability())
+            .ToArray();
+
+        if (missingItems.Length > 0)
+        {
+            ShowMissingReceivedFiles(missingItems);
+            UpdateReceivedFileActions();
+            return;
         }
 
         var paths = new List<string>();
@@ -1633,6 +1781,30 @@ public partial class MainWindow : Window
         {
             ShowDropPrompt("请先连接对端设备后再拖入文件");
             return;
+        }
+
+        if (droppedPaths.Any(Directory.Exists))
+        {
+            var result = MessageBox.Show(
+                this,
+                "拖入内容包含文件夹。当前版本会把文件夹展开为单个文件发送，" +
+                "接收端不会保留目录结构。\n\n" +
+                "如需保留目录结构，请先把文件夹压缩为 zip 再发送。\n\n" +
+                "是否继续？",
+                "文件夹传输",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                Log("已取消文件夹拖入。");
+                UpdateStatus("已取消文件夹拖入");
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            Log("文件夹拖入：将按文件逐个发送，不保留目录结构。");
         }
 
         e.Effects = DragDropEffects.Copy;
@@ -3119,6 +3291,11 @@ public partial class MainWindow : Window
             WorkspaceHintText.Text = showSend
                 ? "拖入文件即可加入发送队列"
                 : "接收完成后可直接拖出到资源管理器";
+        }
+
+        if (!showSend)
+        {
+            RefreshReceivedFilesAvailability();
         }
     }
 
