@@ -3579,6 +3579,9 @@ public partial class MainWindow : Window
             ? _connectedPeerName ?? "对端设备"
             : "选择设备并连接";
 
+        ConnectionHintText.Visibility =
+            connected ? Visibility.Collapsed : Visibility.Visible;
+
         DisconnectButton.Visibility =
             connected &&
             !_isConnecting &&

@@ -154,7 +154,8 @@
                             Click="DisconnectButton_Click" />
                 </StackPanel>
 
-                <TextBlock Grid.Column="1"
+                <TextBlock x:Name="ConnectionHintText"
+                           Grid.Column="1"
                            Margin="16,0"
                            VerticalAlignment="Center"
                            FontSize="11"
