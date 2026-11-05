@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -53,9 +54,43 @@ public partial class MainWindow : Window
     private ReceivedFileItem? _receivedDragItem;
     private CurrentReceiveItem? _currentReceiveItem;
     private bool _isDraggingReceivedFile;
+    private CancellationTokenSource? _scanCts;
+    private CancellationTokenSource? _connectionAttemptCts;
+    private DispatcherTimer? _advertisementWatchdog;
+    private bool _isRestartingAdvertisement;
+    private bool _isRecoveringAfterSystemEvent;
+    private bool _systemRecoveryScheduled;
+    private bool _pendingFullSystemReset;
+    private string _systemRecoveryReason = string.Empty;
+    private bool _sessionNotificationRegistered;
+    private DateTimeOffset _suppressNetworkChangeUntil = DateTimeOffset.MinValue;
+
+    private static readonly TimeSpan AdvertisementRefreshInterval =
+        TimeSpan.FromMinutes(2);
+
+    private static readonly TimeSpan NetworkChangeSuppression =
+        TimeSpan.FromSeconds(5);
 
     private const string ReceivedFileDragFormat =
         "WifiDirectTransfer.ReceivedFileDrag";
+
+    private const int WmPowerBroadcast = 0x0218;
+    private const int PbtApmSuspend = 0x0004;
+    private const int PbtApmResumeSuspend = 0x0007;
+    private const int PbtApmResumeAutomatic = 0x0012;
+
+    private const int WmWtssessionChange = 0x02B1;
+    private const int WtsSessionLock = 0x7;
+    private const int WtsSessionUnlock = 0x8;
+    private const int NotifyForThisSession = 0;
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSRegisterSessionNotification(
+        IntPtr hWnd,
+        int dwFlags);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
@@ -123,6 +158,13 @@ public partial class MainWindow : Window
             _hwndSource = source;
             source.AddHook(WndProc);
             _clipboardSyncService.Attach(source.Handle);
+
+            _sessionNotificationRegistered =
+                WTSRegisterSessionNotification(
+                    source.Handle,
+                    NotifyForThisSession);
+
+            NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
         }
     }
 
@@ -137,14 +179,51 @@ public partial class MainWindow : Window
         {
             _clipboardSyncService.OnClipboardUpdate();
         }
+        else if (message == WmPowerBroadcast)
+        {
+            var powerEvent = wParam.ToInt32();
+
+            if (powerEvent == PbtApmSuspend)
+            {
+                HandleSystemSuspend();
+            }
+            else if (powerEvent == PbtApmResumeSuspend ||
+                     powerEvent == PbtApmResumeAutomatic)
+            {
+                ScheduleSystemRecovery("休眠恢复", fullReset: true);
+            }
+        }
+        else if (message == WmWtssessionChange)
+        {
+            var sessionEvent = wParam.ToInt32();
+
+            if (sessionEvent == WtsSessionLock)
+            {
+                HandleSessionLock();
+            }
+            else if (sessionEvent == WtsSessionUnlock)
+            {
+                ScheduleSystemRecovery("解锁", fullReset: false);
+            }
+        }
 
         return IntPtr.Zero;
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        _advertisementWatchdog?.Stop();
+        _advertisementWatchdog = null;
+        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+
         if (_hwndSource is not null)
         {
+            if (_sessionNotificationRegistered)
+            {
+                WTSUnRegisterSessionNotification(_hwndSource.Handle);
+                _sessionNotificationRegistered = false;
+            }
+
             _hwndSource.RemoveHook(WndProc);
             _hwndSource = null;
         }
@@ -663,6 +742,7 @@ public partial class MainWindow : Window
 
         var displayName = GetLocalDisplayName();
         Log($"PeerFinder.Start 开始：DisplayName={displayName}");
+        SuppressNetworkChangeRecovery();
 
         try
         {
@@ -686,8 +766,17 @@ public partial class MainWindow : Window
 
     private async void WaitButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_role != AppRole.Receiver || _channel is not null || _isHandlingRequest)
+        if (_role != AppRole.Receiver ||
+            _channel is not null ||
+            _isHandlingRequest ||
+            _isRestartingAdvertisement)
         {
+            return;
+        }
+
+        if (_serviceStarted)
+        {
+            await RestartReceiverAdvertisementAsync("用户重新等待");
             return;
         }
 
@@ -697,8 +786,115 @@ public partial class MainWindow : Window
         }
 
         Log("等待端已就绪，等待连接发起端连接。");
-        UpdateStatus("等待连接…");
+        UpdateStatus("等待连接…如长时间无法被发现，点击“重新等待”。");
+        StartAdvertisementWatchdog();
         UpdateUi();
+    }
+
+    private async Task RestartReceiverAdvertisementAsync(string reason)
+    {
+        if (_isRestartingAdvertisement ||
+            _isClosing ||
+            _channel is not null ||
+            _isHandlingRequest)
+        {
+            return;
+        }
+
+        _isRestartingAdvertisement = true;
+        UpdateUi();
+        UpdateStatus("正在重新启动等待连接…");
+        Log($"重新启动接收端等待：{reason}。");
+
+        try
+        {
+            if (!await RestartPeerFinderAsync(reason, _lifetimeCts.Token))
+            {
+                UpdateStatus(
+                    "重新启动等待失败，请尝试关闭再打开 Wi-Fi 或重启应用。");
+                return;
+            }
+
+            UpdateStatus("等待连接已重新启动，请让对方重新扫描。");
+            StartAdvertisementWatchdog();
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+        finally
+        {
+            _isRestartingAdvertisement = false;
+            UpdateUi();
+        }
+    }
+
+    private void UpdateAdvertisementWatchdog(bool waiting)
+    {
+        if (waiting)
+        {
+            StartAdvertisementWatchdog();
+        }
+        else
+        {
+            StopAdvertisementWatchdog();
+        }
+    }
+
+    private void StartAdvertisementWatchdog()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (_advertisementWatchdog is null)
+        {
+            _advertisementWatchdog = new DispatcherTimer
+            {
+                Interval = AdvertisementRefreshInterval
+            };
+            _advertisementWatchdog.Tick += AdvertisementWatchdog_Tick;
+        }
+
+        if (!_advertisementWatchdog.IsEnabled)
+        {
+            _advertisementWatchdog.Start();
+        }
+    }
+
+    private void StopAdvertisementWatchdog()
+    {
+        _advertisementWatchdog?.Stop();
+    }
+
+    private async void AdvertisementWatchdog_Tick(
+        object? sender,
+        EventArgs e)
+    {
+        if (_isClosing ||
+            _isRestartingAdvertisement ||
+            _isRecoveringAfterSystemEvent)
+        {
+            return;
+        }
+
+        if (_role != AppRole.Receiver ||
+            _channel is not null ||
+            !_serviceStarted ||
+            _isHandlingRequest ||
+            _currentReceiveItem is not null)
+        {
+            StopAdvertisementWatchdog();
+            return;
+        }
+
+        await RestartReceiverAdvertisementAsync("定期刷新等待广播");
     }
 
     private async void ScanButton_Click(object sender, RoutedEventArgs e)
@@ -724,6 +920,7 @@ public partial class MainWindow : Window
         Log("FindAllPeersAsync 开始：搜索窗口 15 秒，自动重试。");
 
         using var scanCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        _scanCts = scanCts;
         var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
         var attempt = 0;
         var restarted = false;
@@ -781,7 +978,9 @@ public partial class MainWindow : Window
                     UpdateStatus("未发现设备，正在重新启动搜索…");
                     Log("连续 3 次未发现设备，重启 PeerFinder。");
 
-                    if (!await TryRestartDiscoveryAsync(scanCts.Token))
+                    if (!await RestartPeerFinderAsync(
+                            "连续 3 次未发现设备",
+                            scanCts.Token))
                     {
                         break;
                     }
@@ -807,7 +1006,7 @@ public partial class MainWindow : Window
                 }
             }
 
-            if (_isClosing)
+            if (_isClosing || scanCts.IsCancellationRequested)
             {
                 return false;
             }
@@ -845,19 +1044,28 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (ReferenceEquals(_scanCts, scanCts))
+            {
+                _scanCts = null;
+            }
+
             _isScanning = false;
             UpdateUi();
         }
     }
 
-    private async Task<bool> TryRestartDiscoveryAsync(
+    private async Task<bool> RestartPeerFinderAsync(
+        string reason,
         CancellationToken cancellationToken)
     {
+        Log($"重新启动 PeerFinder：{reason}。");
+        SuppressNetworkChangeRecovery();
+
         try
         {
             await _service.StopAsync(cancellationToken);
             _serviceStarted = false;
-            Log("PeerFinder 已停止，准备重新启动搜索。");
+            Log("PeerFinder 已停止。");
         }
         catch (Exception exception)
         {
@@ -877,6 +1085,231 @@ public partial class MainWindow : Window
 
         Log("PeerFinder 已重新启动。");
         return true;
+    }
+
+    private void HandleSystemSuspend()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        Log("系统即将休眠，取消当前扫描和连接尝试。");
+        _scanCts?.Cancel();
+        _connectionAttemptCts?.Cancel();
+    }
+
+    private void HandleSessionLock()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        Log("系统已锁屏，取消当前扫描和连接尝试。");
+        _scanCts?.Cancel();
+        _connectionAttemptCts?.Cancel();
+    }
+
+    private void OnNetworkAddressChanged(object? sender, EventArgs e)
+    {
+        if (!_initialized || _isClosing)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnNetworkAddressChanged(sender, e)));
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow < _suppressNetworkChangeUntil)
+        {
+            Log("忽略由 PeerFinder 启停触发的网络状态变化。");
+            return;
+        }
+
+        ScheduleSystemRecovery("网络状态变化", fullReset: false);
+    }
+
+    private void SuppressNetworkChangeRecovery()
+    {
+        _suppressNetworkChangeUntil = DateTimeOffset.UtcNow + NetworkChangeSuppression;
+    }
+
+    private void ScheduleSystemRecovery(string reason, bool fullReset)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _pendingFullSystemReset |= fullReset;
+        _systemRecoveryReason = reason;
+
+        if (_systemRecoveryScheduled)
+        {
+            return;
+        }
+
+        _systemRecoveryScheduled = true;
+
+        _ = Dispatcher.BeginInvoke(
+            new Action(async () =>
+            {
+                _systemRecoveryScheduled = false;
+                var doFullReset = _pendingFullSystemReset;
+                _pendingFullSystemReset = false;
+
+                await RecoverAfterSystemEventAsync(
+                    _systemRecoveryReason,
+                    doFullReset);
+            }),
+            DispatcherPriority.Background);
+    }
+
+    private async Task RecoverAfterSystemEventAsync(
+        string reason,
+        bool fullReset)
+    {
+        if (_isRecoveringAfterSystemEvent || _isClosing)
+        {
+            return;
+        }
+
+        _isRecoveringAfterSystemEvent = true;
+        Log($"系统恢复处理开始：{reason}，fullReset={fullReset}。");
+
+        try
+        {
+            _scanCts?.Cancel();
+            _connectionAttemptCts?.Cancel();
+            await WaitForActiveOperationsAsync(TimeSpan.FromSeconds(3));
+
+            if (_isClosing)
+            {
+                return;
+            }
+
+            if (fullReset)
+            {
+                if (_channel is not null ||
+                    _queueManager is not null ||
+                    _currentReceiveItem is not null ||
+                    _fileReceiver is not null)
+                {
+                    await ResetConnectionAsync();
+                }
+
+                var wasStarted = _serviceStarted;
+                var wasReceiver = _role == AppRole.Receiver;
+
+                if (wasStarted)
+                {
+                    StopAdvertisementWatchdog();
+                    SuppressNetworkChangeRecovery();
+
+                    try
+                    {
+                        await _service.StopAsync(_lifetimeCts.Token);
+                    }
+                    catch (Exception exception)
+                    {
+                        Log($"恢复时停止 PeerFinder 失败：{exception.GetType().Name}");
+                    }
+
+                    _serviceStarted = false;
+                }
+
+                if (wasStarted && !_isClosing)
+                {
+                    if (!await EnsureServiceStartedAsync())
+                    {
+                        UpdateStatus(
+                            "已从休眠恢复，但重新启动发现失败，" +
+                            "请重新等待或扫描。");
+                        return;
+                    }
+
+                    if (wasReceiver)
+                    {
+                        UpdateStatus("已从休眠恢复，正在等待连接…");
+                        StartAdvertisementWatchdog();
+                    }
+                    else
+                    {
+                        UpdateStatus("已从休眠恢复，请重新扫描设备。");
+                    }
+                }
+                else if (!_isClosing)
+                {
+                    UpdateStatus("已从休眠恢复");
+                }
+            }
+            else
+            {
+                if (_channel is not null)
+                {
+                    UpdateUi();
+                    return;
+                }
+
+                if (_serviceStarted)
+                {
+                    if (!await RestartPeerFinderAsync(
+                            reason,
+                            _lifetimeCts.Token))
+                    {
+                        UpdateStatus(
+                            "恢复发现失败，请点击“重新等待”或重启应用。");
+                        return;
+                    }
+
+                    if (_role == AppRole.Receiver)
+                    {
+                        UpdateStatus("已恢复等待连接，请让对方重新扫描。");
+                        StartAdvertisementWatchdog();
+                    }
+                    else
+                    {
+                        UpdateStatus("已恢复，请重新扫描设备。");
+                    }
+                }
+                else
+                {
+                    UpdateStatus("已恢复");
+                }
+            }
+
+            UpdateUi();
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+        finally
+        {
+            _isRecoveringAfterSystemEvent = false;
+        }
+    }
+
+    private async Task WaitForActiveOperationsAsync(TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+
+        while (!_isClosing &&
+               (_isScanning || _isConnecting) &&
+               DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
     }
 
     private void PeerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -916,6 +1349,7 @@ public partial class MainWindow : Window
         IDuplexChannel? channel = null;
         using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         connectCts.CancelAfter(TimeSpan.FromSeconds(30));
+        _connectionAttemptCts = connectCts;
 
         try
         {
@@ -968,6 +1402,11 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (ReferenceEquals(_connectionAttemptCts, connectCts))
+            {
+                _connectionAttemptCts = null;
+            }
+
             _isConnecting = false;
             UpdateUi();
         }
@@ -1068,6 +1507,7 @@ public partial class MainWindow : Window
 
         using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         connectCts.CancelAfter(TimeSpan.FromSeconds(15));
+        _connectionAttemptCts = connectCts;
 
         try
         {
@@ -1114,6 +1554,11 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (ReferenceEquals(_connectionAttemptCts, connectCts))
+            {
+                _connectionAttemptCts = null;
+            }
+
             _isConnecting = false;
             UpdateUi();
         }
@@ -1177,6 +1622,8 @@ public partial class MainWindow : Window
         UpdateUi();
         Log($"收到连接请求：DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
 
+        var connectionEstablished = false;
+
         if (!IsVisible || WindowState == WindowState.Minimized)
         {
             ShowFromTray();
@@ -1228,6 +1675,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            connectionEstablished = true;
             RecordKnownDevice(request.Peer);
             _connectedPeerName = request.Peer.DisplayName;
             UpdateStatus("已连接，双方都可以发送文件");
@@ -1261,6 +1709,14 @@ public partial class MainWindow : Window
         {
             _isHandlingRequest = false;
             UpdateUi();
+
+            if (!connectionEstablished &&
+                !_isClosing &&
+                _serviceStarted &&
+                _channel is null)
+            {
+                await RestartReceiverAdvertisementAsync("连接请求处理结束");
+            }
         }
     }
 
@@ -2332,6 +2788,13 @@ public partial class MainWindow : Window
         if (!_isClosing)
         {
             UpdateStatus(message);
+
+            if (_role == AppRole.Receiver &&
+                _serviceStarted &&
+                _channel is null)
+            {
+                await RestartReceiverAdvertisementAsync("连接已断开");
+            }
         }
     }
 
@@ -3580,12 +4043,15 @@ public partial class MainWindow : Window
         SameNamePolicyComboBox.IsEnabled = true;
 
         var waiting = _serviceStarted && _role == AppRole.Receiver && !connected;
-        WaitButton.Content = waiting ? "等待中…" : "等待连接";
+        WaitButton.Content = waiting ? "重新等待" : "等待连接";
         WaitButton.IsEnabled = supported &&
                                _role == AppRole.Receiver &&
                                !connected &&
                                !_isHandlingRequest &&
-                               !waiting;
+                               !_isRestartingAdvertisement;
+
+        UpdateAdvertisementWatchdog(
+            waiting && !_isRestartingAdvertisement);
 
         ScanButton.IsEnabled = supported &&
                                _role == AppRole.Sender &&
