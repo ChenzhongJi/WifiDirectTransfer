@@ -110,37 +110,49 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Border x:Name="ConnectionChip"
-                        Padding="10,4"
-                        VerticalAlignment="Center"
-                        Background="{StaticResource SurfaceAltBrush}"
-                        CornerRadius="14">
-                    <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="ConnectionDot"
-                                 Width="7"
-                                 Height="7"
-                                 VerticalAlignment="Center"
-                                 Fill="#8A8F98" />
-                        <TextBlock x:Name="ConnectionStatusText"
-                                   Margin="7,0,0,0"
-                                   VerticalAlignment="Center"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Text="未连接" />
-                        <Border Width="1"
-                                Height="12"
-                                Margin="8,0"
-                                VerticalAlignment="Center"
-                                Background="#D8D8D8" />
-                        <TextBlock x:Name="ConnectionPeerText"
-                                   MaxWidth="220"
-                                   VerticalAlignment="Center"
-                                   FontSize="11"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   Text="选择设备并连接"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </Border>
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Border x:Name="ConnectionChip"
+                            Padding="10,4"
+                            VerticalAlignment="Center"
+                            Background="{StaticResource SurfaceAltBrush}"
+                            CornerRadius="14">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="ConnectionDot"
+                                     Width="7"
+                                     Height="7"
+                                     VerticalAlignment="Center"
+                                     Fill="#8A8F98" />
+                            <TextBlock x:Name="ConnectionStatusText"
+                                       Margin="7,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Text="未连接" />
+                            <Border Width="1"
+                                    Height="12"
+                                    Margin="8,0"
+                                    VerticalAlignment="Center"
+                                    Background="#D8D8D8" />
+                            <TextBlock x:Name="ConnectionPeerText"
+                                       MaxWidth="220"
+                                       VerticalAlignment="Center"
+                                       FontSize="11"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Text="选择设备并连接"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="DisconnectButton"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="断开连接"
+                            Content="断开"
+                            Style="{StaticResource SmallButtonStyle}"
+                            ToolTip="断开当前连接"
+                            Visibility="Collapsed"
+                            Click="DisconnectButton_Click" />
+                </StackPanel>
 
                 <TextBlock Grid.Column="1"
                            Margin="16,0"

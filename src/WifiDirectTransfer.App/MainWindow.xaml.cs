@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     private bool _serviceStarted;
     private bool _isScanning;
     private bool _isConnecting;
+    private bool _isDisconnecting;
     private bool _isSending;
     private bool _isHandlingRequest;
     private string? _connectedPeerName;
@@ -866,6 +867,72 @@ public partial class MainWindow : Window
         {
             _isConnecting = false;
             UpdateUi();
+        }
+    }
+
+    private async void DisconnectButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_isDisconnecting ||
+            _isConnecting ||
+            _isHandlingRequest ||
+            _channel is null ||
+            _isClosing)
+        {
+            return;
+        }
+
+        var hasActiveWork =
+            _isSending ||
+            _isHandlingRequest ||
+            _currentReceiveItem is not null ||
+            _queueManager is { HasWaitingFiles: true };
+
+        if (hasActiveWork)
+        {
+            var result = MessageBox.Show(
+                this,
+                "当前连接或传输尚未结束。断开连接会中断正在进行的传输；" +
+                "接收中的文件会保留断点，发送队列中尚未开始的文件会被移除。" +
+                "\n\n是否继续？",
+                "断开连接",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        _isDisconnecting = true;
+        DisconnectButton.IsEnabled = false;
+        UpdateStatus("正在断开连接…");
+        Log("用户请求断开连接。");
+
+        try
+        {
+            await ResetConnectionAsync();
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt,
+                CancellationToken.None);
+            UpdateStatus(message);
+        }
+        finally
+        {
+            _isDisconnecting = false;
+
+            if (!_isClosing)
+            {
+                UpdateUi();
+            }
         }
     }
 
@@ -3511,6 +3578,19 @@ public partial class MainWindow : Window
         ConnectionPeerText.Text = connected
             ? _connectedPeerName ?? "对端设备"
             : "选择设备并连接";
+
+        DisconnectButton.Visibility =
+            connected &&
+            !_isConnecting &&
+            !_isHandlingRequest &&
+            !_isDisconnecting
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        DisconnectButton.IsEnabled =
+            connected &&
+            !_isConnecting &&
+            !_isHandlingRequest &&
+            !_isDisconnecting;
     }
 
     private void UpdateStatus(string status)
