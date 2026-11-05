@@ -18,11 +18,13 @@ public static class WifiDirectErrorMapper
             "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。",
         WifiDirectErrorCode.DiscoveryFailed => "搜索设备失败，请重试。",
         WifiDirectErrorCode.DiscoveryTimeout =>
-            "搜索设备超时，请确认两台电脑都已打开应用并开启 Wi-Fi。",
+            "搜索设备超时，请确认两台电脑都已打开应用并开启 Wi-Fi；" +
+            "如果刚拒绝过 Windows 网络/防火墙提示，请允许后重试。",
         WifiDirectErrorCode.ConnectionRejected =>
             "对方拒绝或未在时限内接受连接。",
         WifiDirectErrorCode.ConnectionTimeout =>
-            "对方拒绝或未在时限内接受连接。",
+            "对方拒绝或未在时限内接受连接；" +
+            "如果刚拒绝过 Windows 网络/防火墙提示，请允许后重试。",
         WifiDirectErrorCode.ConnectionLost =>
             "连接已断开，文件传输未完成。",
         WifiDirectErrorCode.TransferInterrupted =>
@@ -31,12 +33,18 @@ public static class WifiDirectErrorMapper
             "文件校验失败，请重新发送。",
         WifiDirectErrorCode.StorageInsufficient => "接收目录空间不足。",
         WifiDirectErrorCode.AccessDenied =>
-            "系统拒绝 Wi-Fi Direct 访问，请保持应用在前台并检查权限。",
+            "Windows 拒绝了网络访问。请重新连接并在系统弹窗中选择“允许”；" +
+            "如果已拒绝，请在 Windows 安全中心 → 防火墙和网络保护 → " +
+            "允许应用通过防火墙中允许 WifiDirectTransfer.App 的专用网络访问。",
         WifiDirectErrorCode.InvalidProtocolData =>
             "收到无法识别的数据，连接可能不可靠。",
         WifiDirectErrorCode.Canceled => "操作已取消。",
-        WifiDirectErrorCode.PeerNotFound => "设备信息已过期，请重新扫描后再试。",
-        WifiDirectErrorCode.ConnectionFailed => "无法建立 Wi-Fi Direct 连接，请重试。",
+        WifiDirectErrorCode.PeerNotFound =>
+            "设备已不在当前扫描结果中。请确认对端正在等待连接，" +
+            "重新扫描后选择标有“已发现”的设备；标有“未发现”的历史设备无法直接连接。",
+        WifiDirectErrorCode.ConnectionFailed =>
+            "无法建立 Wi-Fi Direct 连接，请重试；" +
+            "如果系统刚弹出网络/防火墙同意框，请允许后重试。",
         WifiDirectErrorCode.TransferTimeout => "传输超时，请重试。",
         WifiDirectErrorCode.PermissionDenied => "没有权限读取或写入目标文件。",
         WifiDirectErrorCode.InvalidState => "当前状态无法执行此操作，请稍后重试。",

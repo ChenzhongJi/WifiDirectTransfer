@@ -189,6 +189,13 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             {
                 return cached;
             }
+
+            var cachedByName = FindCachedPeerByName(peer.DisplayName);
+
+            if (cachedByName is not null)
+            {
+                return cachedByName;
+            }
         }
 
         await FindPeersAsync(KnownPeerDiscoveryTimeout, cancellationToken)
@@ -200,9 +207,32 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             {
                 return discovered;
             }
+
+            var discoveredByName = FindCachedPeerByName(peer.DisplayName);
+
+            if (discoveredByName is not null)
+            {
+                return discoveredByName;
+            }
         }
 
         throw new WifiDirectPeerNotFoundException(peer);
+    }
+
+    /// <summary>
+    /// 在持有 _gate 的情况下按显示名称查找唯一对端。
+    /// 某些驱动每次扫描都会更换 Id，只能用唯一显示名称回退。
+    /// </summary>
+    private PeerInformation? FindCachedPeerByName(string? displayName)
+    {
+        var matches = _peers.Values
+            .Where(peerInformation =>
+                PeerIdentityMatcher.IsSameDisplayName(
+                    peerInformation.DisplayName,
+                    displayName))
+            .ToArray();
+
+        return matches.Length == 1 ? matches[0] : null;
     }
 
     public async Task<IDuplexChannel> AcceptAsync(

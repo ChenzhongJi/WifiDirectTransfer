@@ -505,26 +505,53 @@ public partial class MainWindow : Window
         var selectedId = (PeerList.SelectedItem as PeerListItem)?.Peer.Id;
         var items = new List<PeerListItem>();
         var addedIds = new HashSet<string>(StringComparer.Ordinal);
+        var usedDiscoveredIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var known in _knownDevices.Values
                      .OrderByDescending(device => device.LastConnectedAt))
         {
             var discovered = discoveredSnapshot.FirstOrDefault(
-                peer => string.Equals(peer.Id, known.Id, StringComparison.Ordinal));
-            var peer = discovered ?? new WifiDirectPeer(known.Id, known.DisplayName);
+                peer => !usedDiscoveredIds.Contains(peer.Id) &&
+                        string.Equals(
+                            peer.Id,
+                            known.Id,
+                            StringComparison.Ordinal));
 
-            if (addedIds.Add(known.Id))
+            if (discovered is null)
             {
-                items.Add(new PeerListItem(peer, known));
+                var available = discoveredSnapshot
+                    .Where(peer => !usedDiscoveredIds.Contains(peer.Id))
+                    .ToArray();
+
+                discovered = PeerIdentityMatcher.FindUniqueByName(
+                    available,
+                    known.DisplayName);
+            }
+
+            var isDiscovered = discovered is not null;
+            var peer = discovered ??
+                       new WifiDirectPeer(known.Id, known.DisplayName);
+
+            if (isDiscovered)
+            {
+                usedDiscoveredIds.Add(peer.Id);
+            }
+
+            if (addedIds.Add(peer.Id))
+            {
+                items.Add(new PeerListItem(peer, known, isDiscovered));
             }
         }
 
         foreach (var peer in discoveredSnapshot)
         {
-            if (addedIds.Add(peer.Id))
+            if (usedDiscoveredIds.Contains(peer.Id) ||
+                !addedIds.Add(peer.Id))
             {
-                items.Add(new PeerListItem(peer, null));
+                continue;
             }
+
+            items.Add(new PeerListItem(peer, null, isDiscovered: true));
         }
 
         _peerItems.Clear();
@@ -547,8 +574,13 @@ public partial class MainWindow : Window
 
         if (PeerList.SelectedItem is null && _peerItems.Count > 0)
         {
-            PeerList.SelectedItem =
-                _peerItems.FirstOrDefault(item => item.IsKnown) ?? _peerItems[0];
+            var firstDiscovered = _peerItems.FirstOrDefault(
+                item => item.IsDiscovered);
+
+            if (firstDiscovered is not null)
+            {
+                PeerList.SelectedItem = firstDiscovered;
+            }
         }
 
         UpdateUi();
@@ -559,6 +591,22 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(peer.Id))
         {
             return;
+        }
+
+        // 某些驱动每次扫描都会生成新的 PeerInformation.Id。连接成功后，
+        // 清掉同名但旧 ID 的历史记录，避免下次启动继续选中过期设备。
+        var staleIds = _knownDevices
+            .Where(pair =>
+                !string.Equals(pair.Key, peer.Id, StringComparison.Ordinal) &&
+                PeerIdentityMatcher.IsSameDisplayName(
+                    pair.Value.DisplayName,
+                    peer.DisplayName))
+            .Select(pair => pair.Key)
+            .ToArray();
+
+        foreach (var staleId in staleIds)
+        {
+            _knownDevices.Remove(staleId);
         }
 
         _knownDevices[peer.Id] = new KnownDevice
@@ -720,6 +768,13 @@ public partial class MainWindow : Window
     private void PeerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateUi();
+
+        if (PeerList.SelectedItem is PeerListItem { IsKnownOnly: true } item)
+        {
+            UpdateStatus(
+                $"“{item.DisplayName}”本次扫描未发现，" +
+                "请确认对端正在等待连接后重新扫描。");
+        }
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -727,7 +782,7 @@ public partial class MainWindow : Window
         if (_role != AppRole.Sender ||
             _channel is not null ||
             _isConnecting ||
-            PeerList.SelectedItem is not PeerListItem selectedItem)
+            PeerList.SelectedItem is not PeerListItem { IsDiscovered: true } selectedItem)
         {
             return;
         }
@@ -3201,7 +3256,7 @@ public partial class MainWindow : Window
                                   !connected &&
                                   !_isScanning &&
                                   !_isConnecting &&
-                                  PeerList.SelectedItem is PeerListItem;
+                                  PeerList.SelectedItem is PeerListItem { IsDiscovered: true };
 
         QuickReconnectButton.IsEnabled = supported &&
                                          _role == AppRole.Sender &&

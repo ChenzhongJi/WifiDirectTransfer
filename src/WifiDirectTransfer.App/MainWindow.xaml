@@ -263,22 +263,36 @@
                                         <Border Grid.Column="2"
                                                 Padding="5,1"
                                                 VerticalAlignment="Center"
-                                                Background="{StaticResource SuccessSoftBrush}"
                                                 CornerRadius="999">
                                             <Border.Style>
                                                 <Style TargetType="Border">
                                                     <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsKnown}" Value="True">
                                                             <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsKnownOnly}" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
                                             <TextBlock FontSize="9.5"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{StaticResource SuccessBrush}"
-                                                       Text="最近" />
+                                                       FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                                                        <Setter Property="Text" Value="最近" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsKnownOnly}" Value="True">
+                                                                <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                                                                <Setter Property="Text" Value="未发现" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </Border>
                                     </Grid>
                                 </DataTemplate>
