@@ -1131,6 +1131,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_isConnecting ||
+            _isScanning ||
+            _isHandlingRequest ||
+            _channel is not null ||
+            _queueManager is not null ||
+            _currentReceiveItem is not null)
+        {
+            Log("连接、扫描或传输进行中，忽略网络状态变化。");
+            return;
+        }
+
         ScheduleSystemRecovery("网络状态变化", fullReset: false);
     }
 
@@ -1179,14 +1190,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!fullReset &&
+            (_isConnecting ||
+             _isScanning ||
+             _isHandlingRequest ||
+             _channel is not null))
+        {
+            Log($"连接或扫描进行中，跳过恢复：{reason}。");
+            return;
+        }
+
         _isRecoveringAfterSystemEvent = true;
         Log($"系统恢复处理开始：{reason}，fullReset={fullReset}。");
 
         try
         {
-            _scanCts?.Cancel();
-            _connectionAttemptCts?.Cancel();
-            await WaitForActiveOperationsAsync(TimeSpan.FromSeconds(3));
+            if (fullReset)
+            {
+                _scanCts?.Cancel();
+                _connectionAttemptCts?.Cancel();
+                await WaitForActiveOperationsAsync(TimeSpan.FromSeconds(3));
+            }
 
             if (_isClosing)
             {
