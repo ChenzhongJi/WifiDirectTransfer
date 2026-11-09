@@ -21,6 +21,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     private readonly object _gate = new();
 
     private PendingFile? _currentFile;
+    private PendingFile? _selectedFile;
     private bool _isRunning;
     private bool _pauseRequested;
     private TaskCompletionSource? _pauseTcs;
@@ -70,6 +71,48 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentIndex));
             OnPropertyChanged(nameof(CurrentPositionText));
+            OnPropertyChanged(nameof(DetailsFile));
+            OnPropertyChanged(nameof(DetailsPositionText));
+        }
+    }
+
+    /// <summary>
+    /// 用户在队列中选中的文件。未选中时详情回退到当前传输文件。
+    /// </summary>
+    public PendingFile? SelectedFile
+    {
+        get => _selectedFile;
+        set
+        {
+            if (ReferenceEquals(_selectedFile, value))
+            {
+                return;
+            }
+
+            _selectedFile = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DetailsFile));
+            OnPropertyChanged(nameof(DetailsPositionText));
+        }
+    }
+
+    public PendingFile? DetailsFile => _selectedFile ?? CurrentFile;
+
+    public string DetailsPositionText
+    {
+        get
+        {
+            var details = DetailsFile;
+
+            if (details is null)
+            {
+                return "—";
+            }
+
+            var index = _files.IndexOf(details);
+            return index < 0
+                ? "—"
+                : $"第 {index + 1} / {_files.Count} 个文件";
         }
     }
 
@@ -274,6 +317,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(DetailsFile));
+        OnPropertyChanged(nameof(DetailsPositionText));
 
         return added;
     }
@@ -294,11 +339,15 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
 
         CurrentFile = null;
+        _selectedFile = null;
         _files.Clear();
         _completedCount = 0;
         _failedCount = 0;
         _skippedCount = 0;
 
+        OnPropertyChanged(nameof(SelectedFile));
+        OnPropertyChanged(nameof(DetailsFile));
+        OnPropertyChanged(nameof(DetailsPositionText));
         OnPropertyChanged(nameof(TotalCount));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
@@ -404,6 +453,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             RebuildPendingQueue();
         }
 
+        OnPropertyChanged(nameof(DetailsPositionText));
         return true;
     }
 
@@ -414,6 +464,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(file);
 
+        var selectionChanged = false;
+
         lock (_gate)
         {
             if (file.Status != PendingFileStatus.Waiting ||
@@ -422,7 +474,18 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 return false;
             }
 
+            if (ReferenceEquals(_selectedFile, file))
+            {
+                _selectedFile = null;
+                selectionChanged = true;
+            }
+
             RebuildPendingQueue();
+        }
+
+        if (selectionChanged)
+        {
+            OnPropertyChanged(nameof(SelectedFile));
         }
 
         OnPropertyChanged(nameof(TotalCount));
@@ -432,6 +495,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(DetailsFile));
+        OnPropertyChanged(nameof(DetailsPositionText));
 
         return true;
     }

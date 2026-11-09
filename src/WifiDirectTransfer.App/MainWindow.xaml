@@ -714,6 +714,7 @@
                                                  BorderThickness="0"
                                                  ItemContainerStyle="{StaticResource QueueListItemStyle}"
                                                  ItemsSource="{Binding Files}"
+                                                 SelectionChanged="QueueList_SelectionChanged"
                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListBox.ContextMenu>
@@ -860,28 +861,28 @@
                                     <StackPanel>
                                         <Grid>
                                             <TextBlock Style="{StaticResource SectionTitleText}"
-                                                       Text="当前传输详情" />
+                                                       Text="文件详情" />
                                             <TextBlock HorizontalAlignment="Right"
                                                        VerticalAlignment="Center"
                                                        Style="{StaticResource CurrentStatusTextStyle}"
-                                                       Text="{Binding CurrentFile.StatusText, TargetNullValue=尚未开始, FallbackValue=尚未开始}" />
+                                                       Text="{Binding DetailsFile.StatusText, TargetNullValue=未选择, FallbackValue=未选择}" />
                                         </Grid>
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="12"
                                                    FontWeight="SemiBold"
-                                                   Text="{Binding CurrentFile.DisplayPath, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                                   Text="{Binding DetailsFile.DisplayPath, TargetNullValue=未选择, FallbackValue=未选择}"
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,4,0,0"
                                                    Style="{StaticResource TinyText}"
-                                                   Text="{Binding CurrentFile.SourcePath, TargetNullValue=添加文件后显示完整路径, FallbackValue=添加文件后显示完整路径}"
+                                                   Text="{Binding DetailsFile.SourcePath, TargetNullValue=选择队列中的文件或开始传输后显示完整路径, FallbackValue=选择队列中的文件或开始传输后显示完整路径}"
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,10,0,0"
-                                                   Text="开始传输后显示大小、续传偏移和队列位置。">
+                                                   Text="选择队列中的文件，或开始传输后查看详情。">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource TinyText}">
                                                     <Setter Property="Visibility" Value="Collapsed" />
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                        <DataTrigger Binding="{Binding DetailsFile, FallbackValue={x:Null}}"
                                                                      Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Visible" />
                                                         </DataTrigger>
@@ -894,7 +895,7 @@
                                             <StackPanel.Style>
                                                 <Style TargetType="StackPanel">
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
+                                                        <DataTrigger Binding="{Binding DetailsFile, FallbackValue={x:Null}}"
                                                                      Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed" />
                                                         </DataTrigger>
@@ -905,7 +906,7 @@
                                                          Margin="0,10,0,0"
                                                          Maximum="100"
                                                          Minimum="0"
-                                                         Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+                                                         Value="{Binding DetailsFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
 
                                         <Grid Margin="0,12,0,0">
                                             <Grid.ColumnDefinitions>
@@ -922,7 +923,7 @@
                                             <TextBlock Grid.Column="1"
                                                        FontSize="10.5"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Text="{Binding CurrentFile.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsFile.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="1"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -932,7 +933,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Text="{Binding CurrentFile.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsFile.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="2"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -942,7 +943,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Text="{Binding CurrentFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="3"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -952,20 +953,20 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Text="{Binding CurrentPositionText, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsPositionText, TargetNullValue=—}" />
                                         </Grid>
                                         </StackPanel>
 
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="10.5"
                                                    Foreground="{StaticResource DangerBrush}"
-                                                   Text="{Binding CurrentFile.ErrorMessage}"
+                                                   Text="{Binding DetailsFile.ErrorMessage}"
                                                    TextWrapping="Wrap">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Visible" />
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CurrentFile.ErrorMessage}" Value="{x:Null}">
+                                                        <DataTrigger Binding="{Binding DetailsFile.ErrorMessage}" Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
@@ -1240,11 +1241,12 @@
                            FontWeight="SemiBold"
                            Text="未连接"
                            TextTrimming="CharacterEllipsis" />
-                <TextBlock Grid.Column="1"
+                <TextBlock x:Name="ProtocolVersionText"
+                           Grid.Column="1"
                            VerticalAlignment="Center"
                            FontSize="10.5"
                            Foreground="{StaticResource TextTertiaryBrush}"
-                           Text="双向传输 · 协议 v3" />
+                           Text="双向传输" />
             </Grid>
         </Border>
     </Grid>
