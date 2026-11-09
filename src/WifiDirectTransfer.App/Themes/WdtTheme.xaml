@@ -451,6 +451,7 @@
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -494,6 +495,7 @@
     <Style x:Key="QueueListItemStyle" TargetType="ListBoxItem">
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -527,6 +529,7 @@
     <Style x:Key="ReceivedListItemStyle" TargetType="ListBoxItem">
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Padding" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource ButtonFocusVisual}" />
         <Setter Property="Template">
             <Setter.Value>
