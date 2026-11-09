@@ -27,7 +27,8 @@ public static class FileSender
         CancellationToken cancellationToken = default,
         Action<string>? log = null,
         TimeSpan? verificationTimeout = null,
-        string relativeDirectory = "")
+        string relativeDirectory = "",
+        Func<CancellationToken, Task>? pauseAsync = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(source);
@@ -188,6 +189,11 @@ public static class FileSender
 
                 while (remaining > 0)
                 {
+                    if (pauseAsync is not null)
+                    {
+                        await pauseAsync(cancellationToken).ConfigureAwait(false);
+                    }
+
                     var count = (int)Math.Min(
                         FileTransferProtocol.BlockSize,
                         remaining);
@@ -333,7 +339,8 @@ public static class FileSender
         CancellationToken cancellationToken = default,
         Action<string>? log = null,
         TimeSpan? verificationTimeout = null,
-        string relativeDirectory = "")
+        string relativeDirectory = "",
+        Func<CancellationToken, Task>? pauseAsync = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -358,7 +365,8 @@ public static class FileSender
                 cancellationToken,
                 log,
                 verificationTimeout,
-                relativeDirectory)
+                relativeDirectory,
+                pauseAsync)
             .ConfigureAwait(false);
     }
 

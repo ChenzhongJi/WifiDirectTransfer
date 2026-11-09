@@ -2663,6 +2663,62 @@ public partial class MainWindow : Window
         UpdateUi();
     }
 
+    private void QueueList_PreviewMouseRightButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        var item = ItemsControl.ContainerFromElement(
+            QueueList,
+            e.OriginalSource as DependencyObject) as ListBoxItem;
+
+        if (item is not null)
+        {
+            item.IsSelected = true;
+            item.Focus();
+        }
+        else
+        {
+            QueueList.SelectedItem = null;
+        }
+    }
+
+    private void QueueList_ContextMenuOpening(
+        object sender,
+        ContextMenuEventArgs e)
+    {
+        var file = QueueList.SelectedItem as PendingFile;
+        var waiting = _queueManager?.Files
+            .Where(item => item.Status == PendingFileStatus.Waiting)
+            .ToList() ?? new List<PendingFile>();
+        var waitingIndex = file is null ? -1 : waiting.IndexOf(file);
+
+        ViewQueueItemDetailsMenuItem.IsEnabled = file is not null;
+        MoveQueueUpMenuItem.IsEnabled =
+            file?.Status == PendingFileStatus.Waiting &&
+            waitingIndex > 0;
+        MoveQueueDownMenuItem.IsEnabled =
+            file?.Status == PendingFileStatus.Waiting &&
+            waitingIndex >= 0 &&
+            waitingIndex < waiting.Count - 1;
+        RemoveQueueItemMenuItem.IsEnabled =
+            file is not null &&
+            file.Status != PendingFileStatus.Transferring;
+    }
+
+    private void ViewQueueItemDetailsMenuItem_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (QueueList.SelectedItem is not PendingFile)
+        {
+            return;
+        }
+
+        QueueDetailsPanel.Visibility = Visibility.Visible;
+        QueueDetailsToggleButton.Content = "收起详情";
+        UpdateUi();
+    }
+
     private void SelectFirstQueueItemIfNeeded(
         IReadOnlyList<PendingFile> added)
     {
@@ -3303,10 +3359,12 @@ public partial class MainWindow : Window
         if (queue.IsPaused)
         {
             queue.Resume();
+            UpdateStatus("正在继续传输…");
         }
         else
         {
             queue.Pause();
+            UpdateStatus("已暂停；点击“继续”恢复传输");
         }
 
         UpdateUi();
@@ -3330,7 +3388,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (queue.RemoveWaiting(file))
+        var removed = file.Status == PendingFileStatus.Waiting
+            ? queue.RemoveWaiting(file)
+            : queue.RemoveFinished(file);
+
+        if (removed)
         {
             Log($"已从队列移除：{file.DisplayPath}");
             UpdateUi();

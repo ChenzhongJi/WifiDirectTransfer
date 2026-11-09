@@ -95,6 +95,46 @@ public sealed class FileTransferTests
     }
 
     [Fact]
+    public Task SendAsync_PauseCallback_BlocksChunksUntilResumed()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var data = CreatePayload(128 * 1024);
+
+            await using var session = new TransferTestSession(directory);
+
+            var pauseEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var pauseReleased = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using var source = new MemoryStream(data);
+
+            var sendTask = FileSender.SendAsync(
+                session.SenderDispatcher,
+                source,
+                "paused.bin",
+                pauseAsync: async cancellationToken =>
+                {
+                    pauseEntered.TrySetResult();
+                    await pauseReleased.Task.WaitAsync(cancellationToken);
+                });
+
+            await pauseEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(sendTask.IsCompleted);
+
+            pauseReleased.TrySetResult();
+
+            var sendResult = await sendTask.WaitAsync(TimeSpan.FromSeconds(10));
+            var receiveResult = await session.Received.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(data.Length, sendResult.FileSize);
+            Assert.Equal(data, File.ReadAllBytes(receiveResult.FilePath));
+        });
+    }
+
+    [Fact]
     public Task SendReceive_ZeroByteFile_CreatesEmptyFile()
     {
         return InTempDirectoryAsync(async directory =>
