@@ -409,6 +409,18 @@
                                        Text="深色模式会立即应用到所有窗口。"
                                        TextWrapping="Wrap" />
 
+                            <CheckBox x:Name="ExplorerContextMenuCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="资源管理器右键发送"
+                                      ToolTip="在资源管理器中右键文件或文件夹，选择“通过 Wi-Fi Direct 发送”"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="ExplorerContextMenuCheckBox_Checked"
+                                      Unchecked="ExplorerContextMenuCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="只注册当前用户。右键文件或文件夹后可直接加入发送队列；多选时请逐个发送。"
+                                       TextWrapping="Wrap" />
+
                             <CheckBox x:Name="ClipboardSyncCheckBox"
                                       Margin="0,6,0,0"
                                       Content="启用剪贴板同步"
@@ -665,6 +677,10 @@
                                                      Minimum="0"
                                                      Maximum="100"
                                                      Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+                                        <TextBlock Margin="0,3,0,0"
+                                                   Style="{StaticResource TinyText}"
+                                                   Text="{Binding CurrentFile.TransferRateText, TargetNullValue=—, FallbackValue=—}"
+                                                   TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
                                         <Grid>
@@ -679,6 +695,10 @@
                                                      Minimum="0"
                                                      Maximum="100"
                                                      Value="{Binding OverallProgressPercent, Mode=OneWay}" />
+                                        <TextBlock Margin="0,3,0,0"
+                                                   Style="{StaticResource TinyText}"
+                                                   Text="{Binding OverallTransferText, TargetNullValue=—, FallbackValue=—}"
+                                                   TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Grid>
                             </Grid>
@@ -950,6 +970,8 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <TextBlock Style="{StaticResource TinyText}" Text="大小" />
                                             <TextBlock Grid.Column="1"
@@ -969,18 +991,38 @@
                                             <TextBlock Grid.Row="2"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
-                                                       Text="续传偏移" />
+                                                       Text="速率" />
                                             <TextBlock Grid.Row="2"
                                                        Grid.Column="1"
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsFile.SpeedText, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="3"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
-                                                       Text="队列位置" />
+                                                       Text="预计剩余" />
                                             <TextBlock Grid.Row="3"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       Text="{Binding DetailsFile.EtaText, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="4"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="续传偏移" />
+                                            <TextBlock Grid.Row="4"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       Text="{Binding DetailsFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="5"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="队列位置" />
+                                            <TextBlock Grid.Row="5"
                                                        Grid.Column="1"
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"

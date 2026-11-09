@@ -1,4 +1,8 @@
+using System.IO;
+using System.IO.Pipes;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using WifiDirectTransfer.Core;
 
 namespace WifiDirectTransfer.App;
@@ -10,11 +14,25 @@ internal static class Program
         @"Local\WifiDirectTransfer.SingleInstance";
     private const string ActivationEventName =
         @"Local\WifiDirectTransfer.Activate";
+    private const string ActivationPipeName =
+        "WifiDirectTransfer.Activation";
+
+    private static readonly object PendingPathsGate = new();
+    private static readonly List<string> PendingPaths = new();
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         StartupLog.Write("Program.Main executed.");
+
+        var launchPaths = LaunchArguments.ParsePaths(args);
+
+        if (args.Length > 0)
+        {
+            StartupLog.Write(
+                $"命令行参数：{string.Join(" | ", args)}；" +
+                $"解析到 {launchPaths.Count} 个路径。");
+        }
 
         // 托盘应用必须单实例，否则两个进程会同时抢占 PeerFinder 和托盘图标。
         using var instanceMutex = new Mutex(
@@ -24,9 +42,14 @@ internal static class Program
 
         if (!isFirstInstance)
         {
-            StartupLog.Write("检测到已有实例，尝试激活现有窗口后退出。");
-            SignalExistingInstance();
+            StartupLog.Write("检测到已有实例，尝试传递路径并激活现有窗口。");
+            SignalExistingInstance(launchPaths);
             return;
+        }
+
+        if (launchPaths.Count > 0)
+        {
+            AddPendingPaths(launchPaths);
         }
 
         var hresult = SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
@@ -58,10 +81,140 @@ internal static class Program
         };
         activationThread.Start();
 
+        var pipeThread = new Thread(
+            () => ListenForPipeActivations(app))
+        {
+            IsBackground = true,
+            Name = "SingleInstancePathActivation"
+        };
+        pipeThread.Start();
+
         app.Run();
     }
 
-    private static void ListenForActivation(App app, EventWaitHandle activationEvent)
+    /// <summary>
+    /// 主窗口加载后取走启动参数里的路径。窗口尚未创建时由管道监听线程暂存。
+    /// </summary>
+    internal static IReadOnlyList<string> TakePendingPaths()
+    {
+        lock (PendingPathsGate)
+        {
+            if (PendingPaths.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            var paths = PendingPaths.ToArray();
+            PendingPaths.Clear();
+            return paths;
+        }
+    }
+
+    private static void AddPendingPaths(IEnumerable<string> paths)
+    {
+        lock (PendingPathsGate)
+        {
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                if (!PendingPaths.Contains(
+                        path,
+                        StringComparer.OrdinalIgnoreCase))
+                {
+                    PendingPaths.Add(path);
+                }
+            }
+        }
+    }
+
+    private static void ListenForPipeActivations(App app)
+    {
+        while (true)
+        {
+            try
+            {
+                using var server = new NamedPipeServerStream(
+                    ActivationPipeName,
+                    PipeDirection.In,
+                    1,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.CurrentUserOnly);
+
+                server.WaitForConnection();
+
+                using var reader = new StreamReader(
+                    server,
+                    new UTF8Encoding(false),
+                    detectEncodingFromByteOrderMarks: false,
+                    bufferSize: 4096,
+                    leaveOpen: false);
+
+                var paths = new List<string>();
+
+                while (reader.ReadLine() is { } line)
+                {
+                    var path = line.Trim();
+
+                    if (path.Length > 0)
+                    {
+                        paths.Add(path);
+                    }
+                }
+
+                DispatchActivation(app, paths);
+            }
+            catch (Exception exception)
+            {
+                StartupLog.Write(
+                    "读取单实例路径失败：" +
+                    exception.GetType().Name);
+
+                try
+                {
+                    Thread.Sleep(100);
+                }
+                catch (Exception)
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    private static void DispatchActivation(
+        App app,
+        IReadOnlyList<string> paths)
+    {
+        try
+        {
+            app.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (app.MainWindow is MainWindow mainWindow)
+                {
+                    mainWindow.ActivateFromExternalLaunch(paths);
+                }
+                else if (paths.Count > 0)
+                {
+                    AddPendingPaths(paths);
+                }
+            }));
+        }
+        catch (Exception)
+        {
+            if (paths.Count > 0)
+            {
+                AddPendingPaths(paths);
+            }
+        }
+    }
+
+    private static void ListenForActivation(
+        App app,
+        EventWaitHandle activationEvent)
     {
         while (true)
         {
@@ -94,8 +247,14 @@ internal static class Program
         }
     }
 
-    private static void SignalExistingInstance()
+    private static void SignalExistingInstance(
+        IReadOnlyList<string> paths)
     {
+        if (SendPathsToExistingInstance(paths))
+        {
+            return;
+        }
+
         for (var attempt = 0; attempt < 10; attempt++)
         {
             try
@@ -114,6 +273,42 @@ internal static class Program
             {
                 return;
             }
+        }
+    }
+
+    private static bool SendPathsToExistingInstance(
+        IReadOnlyList<string> paths)
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(
+                ".",
+                ActivationPipeName,
+                PipeDirection.Out,
+                PipeOptions.CurrentUserOnly);
+
+            client.Connect(3000);
+
+            using var writer = new StreamWriter(
+                client,
+                new UTF8Encoding(false))
+            {
+                AutoFlush = true
+            };
+
+            foreach (var path in paths)
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    writer.WriteLine(path);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 
