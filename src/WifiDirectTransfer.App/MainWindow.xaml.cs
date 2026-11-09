@@ -4673,12 +4673,9 @@ public partial class MainWindow : Window
                                !_isRestartingDiscovery &&
                                !_isAutoReconnecting;
 
-        PeerList.IsEnabled = supported &&
-                             _role == AppRole.Sender &&
-                             !connected &&
-                             !_isConnecting &&
-                             !_isRestartingDiscovery &&
-                             !_isAutoReconnecting;
+        // 不禁用整个列表：禁用 ListBox 时 WPF 会用系统浅色绘制禁用项，
+        // 深色主题下会出现浅色卡片。连接按钮仍会按角色/状态单独禁用。
+        PeerList.IsEnabled = supported;
 
         ConnectButton.IsEnabled = supported &&
                                   _role == AppRole.Sender &&
