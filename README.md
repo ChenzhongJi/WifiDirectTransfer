@@ -1,5 +1,8 @@
 # Wi-Fi Direct 文件传输
 
+[![CI](https://github.com/ChenzhongJi/WifiDirectTransfer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ChenzhongJi/WifiDirectTransfer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪贴板内容的桌面工具。不需要互联网，不经过云端，连接建立后双方都可以发送和接收。
 
 ## 系统要求
@@ -186,3 +189,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 ## 版本
 
 当前版本 `1.0.2`，协议版本 v3。具体构建号和协议版本可在“关于”或日志中查看。
+
+## 许可证
+
+本项目使用 MIT 许可证，详见 [LICENSE](LICENSE)。
