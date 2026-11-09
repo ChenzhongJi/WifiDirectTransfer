@@ -1,0 +1,77 @@
+name: Bug report
+description: 报告连接、传输、界面或稳定性问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先确认两端使用同一版本。1.1.x 与 1.0.x 协议不兼容。
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 日志中的“本端构建”或“关于”窗口中的版本
+      placeholder: 1.1.1+xxxxxxx
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      placeholder: Windows 11 23H2 / Windows 10 22H2
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: 本端角色
+      options:
+        - 发送端
+        - 接收端
+        - 两端都出现
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请写出连接前状态、操作顺序和是否锁屏/休眠/切换 Wi-Fi
+      placeholder: |
+        1. 两端启动应用
+        2. 接收端点击等待连接
+        3. 发送端扫描并连接
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 请附上两端 `%LOCALAPPDATA%\WifiDirectTransfer\logs\app.log` 最后 100 行，并先脱敏个人路径
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 两端使用同一版本
+          required: true
+        - label: 已尝试重新等待/重新扫描
+          required: true
+        - label: 日志中不包含密钥、密码或敏感文件内容
+          required: true

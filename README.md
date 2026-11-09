@@ -192,7 +192,13 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.1.1`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。
+当前版本 `1.1.1`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+
+## 反馈问题
+
+请使用 GitHub Issue 的 Bug report 模板，并附上两端 `%LOCALAPPDATA%\WifiDirectTransfer\logs\app.log` 最后 100 行。提交前请先脱敏个人路径，不要附上密钥、密码或敏感文件内容。
+
+安全漏洞请不要公开提交 Issue，按 [SECURITY.md](SECURITY.md) 的方式私密报告。
 
 ## 许可证
 
