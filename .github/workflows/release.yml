@@ -80,9 +80,15 @@ jobs:
           $label = '${{ steps.tag.outputs.label }}'
           $zip = "publish/artifacts/WifiDirectTransfer-$label-win-x64.zip"
           $hash = "$zip.sha256"
+          $notes = "docs/releases/$label.md"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
+            if (Test-Path $notes) {
+              gh release edit $tag --notes-file $notes
+            }
             gh release upload $tag $zip $hash --clobber
+          } elseif (Test-Path $notes) {
+            gh release create $tag $zip $hash --title "WifiDirectTransfer $tag" --notes-file $notes
           } else {
             gh release create $tag $zip $hash --title "WifiDirectTransfer $tag" --generate-notes
           }
