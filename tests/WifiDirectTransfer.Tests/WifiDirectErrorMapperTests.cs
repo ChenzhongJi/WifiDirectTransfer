@@ -33,7 +33,7 @@ public sealed class WifiDirectErrorMapperTests
         "对方拒绝或未在时限内接受连接。")]
     [InlineData(
         WifiDirectErrorCode.ConnectionTimeout,
-        "对方拒绝或未在时限内接受连接；如果刚拒绝过 Windows 网络/防火墙提示，请允许后重试。")]
+        "已发现设备，但对方未在时限内接受连接。请确认对端仍处于等待状态；如果对端显示“等待中”但无法连接，请在对端点“重新等待”或重启对端应用。如果刚拒绝过 Windows 网络/防火墙提示，请允许后重试。")]
     [InlineData(
         WifiDirectErrorCode.ConnectionLost,
         "连接已断开，文件传输未完成。")]

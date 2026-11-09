@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _connectionAttemptCts;
     private DispatcherTimer? _advertisementWatchdog;
     private bool _isRestartingAdvertisement;
+    private bool _isRestartingDiscovery;
     private bool _isRecoveringAfterSystemEvent;
     private bool _systemRecoveryScheduled;
     private bool _pendingFullSystemReset;
@@ -834,6 +835,62 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task RecoverDiscoveryAfterConnectionEndAsync(string reason)
+    {
+        if (_isClosing ||
+            _channel is not null ||
+            _isConnecting ||
+            _isHandlingRequest ||
+            _isRecoveringAfterSystemEvent)
+        {
+            return;
+        }
+
+        if (_role == AppRole.Receiver)
+        {
+            if (_serviceStarted)
+            {
+                await RestartReceiverAdvertisementAsync(reason);
+            }
+
+            return;
+        }
+
+        if (!_serviceStarted)
+        {
+            return;
+        }
+
+        _isRestartingDiscovery = true;
+        UpdateUi();
+        Log($"重新启动发送端发现：{reason}。");
+
+        try
+        {
+            if (!await RestartPeerFinderAsync(reason, _lifetimeCts.Token))
+            {
+                UpdateStatus("重新启动发现失败，请重新扫描或重启应用。");
+                return;
+            }
+
+            UpdateStatus("已断开连接，请重新扫描设备。");
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+        finally
+        {
+            _isRestartingDiscovery = false;
+            UpdateUi();
+        }
+    }
+
     private void UpdateAdvertisementWatchdog(bool waiting)
     {
         if (waiting)
@@ -904,7 +961,11 @@ public partial class MainWindow : Window
 
     private async Task<bool> ScanForPeersAsync()
     {
-        if (_role != AppRole.Sender || _channel is not null || _isScanning || _isClosing)
+        if (_role != AppRole.Sender ||
+            _channel is not null ||
+            _isScanning ||
+            _isRestartingDiscovery ||
+            _isClosing)
         {
             return false;
         }
@@ -1134,6 +1195,7 @@ public partial class MainWindow : Window
         if (_isConnecting ||
             _isScanning ||
             _isHandlingRequest ||
+            _isRestartingDiscovery ||
             _channel is not null ||
             _queueManager is not null ||
             _currentReceiveItem is not null)
@@ -1194,6 +1256,7 @@ public partial class MainWindow : Window
             (_isConnecting ||
              _isScanning ||
              _isHandlingRequest ||
+             _isRestartingDiscovery ||
              _channel is not null))
         {
             Log($"连接或扫描进行中，跳过恢复：{reason}。");
@@ -1353,6 +1416,7 @@ public partial class MainWindow : Window
         if (_role != AppRole.Sender ||
             _channel is not null ||
             _isConnecting ||
+            _isRestartingDiscovery ||
             PeerList.SelectedItem is not PeerListItem { IsDiscovered: true } selectedItem)
         {
             return;
@@ -1481,6 +1545,7 @@ public partial class MainWindow : Window
         try
         {
             await ResetConnectionAsync();
+            await RecoverDiscoveryAfterConnectionEndAsync("用户断开连接");
         }
         catch (Exception exception)
         {
@@ -1508,6 +1573,7 @@ public partial class MainWindow : Window
             _channel is not null ||
             _isScanning ||
             _isConnecting ||
+            _isRestartingDiscovery ||
             _isClosing ||
             PeerList.SelectedItem is not PeerListItem { IsKnown: true } selectedItem)
         {
@@ -2812,13 +2878,7 @@ public partial class MainWindow : Window
         if (!_isClosing)
         {
             UpdateStatus(message);
-
-            if (_role == AppRole.Receiver &&
-                _serviceStarted &&
-                _channel is null)
-            {
-                await RestartReceiverAdvertisementAsync("连接已断开");
-            }
+            await RecoverDiscoveryAfterConnectionEndAsync("连接已断开");
         }
     }
 
@@ -4058,7 +4118,10 @@ public partial class MainWindow : Window
 
         var supported = CapabilitySupported;
         var connected = _channel is not null;
-        var busy = _isScanning || _isConnecting || _isHandlingRequest;
+        var busy = _isScanning ||
+                   _isConnecting ||
+                   _isHandlingRequest ||
+                   _isRestartingDiscovery;
 
         RoleReceiverRadio.IsEnabled = supported && !connected && !busy;
         RoleSenderRadio.IsEnabled = supported && !connected && !busy;
@@ -4081,18 +4144,21 @@ public partial class MainWindow : Window
                                _role == AppRole.Sender &&
                                !connected &&
                                !_isScanning &&
-                               !_isConnecting;
+                               !_isConnecting &&
+                               !_isRestartingDiscovery;
 
         PeerList.IsEnabled = supported &&
                              _role == AppRole.Sender &&
                              !connected &&
-                             !_isConnecting;
+                             !_isConnecting &&
+                             !_isRestartingDiscovery;
 
         ConnectButton.IsEnabled = supported &&
                                   _role == AppRole.Sender &&
                                   !connected &&
                                   !_isScanning &&
                                   !_isConnecting &&
+                                  !_isRestartingDiscovery &&
                                   PeerList.SelectedItem is PeerListItem { IsDiscovered: true };
 
         QuickReconnectButton.IsEnabled = supported &&
@@ -4100,6 +4166,7 @@ public partial class MainWindow : Window
                                          !connected &&
                                          !_isScanning &&
                                          !_isConnecting &&
+                                         !_isRestartingDiscovery &&
                                          PeerList.SelectedItem is PeerListItem { IsKnown: true };
 
         var queue = _queueManager;

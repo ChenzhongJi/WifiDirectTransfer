@@ -99,6 +99,7 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 点击接收端的“重新等待”。按钮会停止并重新启动 PeerFinder，然后提示“等待连接已重新启动，请让对方重新扫描”。
 - 从休眠恢复、解锁或 Wi-Fi/网络状态变化后，应用会自动重启等待广播。
 - 连接请求被拒绝、确认超时或连接断开后，接收端也会自动重新启动广播。
+- 手动点击“断开”后，接收端会立即重启等待广播，发送端会重置发现；重新扫描即可再次连接。
 - 接收端在等待中且没有连接/传输时，每 2 分钟自动刷新一次广播，用于兜底 Windows 静默停止广播的情况。
 - 如果“重新等待”仍无效，关闭再打开两端 Wi-Fi，或重启应用。仍然无效时，重启电脑并更新无线网卡驱动。
 
@@ -162,12 +163,12 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.0.1-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.0.2-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
 ```powershell
-.\publish.ps1 -Label 1.0.1          # 自定义 zip 标签
+.\publish.ps1 -Label 1.0.2          # 自定义 zip 标签
 .\publish.ps1 -IncludePdb           # 把 pdb 一并打包
 .\publish.ps1 -SkipTests            # 跳过测试（不建议用于发布）
 .\publish.ps1 -AllowDirty           # 允许未提交改动，zip 标签会带 -dirty
@@ -184,4 +185,4 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.0.1`，协议版本 v3。具体构建号和协议版本可在“关于”或日志中查看。
+当前版本 `1.0.2`，协议版本 v3。具体构建号和协议版本可在“关于”或日志中查看。
