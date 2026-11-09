@@ -1,0 +1,39 @@
+name: Feature request
+description: 建议新功能或体验改进
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题
+      description: 描述当前的使用场景和痛点
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 你希望应用如何工作
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 功能方向
+      options:
+        - 文件/文件夹传输
+        - 队列和传输体验
+        - 连接与设备发现
+        - 文本和剪贴板
+        - 界面和主题
+        - Windows 集成
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+    validations:
+      required: false
