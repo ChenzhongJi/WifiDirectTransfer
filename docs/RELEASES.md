@@ -9,6 +9,7 @@
 | 1.0.2 | 2026-11-09 | `deebe5b` | `bbf050637f5680a0b1905a1f418fc1756b7af79dfa65a5d69bb24a47a22740b9` |
 | 1.1.0 | 2026-11-09 | `2917559` | `6537de93cea9b6159633b01256d5583933706cce1bcacaa6c8029cb37e4c26e7` |
 | 1.1.1 | 2026-11-09 | `3f131b1` | `20f10e667c46ed5693cb2d0c045c613f488da83649855ab5c296b831c350eaf1` |
+| 1.2.0 | 2026-11-09 | `3291134` | `85248d5db52cad6d0b566296f9408472e9b814f01c7756625eab3c560013fa59` |
 
 ## Release 页面
 
@@ -17,9 +18,12 @@
 - 1.0.2：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.0.2
 - 1.1.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.1.0
 - 1.1.1：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.1.1
+- 1.2.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.2.0
 
 ## 协议兼容性
 
 - 1.0.x：协议 v3。
 - 1.1.x：协议 v4，与 1.0.x 不兼容。
 - 1.1.0 与 1.1.1 可互通。
+- 1.2.0：协议 v4，与 1.1.x 在 2 GiB 以内互通；超过 2 GiB 需要两端 1.2+。
+- 1.0.x 与 1.1.x / 1.2.0 不兼容。
