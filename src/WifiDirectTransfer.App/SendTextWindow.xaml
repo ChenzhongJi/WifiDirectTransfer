@@ -43,7 +43,7 @@
                    Margin="0,6,0,0"
                    HorizontalAlignment="Right"
                    FontSize="11"
-                   Foreground="{StaticResource TextTertiaryBrush}" />
+                   Foreground="{DynamicResource TextTertiaryBrush}" />
 
         <StackPanel Grid.Row="4"
                     Margin="0,14,0,0"

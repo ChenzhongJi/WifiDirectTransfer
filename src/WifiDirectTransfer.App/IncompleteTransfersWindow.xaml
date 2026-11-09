@@ -20,7 +20,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
-                        <Border BorderBrush="{StaticResource RowSeparatorBrush}"
+                        <Border BorderBrush="{DynamicResource RowSeparatorBrush}"
                                 BorderThickness="0,0,0,1">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
                         </Border>
@@ -65,11 +65,11 @@
                             <TextBlock Text="{Binding ProgressText}"
                                        Margin="0,3,0,0"
                                        FontSize="10.5"
-                                       Foreground="{StaticResource TextSecondaryBrush}" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" />
                             <TextBlock Text="{Binding TimeText}"
                                        Margin="0,2,0,0"
                                        FontSize="10"
-                                       Foreground="{StaticResource TextTertiaryBrush}" />
+                                       Foreground="{DynamicResource TextTertiaryBrush}" />
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

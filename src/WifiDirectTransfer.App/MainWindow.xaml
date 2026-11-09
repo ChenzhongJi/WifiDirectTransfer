@@ -8,7 +8,7 @@
         MinWidth="980"
         MinHeight="640"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource WindowBackgroundBrush}"
+        Background="{DynamicResource WindowBackgroundBrush}"
         FontFamily="{StaticResource UiFont}"
         FontSize="13"
         UseLayoutRounding="True"
@@ -30,7 +30,7 @@
             <Setter Property="Height" Value="14" />
             <Setter Property="Stretch" Value="Uniform" />
             <Setter Property="Fill" Value="Transparent" />
-            <Setter Property="Stroke" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextSecondaryBrush}" />
             <Setter Property="StrokeThickness" Value="1.2" />
             <Setter Property="StrokeLineJoin" Value="Round" />
             <Setter Property="StrokeStartLineCap" Value="Round" />
@@ -40,19 +40,19 @@
         <Style x:Key="QueueStatusTextStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Transferring">
-                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Completed">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Skipped">
-                    <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -62,13 +62,13 @@
                BasedOn="{StaticResource {x:Type ProgressBar}}">
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="Completed">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Failed">
-                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Skipped">
-                    <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -76,16 +76,16 @@
         <Style x:Key="CurrentStatusTextStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Transferring">
-                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Completed">
-                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding CurrentFile.Status}" Value="Failed">
-                    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -100,8 +100,8 @@
 
         <!-- 顶部状态栏：连接状态 + 能力状态 -->
         <Border Grid.Row="0"
-                Background="{StaticResource SurfaceBrush}"
-                BorderBrush="{StaticResource BorderBrush}"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="0,0,0,1">
             <Grid Margin="20,0">
                 <Grid.ColumnDefinitions>
@@ -115,14 +115,14 @@
                     <Border x:Name="ConnectionChip"
                             Padding="10,4"
                             VerticalAlignment="Center"
-                            Background="{StaticResource SurfaceAltBrush}"
+                            Background="{DynamicResource SurfaceAltBrush}"
                             CornerRadius="14">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse x:Name="ConnectionDot"
                                      Width="7"
                                      Height="7"
                                      VerticalAlignment="Center"
-                                     Fill="#8A8F98" />
+                                     Fill="{DynamicResource TextTertiaryBrush}" />
                             <TextBlock x:Name="ConnectionStatusText"
                                        Margin="7,0,0,0"
                                        VerticalAlignment="Center"
@@ -133,12 +133,12 @@
                                     Height="12"
                                     Margin="8,0"
                                     VerticalAlignment="Center"
-                                    Background="#D8D8D8" />
+                                    Background="{DynamicResource WindowBorderBrush}" />
                             <TextBlock x:Name="ConnectionPeerText"
                                        MaxWidth="220"
                                        VerticalAlignment="Center"
                                        FontSize="11"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                        Text="选择设备并连接"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
@@ -159,7 +159,7 @@
                            Margin="16,0"
                            VerticalAlignment="Center"
                            FontSize="11"
-                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
                            Text="连接后双方都可以发送和接收文件"
                            TextTrimming="CharacterEllipsis" />
 
@@ -170,13 +170,13 @@
                              Width="8"
                              Height="8"
                              VerticalAlignment="Center"
-                             Fill="#8A8F98" />
+                             Fill="{DynamicResource TextTertiaryBrush}" />
                     <TextBlock x:Name="CapabilityText"
                                MaxWidth="360"
                                Margin="6,0,0,0"
                                VerticalAlignment="Center"
                                FontSize="11"
-                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
                                Text="正在检查 Wi-Fi Direct 能力…"
                                TextTrimming="CharacterEllipsis"
                                ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
@@ -192,8 +192,8 @@
 
             <!-- 左侧：连接与设备 -->
             <Border Grid.Column="0"
-                    Background="{StaticResource SurfaceAltBrush}"
-                    BorderBrush="{StaticResource BorderBrush}"
+                    Background="{DynamicResource SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="0,0,1,0">
                 <ScrollViewer x:Name="LeftRailScrollViewer"
                               HorizontalScrollBarVisibility="Disabled"
@@ -203,7 +203,7 @@
                                    Text="连接方式" />
                         <Border Margin="0,6,0,0"
                                 Padding="2"
-                                Background="#ECECEC"
+                                Background="{DynamicResource SegmentBackgroundBrush}"
                                 CornerRadius="6">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -253,11 +253,11 @@
                                         </Grid.ColumnDefinitions>
                                         <Border Width="28"
                                                 Height="28"
-                                                Background="#F1F3F6"
+                                                Background="{DynamicResource IconBackgroundBrush}"
                                                 CornerRadius="5">
                                             <Path Data="{StaticResource DeviceIconGeometry}"
                                                   Style="{StaticResource SmallGlyphPath}"
-                                                  Stroke="#65707D" />
+                                                  Stroke="{DynamicResource IconStrokeBrush}" />
                                         </Border>
                                         <StackPanel Grid.Column="1"
                                                     Margin="9,0,6,0"
@@ -269,7 +269,7 @@
                                                        ToolTip="{Binding DetailText}" />
                                             <TextBlock Margin="0,2,0,0"
                                                        FontSize="10"
-                                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}"
                                                        Text="{Binding LastConnectedText}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
@@ -280,13 +280,13 @@
                                             <Border.Style>
                                                 <Style TargetType="Border">
                                                     <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
+                                                    <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsKnown}" Value="True">
                                                             <Setter Property="Visibility" Value="Visible" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsKnownOnly}" Value="True">
-                                                            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}" />
+                                                            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -295,11 +295,11 @@
                                                        FontWeight="SemiBold">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
                                                         <Setter Property="Text" Value="最近" />
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsKnownOnly}" Value="True">
-                                                                <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
                                                                 <Setter Property="Text" Value="未发现" />
                                                             </DataTrigger>
                                                         </Style.Triggers>
@@ -336,7 +336,7 @@
 
                         <Border Height="1"
                                 Margin="0,16,0,12"
-                                Background="{StaticResource BorderBrush}" />
+                                Background="{DynamicResource BorderBrush}" />
 
                         <TextBlock Style="{StaticResource SectionTitleText}"
                                    Text="文本" />
@@ -359,7 +359,7 @@
 
                         <Border Height="1"
                                 Margin="0,16,0,10"
-                                Background="{StaticResource BorderBrush}" />
+                                Background="{DynamicResource BorderBrush}" />
 
                         <ToggleButton x:Name="AdvancedSettingsToggle"
                                       AutomationProperties.Name="更多设置"
@@ -386,6 +386,26 @@
                         <StackPanel x:Name="AdvancedSettingsPanel"
                                     Margin="4,4,4,0"
                                     Visibility="Collapsed">
+                            <TextBlock Margin="0,6,0,0"
+                                       Style="{StaticResource MetaText}"
+                                       Text="主题" />
+                            <ComboBox x:Name="ThemeModeComboBox"
+                                      Margin="0,4,0,0"
+                                      SelectedIndex="0"
+                                      Style="{StaticResource CompactComboBoxStyle}"
+                                      SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="跟随系统"
+                                              Tag="System" />
+                                <ComboBoxItem Content="浅色"
+                                              Tag="Light" />
+                                <ComboBoxItem Content="深色"
+                                              Tag="Dark" />
+                            </ComboBox>
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="深色模式会立即应用到所有窗口。"
+                                       TextWrapping="Wrap" />
+
                             <CheckBox x:Name="ClipboardSyncCheckBox"
                                       Margin="0,6,0,0"
                                       Content="启用剪贴板同步"
@@ -448,7 +468,7 @@
                                 <TextBlock x:Name="ReceiveDirectoryText"
                                            VerticalAlignment="Center"
                                            FontSize="10.5"
-                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
                                            TextTrimming="CharacterEllipsis"
                                            ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                 <Button x:Name="ChangeReceiveDirectoryButton"
@@ -481,8 +501,8 @@
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
-                        Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrush}"
+                        Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="0,0,0,1">
                     <Grid Margin="16,0">
                         <StackPanel Orientation="Horizontal">
@@ -502,7 +522,7 @@
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center"
                                    FontSize="11"
-                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
                                    Text="拖入文件即可加入发送队列" />
                     </Grid>
                 </Border>
@@ -558,8 +578,8 @@
                         <Border Grid.Row="1"
                                 Margin="0,0,0,10"
                                 Padding="12"
-                                Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
+                                Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="6">
                             <Grid>
@@ -587,7 +607,7 @@
                                         </TextBlock>
                                         <TextBlock Margin="6,0"
                                                    FontSize="11"
-                                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}"
                                                    Text="·">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
@@ -602,7 +622,7 @@
                                         </TextBlock>
                                         <TextBlock MaxWidth="420"
                                                    FontSize="11.5"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
                                                    Text="{Binding CurrentFile.DisplayPath, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
                                                    TextTrimming="CharacterEllipsis"
                                                    ToolTip="{Binding CurrentFile.SourcePath}" />
@@ -667,8 +687,8 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <Border Background="{StaticResource SurfaceBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6">
                                 <Grid>
@@ -678,7 +698,7 @@
                                     </Grid.RowDefinitions>
 
                                     <Grid Grid.Row="0"
-                                          Background="{StaticResource SurfaceAltBrush}">
+                                          Background="{DynamicResource SurfaceAltBrush}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="3" />
                                             <ColumnDefinition Width="*" />
@@ -738,7 +758,7 @@
                                             </ListBox.ContextMenu>
                                             <ListBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border BorderBrush="{StaticResource RowSeparatorBrush}"
+                                                    <Border BorderBrush="{DynamicResource RowSeparatorBrush}"
                                                             BorderThickness="0,0,0,1">
                                                         <Grid Height="48" Margin="12,0">
                                                             <Grid.ColumnDefinitions>
@@ -754,11 +774,11 @@
                                                                 </Grid.ColumnDefinitions>
                                                                 <Border Width="24"
                                                                         Height="24"
-                                                                        Background="#F1F3F6"
+                                                                        Background="{DynamicResource IconBackgroundBrush}"
                                                                         CornerRadius="4">
                                                                     <Path Data="{StaticResource FileIconGeometry}"
                                                                           Style="{StaticResource SmallGlyphPath}"
-                                                                          Stroke="#65707D" />
+                                                                          Stroke="{DynamicResource IconStrokeBrush}" />
                                                                 </Border>
                                                                 <StackPanel Grid.Column="1"
                                                                             Margin="8,0,0,0"
@@ -770,7 +790,7 @@
                                                                                ToolTip="{Binding SourcePath}" />
                                                                     <TextBlock Margin="0,2,0,0"
                                                                                FontSize="10"
-                                                                               Foreground="{StaticResource TextTertiaryBrush}"
+                                                                               Foreground="{DynamicResource TextTertiaryBrush}"
                                                                                Text="{Binding SourcePath}"
                                                                                TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
@@ -778,7 +798,7 @@
                                                             <TextBlock Grid.Column="1"
                                                                        VerticalAlignment="Center"
                                                                        FontSize="10.5"
-                                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                                                        Text="{Binding Size, Converter={StaticResource ByteSizeConverter}}" />
                                                             <TextBlock Grid.Column="2"
                                                                        VerticalAlignment="Center"
@@ -800,7 +820,7 @@
                                                                            Margin="8,0,0,0"
                                                                            VerticalAlignment="Center"
                                                                            FontSize="10"
-                                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                                                            Text="{Binding ProgressText}"
                                                                            TextAlignment="Right" />
                                                             </Grid>
@@ -814,21 +834,21 @@
 
                                     <Grid x:Name="QueueEmptyPanel"
                                           Grid.RowSpan="2"
-                                          Background="{StaticResource SurfaceBrush}">
+                                          Background="{DynamicResource SurfaceBrush}">
                                         <StackPanel Width="360"
                                                     HorizontalAlignment="Center"
                                                     VerticalAlignment="Center">
                                             <Border Width="44"
                                                     Height="44"
                                                     HorizontalAlignment="Center"
-                                                    Background="{StaticResource AccentSoftBrush}"
+                                                    Background="{DynamicResource AccentSoftBrush}"
                                                     CornerRadius="10">
                                                 <Path Width="22"
                                                       Height="22"
                                                       Data="{StaticResource FolderIconGeometry}"
                                                       Fill="Transparent"
                                                       Stretch="Uniform"
-                                                      Stroke="{StaticResource AccentBrush}"
+                                                      Stroke="{DynamicResource AccentBrush}"
                                                       StrokeThickness="1.3" />
                                             </Border>
                                             <TextBlock x:Name="QueueEmptyText"
@@ -840,7 +860,7 @@
                                             <TextBlock HorizontalAlignment="Center"
                                                        Margin="0,6,0,0"
                                                        FontSize="11"
-                                                       Foreground="{StaticResource TextTertiaryBrush}"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}"
                                                        Text="拖入文件或文件夹，或从资源管理器添加"
                                                        TextAlignment="Center"
                                                        TextWrapping="Wrap" />
@@ -860,8 +880,8 @@
                                     Width="240"
                                     Margin="12,0,0,0"
                                     Padding="12"
-                                    Background="{StaticResource SurfaceBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                                    Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6"
                                     Visibility="Collapsed">
@@ -931,7 +951,7 @@
                                             <TextBlock Style="{StaticResource TinyText}" Text="大小" />
                                             <TextBlock Grid.Column="1"
                                                        FontSize="10.5"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                                        Text="{Binding DetailsFile.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="1"
                                                        Margin="0,7,0,0"
@@ -941,7 +961,7 @@
                                                        Grid.Column="1"
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                                        Text="{Binding DetailsFile.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="2"
                                                        Margin="0,7,0,0"
@@ -951,7 +971,7 @@
                                                        Grid.Column="1"
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                                        Text="{Binding DetailsFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="3"
                                                        Margin="0,7,0,0"
@@ -961,14 +981,14 @@
                                                        Grid.Column="1"
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                                        Text="{Binding DetailsPositionText, TargetNullValue=—}" />
                                         </Grid>
                                         </StackPanel>
 
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="10.5"
-                                                   Foreground="{StaticResource DangerBrush}"
+                                                   Foreground="{DynamicResource DangerBrush}"
                                                    Text="{Binding DetailsFile.ErrorMessage}"
                                                    TextWrapping="Wrap">
                                             <TextBlock.Style>
@@ -998,8 +1018,8 @@
                         <Border x:Name="CurrentReceivePanel"
                                 Margin="0,0,0,10"
                                 Padding="12"
-                                Background="{StaticResource AccentSoftBrush}"
-                                BorderBrush="{StaticResource AccentLineBrush}"
+                                Background="{DynamicResource AccentSoftBrush}"
+                                BorderBrush="{DynamicResource AccentLineBrush}"
                                 BorderThickness="1"
                                 CornerRadius="6"
                                 Visibility="Collapsed">
@@ -1015,10 +1035,10 @@
                                              Height="6"
                                              Margin="0,0,6,0"
                                              VerticalAlignment="Center"
-                                             Fill="{StaticResource AccentBrush}" />
+                                             Fill="{DynamicResource AccentBrush}" />
                                     <TextBlock FontSize="10.5"
                                                FontWeight="SemiBold"
-                                               Foreground="{StaticResource AccentBrush}"
+                                               Foreground="{DynamicResource AccentBrush}"
                                                Text="正在接收" />
                                 </StackPanel>
                                 <TextBlock Grid.Row="1"
@@ -1030,7 +1050,7 @@
                                            Margin="0,4,0,0"
                                            Text="{Binding DetailText}"
                                            FontSize="10.5"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            TextTrimming="CharacterEllipsis" />
                                 <ProgressBar Grid.Row="3"
                                              Height="6"
@@ -1056,7 +1076,7 @@
                                     <TextBlock Margin="0,0,8,0"
                                                VerticalAlignment="Center"
                                                FontSize="10.5"
-                                               Foreground="{StaticResource TextTertiaryBrush}"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
                                                Text="可拖出到资源管理器" />
                                     <Button x:Name="OpenReceivedFolderButton"
                                             Content="打开所在文件夹"
@@ -1067,8 +1087,8 @@
                             </Grid>
 
                             <Border Grid.Row="1"
-                                    Background="{StaticResource SurfaceBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                                    Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6">
                                 <Grid>
@@ -1086,7 +1106,7 @@
                                              MouseDoubleClick="ReceivedFilesList_MouseDoubleClick">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
-                                                <Border BorderBrush="{StaticResource RowSeparatorBrush}"
+                                                <Border BorderBrush="{DynamicResource RowSeparatorBrush}"
                                                         BorderThickness="0,0,0,1">
                                                     <Grid Height="50" Margin="12,0">
                                                         <Grid.ColumnDefinitions>
@@ -1096,11 +1116,11 @@
                                                         <Border Width="26"
                                                                 Height="26"
                                                                 VerticalAlignment="Center"
-                                                                Background="#F1F3F6"
+                                                                Background="{DynamicResource IconBackgroundBrush}"
                                                                 CornerRadius="4">
                                                             <Path Data="{StaticResource FileIconGeometry}"
                                                                   Style="{StaticResource SmallGlyphPath}"
-                                                                  Stroke="#65707D" />
+                                                                  Stroke="{DynamicResource IconStrokeBrush}" />
                                                         </Border>
                                                         <StackPanel Grid.Column="1"
                                                                     Margin="9,0,0,0"
@@ -1116,10 +1136,10 @@
                                                                        TextTrimming="CharacterEllipsis">
                                                                 <TextBlock.Style>
                                                                     <Style TargetType="TextBlock">
-                                                                        <Setter Property="Foreground" Value="{StaticResource TextTertiaryBrush}" />
+                                                                        <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
                                                                         <Style.Triggers>
                                                                             <DataTrigger Binding="{Binding IsMissing}" Value="True">
-                                                                                <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+                                                                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                                                                             </DataTrigger>
                                                                         </Style.Triggers>
                                                                     </Style>
@@ -1140,14 +1160,14 @@
                                         <Border Width="40"
                                                 Height="40"
                                                 HorizontalAlignment="Center"
-                                                Background="{StaticResource AccentSoftBrush}"
+                                                Background="{DynamicResource AccentSoftBrush}"
                                                 CornerRadius="10">
                                             <Path Width="20"
                                                   Height="20"
                                                   Data="{StaticResource FolderIconGeometry}"
                                                   Fill="Transparent"
                                                   Stretch="Uniform"
-                                                  Stroke="{StaticResource AccentBrush}"
+                                                  Stroke="{DynamicResource AccentBrush}"
                                                   StrokeThickness="1.3" />
                                         </Border>
                                         <TextBlock x:Name="ReceivedFilesEmptyText"
@@ -1159,7 +1179,7 @@
                                         <TextBlock HorizontalAlignment="Center"
                                                    Margin="0,5,0,0"
                                                    FontSize="11"
-                                                   Foreground="{StaticResource TextTertiaryBrush}"
+                                                   Foreground="{DynamicResource TextTertiaryBrush}"
                                                    Text="接收完成后会显示在这里，可直接拖到资源管理器"
                                                    TextAlignment="Center"
                                                    TextWrapping="Wrap" />
@@ -1174,8 +1194,8 @@
                         Grid.Row="2"
                         Margin="16,10,16,10"
                         Padding="12"
-                        Background="{StaticResource SurfaceBrush}"
-                        BorderBrush="{StaticResource BorderBrush}"
+                        Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1"
                         CornerRadius="6">
                     <Grid>
@@ -1236,8 +1256,8 @@
 
         <!-- 底部状态栏 -->
         <Border Grid.Row="2"
-                Background="#F9F9F9"
-                BorderBrush="{StaticResource BorderBrush}"
+                Background="{DynamicResource StatusBarBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="0,1,0,0">
             <Grid Margin="12,0">
                 <Grid.ColumnDefinitions>
@@ -1254,7 +1274,7 @@
                            Grid.Column="1"
                            VerticalAlignment="Center"
                            FontSize="10.5"
-                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
                            Text="双向传输" />
             </Grid>
         </Border>

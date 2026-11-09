@@ -31,7 +31,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
             <Setter Property="FontSize" Value="12.5" />
             <Setter Property="TextWrapping" Value="Wrap" />
@@ -87,8 +87,8 @@
                         <DataTemplate>
                             <Border Margin="0,0,0,8"
                                     Padding="12"
-                                    Background="{StaticResource SurfaceAltBrush}"
-                                    BorderBrush="{StaticResource BorderBrush}"
+                                    Background="{DynamicResource SurfaceAltBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6">
                                 <Grid>
@@ -107,7 +107,7 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="11.5"
                                                    FontWeight="SemiBold"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
                                                    TextTrimming="CharacterEllipsis" />
                                         <Button Grid.Column="1"
                                                 Content="复制"
@@ -133,7 +133,7 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            FontSize="11"
-                           Foreground="{StaticResource TextTertiaryBrush}"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
                            Visibility="Collapsed" />
             </Grid>
         </Border>

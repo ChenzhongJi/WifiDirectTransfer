@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using WifiDirectTransfer.Core;
 
 namespace WifiDirectTransfer.App;
 
@@ -40,6 +41,9 @@ internal static class Program
 
         var app = new App();
         app.InitializeComponent();
+
+        ThemeManager.Initialize(
+            new ReceiverPreferencesStore().Load().ThemeMode);
 
         using var activationEvent = new EventWaitHandle(
             initialState: false,

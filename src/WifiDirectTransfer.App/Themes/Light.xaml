@@ -1,0 +1,92 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Color x:Key="WindowBackgroundColor">#F3F3F3</Color>
+    <Color x:Key="SurfaceColor">#FFFFFF</Color>
+    <Color x:Key="SurfaceAltColor">#FAFAFA</Color>
+    <Color x:Key="BorderColor">#E3E3E3</Color>
+    <Color x:Key="BorderStrongColor">#D2D2D2</Color>
+    <Color x:Key="TextColor">#1B1B1B</Color>
+    <Color x:Key="TextSecondaryColor">#5F6368</Color>
+    <Color x:Key="TextTertiaryColor">#8A8F98</Color>
+    <Color x:Key="AccentColor">#0B5CAD</Color>
+    <Color x:Key="AccentHoverColor">#084A8C</Color>
+    <Color x:Key="AccentSoftColor">#EAF2FB</Color>
+    <Color x:Key="AccentLineColor">#C9DCF3</Color>
+    <Color x:Key="SuccessColor">#0F7B3E</Color>
+    <Color x:Key="SuccessSoftColor">#E8F5EC</Color>
+    <Color x:Key="DangerColor">#B3261E</Color>
+    <Color x:Key="DangerSoftColor">#FCECEA</Color>
+    <Color x:Key="WarningColor">#8A5A00</Color>
+    <Color x:Key="WarningSoftColor">#FFF7E6</Color>
+    <Color x:Key="WarningLineColor">#F0C36D</Color>
+    <Color x:Key="HoverColor">#F5F6F8</Color>
+    <Color x:Key="PressedColor">#EDEFF2</Color>
+    <Color x:Key="DisabledTextColor">#A0A4A8</Color>
+    <Color x:Key="DisabledSurfaceColor">#FAFAFA</Color>
+    <Color x:Key="RowSeparatorColor">#F0F1F2</Color>
+    <Color x:Key="WindowBorderColor">#D8D8D8</Color>
+    <Color x:Key="WindowControlGlyphColor">#8A8F98</Color>
+    <Color x:Key="SegmentBackgroundColor">#ECECEC</Color>
+    <Color x:Key="IconBackgroundColor">#F1F3F6</Color>
+    <Color x:Key="IconStrokeColor">#65707D</Color>
+    <Color x:Key="StatusBarColor">#F9F9F9</Color>
+    <Color x:Key="AccentFocusColor">#7FB2E8</Color>
+    <Color x:Key="PrimaryDisabledColor">#E7E9EC</Color>
+    <Color x:Key="DangerPressedColor">#F8DAD7</Color>
+    <Color x:Key="DangerLineColor">#E3BDB9</Color>
+    <Color x:Key="SegmentHoverColor">#F0F2F5</Color>
+    <Color x:Key="TabHoverColor">#F7F8FA</Color>
+    <Color x:Key="QueueHoverColor">#F8F9FA</Color>
+    <Color x:Key="QueueActiveColor">#F5F9FE</Color>
+    <Color x:Key="LogTextColor">#3C4043</Color>
+    <Color x:Key="ScrollThumbColor">#C4C7CC</Color>
+    <Color x:Key="ProgressTrackColor">#E7E7E7</Color>
+    <Color x:Key="ToolTipBackgroundColor">#2B2B2B</Color>
+    <Color x:Key="ToolTipForegroundColor">#FFFFFF</Color>
+
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
+    <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}" />
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="BorderStrongBrush" Color="{StaticResource BorderStrongColor}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="{StaticResource TextTertiaryColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource AccentSoftColor}" />
+    <SolidColorBrush x:Key="AccentLineBrush" Color="{StaticResource AccentLineColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="{StaticResource SuccessSoftColor}" />
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
+    <SolidColorBrush x:Key="DangerSoftBrush" Color="{StaticResource DangerSoftColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="{StaticResource WarningSoftColor}" />
+    <SolidColorBrush x:Key="WarningLineBrush" Color="{StaticResource WarningLineColor}" />
+    <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource HoverColor}" />
+    <SolidColorBrush x:Key="PressedBrush" Color="{StaticResource PressedColor}" />
+    <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource DisabledTextColor}" />
+    <SolidColorBrush x:Key="DisabledSurfaceBrush" Color="{StaticResource DisabledSurfaceColor}" />
+    <SolidColorBrush x:Key="RowSeparatorBrush" Color="{StaticResource RowSeparatorColor}" />
+    <SolidColorBrush x:Key="WindowBorderBrush" Color="{StaticResource WindowBorderColor}" />
+    <SolidColorBrush x:Key="WindowControlGlyphBrush" Color="{StaticResource WindowControlGlyphColor}" />
+    <SolidColorBrush x:Key="SegmentBackgroundBrush" Color="{StaticResource SegmentBackgroundColor}" />
+    <SolidColorBrush x:Key="IconBackgroundBrush" Color="{StaticResource IconBackgroundColor}" />
+    <SolidColorBrush x:Key="IconStrokeBrush" Color="{StaticResource IconStrokeColor}" />
+    <SolidColorBrush x:Key="StatusBarBrush" Color="{StaticResource StatusBarColor}" />
+    <SolidColorBrush x:Key="AccentFocusBrush" Color="{StaticResource AccentFocusColor}" />
+    <SolidColorBrush x:Key="PrimaryDisabledBrush" Color="{StaticResource PrimaryDisabledColor}" />
+    <SolidColorBrush x:Key="DangerPressedBrush" Color="{StaticResource DangerPressedColor}" />
+    <SolidColorBrush x:Key="DangerLineBrush" Color="{StaticResource DangerLineColor}" />
+    <SolidColorBrush x:Key="SegmentHoverBrush" Color="{StaticResource SegmentHoverColor}" />
+    <SolidColorBrush x:Key="TabHoverBrush" Color="{StaticResource TabHoverColor}" />
+    <SolidColorBrush x:Key="QueueHoverBrush" Color="{StaticResource QueueHoverColor}" />
+    <SolidColorBrush x:Key="QueueActiveBrush" Color="{StaticResource QueueActiveColor}" />
+    <SolidColorBrush x:Key="LogTextBrush" Color="{StaticResource LogTextColor}" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{StaticResource ScrollThumbColor}" />
+    <SolidColorBrush x:Key="ProgressTrackBrush" Color="{StaticResource ProgressTrackColor}" />
+    <SolidColorBrush x:Key="ToolTipBackgroundBrush" Color="{StaticResource ToolTipBackgroundColor}" />
+    <SolidColorBrush x:Key="ToolTipForegroundBrush" Color="{StaticResource ToolTipForegroundColor}" />
+</ResourceDictionary>

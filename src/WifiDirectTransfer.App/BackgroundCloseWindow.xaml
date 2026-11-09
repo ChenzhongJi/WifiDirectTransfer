@@ -26,7 +26,7 @@
                 Margin="0,12,0,0"
                 Style="{StaticResource DialogWarningBorder}">
             <TextBlock FontSize="12.5"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource WarningBrush}"
                        Text="当前连接或传输尚未结束。直接关闭窗口会中断传输。"
                        TextWrapping="Wrap" />
         </Border>
