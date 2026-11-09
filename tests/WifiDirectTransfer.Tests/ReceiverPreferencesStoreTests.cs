@@ -21,6 +21,7 @@ public sealed class ReceiverPreferencesStoreTests
                     ClipboardConsentAcknowledged = true,
                     TextReceiveEnabled = true,
                     TextConsentAcknowledged = true,
+                    NotificationsEnabled = false,
                     ReceiveDirectory = @"C:\Data\Inbox"
                 });
 
@@ -33,6 +34,7 @@ public sealed class ReceiverPreferencesStoreTests
             Assert.True(loaded.ClipboardConsentAcknowledged);
             Assert.True(loaded.TextReceiveEnabled);
             Assert.True(loaded.TextConsentAcknowledged);
+            Assert.False(loaded.NotificationsEnabled);
             Assert.Equal(@"C:\Data\Inbox", loaded.ReceiveDirectory);
         });
     }
@@ -57,6 +59,7 @@ public sealed class ReceiverPreferencesStoreTests
 
             Assert.Equal(SameNamePolicy.Overwrite, loaded.SameNamePolicy);
             Assert.True(loaded.ClipboardSyncEnabled);
+            Assert.True(loaded.NotificationsEnabled);
             Assert.Null(loaded.ReceiveDirectory);
         });
     }

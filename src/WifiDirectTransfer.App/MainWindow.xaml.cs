@@ -49,6 +49,8 @@ public partial class MainWindow : Window
     private bool _textReceiveEnabled;
     private bool _textConsentAcknowledged;
     private bool _isApplyingTextPreference;
+    private bool _notificationsEnabled = true;
+    private bool _isApplyingNotificationsPreference;
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
@@ -113,6 +115,13 @@ public partial class MainWindow : Window
     private bool _isSending;
     private bool _isHandlingRequest;
     private string? _connectedPeerName;
+    private WifiDirectPeer? _connectedPeer;
+    private bool _isAutoReconnecting;
+    private bool _suppressAutoReconnect;
+
+    private sealed record AutoReconnectPlan(
+        WifiDirectPeer Peer,
+        IReadOnlyList<TransferSource> Files);
     private string? _peerBuild;
     private bool _step0Passed;
     private bool _messageLayerReady;
@@ -366,6 +375,7 @@ public partial class MainWindow : Window
         _textReceiveEnabled =
             preferences.TextReceiveEnabled &&
             _textConsentAcknowledged;
+        _notificationsEnabled = preferences.NotificationsEnabled;
 
         _isApplyingReceiverPreferences = true;
 
@@ -403,6 +413,17 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingTextPreference = false;
+        }
+
+        _isApplyingNotificationsPreference = true;
+
+        try
+        {
+            NotificationsCheckBox.IsChecked = _notificationsEnabled;
+        }
+        finally
+        {
+            _isApplyingNotificationsPreference = false;
         }
 
         _clipboardSyncService.SetEnabled(_clipboardSyncEnabled);
@@ -448,6 +469,7 @@ public partial class MainWindow : Window
                 ClipboardConsentAcknowledged = _clipboardConsentAcknowledged,
                 TextReceiveEnabled = _textReceiveEnabled,
                 TextConsentAcknowledged = _textConsentAcknowledged,
+                NotificationsEnabled = _notificationsEnabled,
                 ReceiveDirectory = _receiveDirectory
             });
 
@@ -564,6 +586,36 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("接收远程文本已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void NotificationsCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingNotificationsPreference || _isClosing)
+        {
+            return;
+        }
+
+        _notificationsEnabled = true;
+
+        var saved = SaveReceiverPreferences();
+        Log("系统通知已启用。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void NotificationsCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingNotificationsPreference || _isClosing)
+        {
+            return;
+        }
+
+        _notificationsEnabled = false;
+
+        var saved = SaveReceiverPreferences();
+        Log("系统通知已关闭。" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private static string GetSameNamePolicyText(SameNamePolicy policy) => policy switch
@@ -965,6 +1017,7 @@ public partial class MainWindow : Window
             _channel is not null ||
             _isScanning ||
             _isRestartingDiscovery ||
+            _isAutoReconnecting ||
             _isClosing)
         {
             return false;
@@ -1196,6 +1249,7 @@ public partial class MainWindow : Window
             _isScanning ||
             _isHandlingRequest ||
             _isRestartingDiscovery ||
+            _isAutoReconnecting ||
             _channel is not null ||
             _queueManager is not null ||
             _currentReceiveItem is not null)
@@ -1257,6 +1311,7 @@ public partial class MainWindow : Window
              _isScanning ||
              _isHandlingRequest ||
              _isRestartingDiscovery ||
+             _isAutoReconnecting ||
              _channel is not null))
         {
             Log($"连接或扫描进行中，跳过恢复：{reason}。");
@@ -1417,6 +1472,7 @@ public partial class MainWindow : Window
             _channel is not null ||
             _isConnecting ||
             _isRestartingDiscovery ||
+            _isAutoReconnecting ||
             PeerList.SelectedItem is not PeerListItem { IsDiscovered: true } selectedItem)
         {
             return;
@@ -1461,6 +1517,7 @@ public partial class MainWindow : Window
             }
 
             RecordKnownDevice(peer);
+            _connectedPeer = peer;
             _connectedPeerName = peer.DisplayName;
             UpdateStatus("已连接，双方都可以发送文件");
         }
@@ -1538,6 +1595,7 @@ public partial class MainWindow : Window
         }
 
         _isDisconnecting = true;
+        _suppressAutoReconnect = true;
         DisconnectButton.IsEnabled = false;
         UpdateStatus("正在断开连接…");
         Log("用户请求断开连接。");
@@ -1559,6 +1617,7 @@ public partial class MainWindow : Window
         finally
         {
             _isDisconnecting = false;
+            _suppressAutoReconnect = false;
 
             if (!_isClosing)
             {
@@ -1574,6 +1633,7 @@ public partial class MainWindow : Window
             _isScanning ||
             _isConnecting ||
             _isRestartingDiscovery ||
+            _isAutoReconnecting ||
             _isClosing ||
             PeerList.SelectedItem is not PeerListItem { IsKnown: true } selectedItem)
         {
@@ -1717,9 +1777,13 @@ public partial class MainWindow : Window
         if (!IsVisible || WindowState == WindowState.Minimized)
         {
             ShowFromTray();
-            _trayIcon?.ShowBalloon(
-                "连接请求",
-                $"来自 {request.Peer.DisplayName} 的 Wi-Fi Direct 连接请求。");
+
+            if (_notificationsEnabled)
+            {
+                _trayIcon?.ShowBalloon(
+                    "连接请求",
+                    $"来自 {request.Peer.DisplayName} 的 Wi-Fi Direct 连接请求。");
+            }
         }
 
         try
@@ -1767,6 +1831,7 @@ public partial class MainWindow : Window
 
             connectionEstablished = true;
             RecordKnownDevice(request.Peer);
+            _connectedPeer = request.Peer;
             _connectedPeerName = request.Peer.DisplayName;
             UpdateStatus("已连接，双方都可以发送文件");
             Log("连接已建立，双方都可以发送文件。");
@@ -2842,6 +2907,8 @@ public partial class MainWindow : Window
                 WifiDirectErrorCode.ConnectionLost);
         }
 
+        var reconnectPlan = TryCreateAutoReconnectPlan();
+
         try
         {
             await ResetConnectionAsync();
@@ -2854,7 +2921,204 @@ public partial class MainWindow : Window
         if (!_isClosing)
         {
             UpdateStatus(message);
-            await RecoverDiscoveryAfterConnectionEndAsync("连接已断开");
+
+            if (reconnectPlan is not null)
+            {
+                await AutoReconnectAsync(reconnectPlan);
+            }
+            else
+            {
+                await RecoverDiscoveryAfterConnectionEndAsync("连接已断开");
+            }
+        }
+    }
+
+    private AutoReconnectPlan? TryCreateAutoReconnectPlan()
+    {
+        if (_isClosing ||
+            _suppressAutoReconnect ||
+            _isAutoReconnecting ||
+            _role != AppRole.Sender ||
+            _connectedPeer is null)
+        {
+            return null;
+        }
+
+        var queue = _queueManager;
+
+        if (queue is null || !queue.IsRunning)
+        {
+            return null;
+        }
+
+        var files = new List<TransferSource>();
+
+        foreach (var file in queue.Files)
+        {
+            if (file.Status is PendingFileStatus.Completed or PendingFileStatus.Skipped)
+            {
+                continue;
+            }
+
+            if (files.Any(existing =>
+                    string.Equals(
+                        existing.SourcePath,
+                        file.SourcePath,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            files.Add(
+                new TransferSource(
+                    file.SourcePath,
+                    file.FileName,
+                    file.RelativeDirectory));
+        }
+
+        if (files.Count == 0)
+        {
+            return null;
+        }
+
+        Log(
+            $"准备自动重连：peer={_connectedPeer.DisplayName}, " +
+            $"files={files.Count}。");
+
+        return new AutoReconnectPlan(_connectedPeer, files);
+    }
+
+    private async Task AutoReconnectAsync(AutoReconnectPlan plan)
+    {
+        if (_isClosing || _isAutoReconnecting)
+        {
+            return;
+        }
+
+        _isAutoReconnecting = true;
+        UpdateUi();
+        Log($"自动重连开始：peer={plan.Peer.DisplayName}, files={plan.Files.Count}。");
+        NotifyIfInBackground("连接已断开", "正在尝试自动重连…");
+
+        var succeeded = false;
+
+        try
+        {
+            for (var attempt = 0;
+                 attempt < 3 && !_isClosing && !_suppressAutoReconnect;
+                 attempt++)
+            {
+                if (attempt > 0)
+                {
+                    try
+                    {
+                        await Task.Delay(
+                            TimeSpan.FromSeconds(1 << (attempt - 1)),
+                            _lifetimeCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                }
+
+                UpdateStatus($"连接断开，正在自动重连（{attempt + 1}/3）…");
+
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                    _lifetimeCts.Token);
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
+                _connectionAttemptCts = cts;
+                IDuplexChannel? channel = null;
+
+                try
+                {
+                    if (!await EnsureServiceStartedAsync())
+                    {
+                        continue;
+                    }
+
+                    channel = await _service.ConnectAsync(plan.Peer, cts.Token);
+                    AttachChannel(channel);
+
+                    if (!await RunSenderStep0Async(channel, _lifetimeCts.Token))
+                    {
+                        await ResetConnectionAsync();
+                        continue;
+                    }
+
+                    if (!await StartMessageLayerAsync(channel))
+                    {
+                        await ResetConnectionAsync();
+                        continue;
+                    }
+
+                    _connectedPeer = plan.Peer;
+                    _connectedPeerName = plan.Peer.DisplayName;
+                    var queue = _queueManager;
+
+                    if (queue is null)
+                    {
+                        return;
+                    }
+
+                    var added = queue.EnqueueItems(plan.Files);
+                    Log($"自动重连成功，重新入队 {added.Count} 个文件。");
+                    NotifyIfInBackground("连接已恢复", "正在继续传输。");
+                    succeeded = true;
+                    _isAutoReconnecting = false;
+                    UpdateStatus("已重新连接，正在续传…");
+                    UpdateUi();
+
+                    await StartQueueAsync(queue);
+                    return;
+                }
+                catch (OperationCanceledException)
+                    when (_lifetimeCts.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    Log(
+                        $"自动重连第 {attempt + 1} 次失败：" +
+                        exception.GetType().Name);
+
+                    if (channel is not null)
+                    {
+                        try
+                        {
+                            await ResetConnectionAsync();
+                        }
+                        catch (Exception)
+                        {
+                            // 重置失败不应阻止下一次重连。
+                        }
+                    }
+                }
+                finally
+                {
+                    if (ReferenceEquals(_connectionAttemptCts, cts))
+                    {
+                        _connectionAttemptCts = null;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _isAutoReconnecting = false;
+
+            if (!succeeded && !_isClosing)
+            {
+                UpdateStatus("自动重连失败，请重新扫描设备。");
+                NotifyIfInBackground(
+                    "自动重连失败",
+                    "请重新扫描设备。",
+                    isError: true);
+                await RecoverDiscoveryAfterConnectionEndAsync("自动重连失败");
+            }
+
+            UpdateUi();
         }
     }
 
@@ -3068,6 +3332,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        await StartQueueAsync(queue);
+    }
+
+    private async Task StartQueueAsync(TransferQueueManager queue)
+    {
+        if (_channel is null ||
+            _dispatcher is null ||
+            !_step0Passed ||
+            _isSending ||
+            !queue.CanStart)
+        {
+            return;
+        }
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         _queueCts = cts;
         Task? queueTask = null;
@@ -3276,6 +3554,7 @@ public partial class MainWindow : Window
             _messageLoopTask = null;
             _step0Passed = false;
             _messageLayerReady = false;
+            _connectedPeer = null;
             SendPanel.DataContext = null;
             QueueDetailsPanel.Visibility = Visibility.Collapsed;
             QueueDetailsToggleButton.Content = "详情";
@@ -3431,6 +3710,7 @@ public partial class MainWindow : Window
     {
         _trayIcon = new TrayIconService();
         _trayIcon.ShowRequested += ShowFromTray;
+        _trayIcon.BalloonClicked += ShowFromTray;
         _trayIcon.ExitRequested += OnTrayExitRequested;
         Log("托盘图标已创建。");
     }
@@ -3479,12 +3759,17 @@ public partial class MainWindow : Window
         Hide();
         _isHiddenToTray = true;
         Log("窗口已隐藏到托盘，传输继续在后台进行。");
-        _trayIcon?.ShowBalloon(
-            "后台运行中",
-            "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
+
+        if (_notificationsEnabled)
+        {
+            _trayIcon?.ShowBalloon(
+                "后台运行中",
+                "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
+        }
     }
 
     private bool HasBackgroundWork =>
+        _isAutoReconnecting ||
         _queueManager is { IsRunning: true } ||
         _channel is not null ||
         (_serviceStarted && _role == AppRole.Receiver);
@@ -3600,6 +3885,11 @@ public partial class MainWindow : Window
         {
             _ = Dispatcher.BeginInvoke(
                 new Action(() => NotifyIfInBackground(title, message, isError)));
+            return;
+        }
+
+        if (!_notificationsEnabled)
+        {
             return;
         }
 
@@ -4211,7 +4501,8 @@ public partial class MainWindow : Window
         var busy = _isScanning ||
                    _isConnecting ||
                    _isHandlingRequest ||
-                   _isRestartingDiscovery;
+                   _isRestartingDiscovery ||
+                   _isAutoReconnecting;
 
         RoleReceiverRadio.IsEnabled = supported && !connected && !busy;
         RoleSenderRadio.IsEnabled = supported && !connected && !busy;
@@ -4235,13 +4526,15 @@ public partial class MainWindow : Window
                                !connected &&
                                !_isScanning &&
                                !_isConnecting &&
-                               !_isRestartingDiscovery;
+                               !_isRestartingDiscovery &&
+                               !_isAutoReconnecting;
 
         PeerList.IsEnabled = supported &&
                              _role == AppRole.Sender &&
                              !connected &&
                              !_isConnecting &&
-                             !_isRestartingDiscovery;
+                             !_isRestartingDiscovery &&
+                             !_isAutoReconnecting;
 
         ConnectButton.IsEnabled = supported &&
                                   _role == AppRole.Sender &&
@@ -4249,6 +4542,7 @@ public partial class MainWindow : Window
                                   !_isScanning &&
                                   !_isConnecting &&
                                   !_isRestartingDiscovery &&
+                                  !_isAutoReconnecting &&
                                   PeerList.SelectedItem is PeerListItem { IsDiscovered: true };
 
         QuickReconnectButton.IsEnabled = supported &&
@@ -4257,6 +4551,7 @@ public partial class MainWindow : Window
                                          !_isScanning &&
                                          !_isConnecting &&
                                          !_isRestartingDiscovery &&
+                                         !_isAutoReconnecting &&
                                          PeerList.SelectedItem is PeerListItem { IsKnown: true };
 
         var queue = _queueManager;

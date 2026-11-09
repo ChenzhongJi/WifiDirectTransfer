@@ -38,11 +38,14 @@ internal sealed class TrayIconService : IDisposable
         };
 
         _notifyIcon.DoubleClick += (_, _) => ShowRequested?.Invoke();
+        _notifyIcon.BalloonTipClicked += (_, _) => BalloonClicked?.Invoke();
     }
 
     public event Action? ShowRequested;
 
     public event Action? ExitRequested;
+
+    public event Action? BalloonClicked;
 
     public void ShowBalloon(string title, string message, bool isError = false)
     {

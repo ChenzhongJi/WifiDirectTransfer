@@ -15,6 +15,8 @@ public sealed class ReceiverPreferences
 
     public bool TextConsentAcknowledged { get; set; }
 
+    public bool NotificationsEnabled { get; set; } = true;
+
     public string? ReceiveDirectory { get; set; }
 }
 

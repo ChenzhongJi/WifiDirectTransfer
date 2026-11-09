@@ -408,6 +408,17 @@
                                        Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
                                        TextWrapping="Wrap" />
 
+                            <CheckBox x:Name="NotificationsCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="启用系统通知"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="NotificationsCheckBox_Checked"
+                                      Unchecked="NotificationsCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="连接请求、传输完成和自动重连结果会显示托盘通知。"
+                                       TextWrapping="Wrap" />
+
                             <StackPanel x:Name="SameNamePolicyPanel"
                                         Margin="0,12,0,0">
                                 <TextBlock Style="{StaticResource MetaText}"
