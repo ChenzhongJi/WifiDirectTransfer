@@ -26,7 +26,7 @@
                 Margin="0,12,0,0"
                 Style="{StaticResource DialogWarningBorder}">
             <TextBlock FontSize="12.5"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource WarningBrush}"
                        Text="启用后，对端可以向你发送文本消息，内容会显示在本机的文本收件箱中。"
                        TextWrapping="Wrap" />
         </Border>

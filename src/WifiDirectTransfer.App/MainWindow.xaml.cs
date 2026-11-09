@@ -51,6 +51,8 @@ public partial class MainWindow : Window
     private bool _isApplyingTextPreference;
     private bool _notificationsEnabled = true;
     private bool _isApplyingNotificationsPreference;
+    private AppThemeMode _themeMode = AppThemeMode.System;
+    private bool _isApplyingThemePreference;
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
@@ -379,6 +381,7 @@ public partial class MainWindow : Window
             preferences.TextReceiveEnabled &&
             _textConsentAcknowledged;
         _notificationsEnabled = preferences.NotificationsEnabled;
+        _themeMode = preferences.ThemeMode;
 
         _isApplyingReceiverPreferences = true;
 
@@ -429,6 +432,23 @@ public partial class MainWindow : Window
             _isApplyingNotificationsPreference = false;
         }
 
+        _isApplyingThemePreference = true;
+
+        try
+        {
+            ThemeModeComboBox.SelectedIndex = _themeMode switch
+            {
+                AppThemeMode.Dark => 2,
+                AppThemeMode.Light => 1,
+                _ => 0
+            };
+        }
+        finally
+        {
+            _isApplyingThemePreference = false;
+        }
+
+        ThemeManager.Apply(_themeMode);
         _clipboardSyncService.SetEnabled(_clipboardSyncEnabled);
     }
 
@@ -473,6 +493,7 @@ public partial class MainWindow : Window
                 TextReceiveEnabled = _textReceiveEnabled,
                 TextConsentAcknowledged = _textConsentAcknowledged,
                 NotificationsEnabled = _notificationsEnabled,
+                ThemeMode = _themeMode,
                 ReceiveDirectory = _receiveDirectory
             });
 
@@ -589,6 +610,37 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("接收远程文本已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void ThemeModeComboBox_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (!_initialized || _isApplyingThemePreference || _isClosing)
+        {
+            return;
+        }
+
+        if (ThemeModeComboBox.SelectedItem is not ComboBoxItem item ||
+            item.Tag is not string tag ||
+            !Enum.TryParse<AppThemeMode>(tag, out var mode) ||
+            !Enum.IsDefined(mode))
+        {
+            return;
+        }
+
+        _themeMode = mode;
+        ThemeManager.Apply(mode);
+
+        var saved = SaveReceiverPreferences();
+        var text = mode switch
+        {
+            AppThemeMode.Dark => "深色",
+            AppThemeMode.Light => "浅色",
+            _ => "跟随系统"
+        };
+
+        Log($"主题：{text}" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private void NotificationsCheckBox_Checked(

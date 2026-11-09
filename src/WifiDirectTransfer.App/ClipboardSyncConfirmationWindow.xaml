@@ -26,7 +26,7 @@
                 Margin="0,12,0,0"
                 Style="{StaticResource DialogWarningBorder}">
             <TextBlock FontSize="12.5"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource WarningBrush}"
                        Text="启用后，对端将能看到你复制的内容。"
                        TextWrapping="Wrap" />
         </Border>

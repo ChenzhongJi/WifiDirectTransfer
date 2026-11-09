@@ -3,6 +3,13 @@ using System.Text.Json.Serialization;
 
 namespace WifiDirectTransfer.Core;
 
+public enum AppThemeMode
+{
+    System,
+    Light,
+    Dark
+}
+
 public sealed class ReceiverPreferences
 {
     public SameNamePolicy SameNamePolicy { get; set; } = SameNamePolicy.AutoRename;
@@ -16,6 +23,8 @@ public sealed class ReceiverPreferences
     public bool TextConsentAcknowledged { get; set; }
 
     public bool NotificationsEnabled { get; set; } = true;
+
+    public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
     public string? ReceiveDirectory { get; set; }
 }
@@ -53,7 +62,8 @@ public sealed class ReceiverPreferencesStore
                 SerializerOptions);
 
             if (preferences is null ||
-                !Enum.IsDefined(preferences.SameNamePolicy))
+                !Enum.IsDefined(preferences.SameNamePolicy) ||
+                !Enum.IsDefined(preferences.ThemeMode))
             {
                 return new ReceiverPreferences();
             }
@@ -75,6 +85,13 @@ public sealed class ReceiverPreferencesStore
             throw new ArgumentOutOfRangeException(
                 nameof(preferences),
                 "同名文件策略无效。");
+        }
+
+        if (!Enum.IsDefined(preferences.ThemeMode))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(preferences),
+                "主题设置无效。");
         }
 
         var temporaryPath = _filePath + ".tmp";
