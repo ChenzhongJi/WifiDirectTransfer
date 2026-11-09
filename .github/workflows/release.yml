@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (for example v1.0.3)'
+        required: true
+        type: string
+      publish_release:
+        description: 'Create or update the GitHub Release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve tag and label
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = '${{ inputs.tag }}'
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = '${{ github.ref_name }}'
+          }
+          $label = $tag.TrimStart('v')
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "label=$label" >> $env:GITHUB_OUTPUT
+
+      - name: Verify version
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          [xml]$props = Get-Content Directory.Build.props
+          $version = $props.Project.PropertyGroup.Version
+          if ("v$version" -ne $tag) {
+            throw "Tag $tag does not match Directory.Build.props version $version"
+          }
+
+      - name: Build package
+        shell: pwsh
+        run: .\publish.ps1 -Label '${{ steps.tag.outputs.label }}'
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WifiDirectTransfer-${{ steps.tag.outputs.label }}-win-x64
+          path: |
+            publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-win-x64.zip
+            publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-win-x64.zip.sha256
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.publish_release == true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          $label = '${{ steps.tag.outputs.label }}'
+          $zip = "publish/artifacts/WifiDirectTransfer-$label-win-x64.zip"
+          $hash = "$zip.sha256"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip $hash --clobber
+          } else {
+            gh release create $tag $zip $hash --title "WifiDirectTransfer $tag" --generate-notes
+          }
