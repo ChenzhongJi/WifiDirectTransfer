@@ -23,6 +23,8 @@ internal sealed class ReceivedFileItem : INotifyPropertyChanged
 
     public string FileName => Result.FileName;
 
+    public string DisplayPath => Result.DisplayPath;
+
     public string FilePath => Result.FilePath;
 
     public long FileSize => Result.FileSize;

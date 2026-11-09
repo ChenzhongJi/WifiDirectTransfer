@@ -2499,37 +2499,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (droppedPaths.Any(Directory.Exists))
-        {
-            var result = MessageBox.Show(
-                this,
-                "拖入内容包含文件夹。当前版本会把文件夹展开为单个文件发送，" +
-                "接收端不会保留目录结构。\n\n" +
-                "如需保留目录结构，请先把文件夹压缩为 zip 再发送。\n\n" +
-                "是否继续？",
-                "文件夹传输",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-
-            if (result != MessageBoxResult.Yes)
-            {
-                Log("已取消文件夹拖入。");
-                UpdateStatus("已取消文件夹拖入");
-                e.Effects = DragDropEffects.None;
-                return;
-            }
-
-            Log("文件夹拖入：将按文件逐个发送，不保留目录结构。");
-        }
-
         e.Effects = DragDropEffects.Copy;
 
         try
         {
-            var files = DroppedFileCollector.Collect(droppedPaths, Log);
+            var items = DroppedFileCollector.CollectItems(droppedPaths, Log);
 
-            if (files.Count == 0)
+            if (items.Count == 0)
             {
                 Log("拖入内容中没有可发送的文件。");
                 UpdateStatus("拖入内容中没有可发送的文件");
@@ -2537,7 +2513,7 @@ public partial class MainWindow : Window
             }
 
             var wasRunning = _queueManager.IsRunning;
-            var added = _queueManager.EnqueueFiles(files);
+            var added = _queueManager.EnqueueItems(items);
             Log(wasRunning
                 ? $"队列运行中追加 {added.Count} 个文件。"
                 : $"拖入添加 {added.Count} 个文件到队列。");
@@ -2964,6 +2940,120 @@ public partial class MainWindow : Window
                 WifiDirectErrorContext.FileIo,
                 _lifetimeCts.Token);
             UpdateStatus(message);
+        }
+    }
+
+    private void AddQueueFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isSending || _queueManager is not { } queue)
+        {
+            return;
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择要发送的文件夹"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var items = DroppedFileCollector.CollectItems(
+                new[] { dialog.FolderName },
+                Log);
+
+            if (items.Count == 0)
+            {
+                UpdateStatus("所选文件夹中没有可发送的文件");
+                return;
+            }
+
+            var wasRunning = queue.IsRunning;
+            var added = queue.EnqueueItems(items);
+
+            if (added.Count == 0)
+            {
+                return;
+            }
+
+            Log(wasRunning
+                ? $"队列运行中追加 {added.Count} 个文件。"
+                : $"已添加文件夹中的 {added.Count} 个文件到队列。");
+            UpdateStatus(wasRunning
+                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
+                : $"队列已添加 {added.Count} 个文件");
+            UpdateUi();
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Transfer,
+                WifiDirectErrorContext.FileIo,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+    }
+
+    private void PauseQueueButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_queueManager is not { } queue || !queue.IsRunning)
+        {
+            return;
+        }
+
+        if (queue.IsPaused)
+        {
+            queue.Resume();
+        }
+        else
+        {
+            queue.Pause();
+        }
+
+        UpdateUi();
+    }
+
+    private void MoveQueueUpMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        MoveQueueSelection(-1);
+    }
+
+    private void MoveQueueDownMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        MoveQueueSelection(1);
+    }
+
+    private void RemoveQueueItemMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_queueManager is not { } queue ||
+            QueueList.SelectedItem is not PendingFile file)
+        {
+            return;
+        }
+
+        if (queue.RemoveWaiting(file))
+        {
+            Log($"已从队列移除：{file.DisplayPath}");
+            UpdateUi();
+        }
+    }
+
+    private void MoveQueueSelection(int offset)
+    {
+        if (_queueManager is not { } queue ||
+            QueueList.SelectedItem is not PendingFile file)
+        {
+            return;
+        }
+
+        if (queue.MoveWaiting(file, offset))
+        {
+            UpdateUi();
         }
     }
 
@@ -4192,6 +4282,10 @@ public partial class MainWindow : Window
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
                                         queue is not null;
+        AddQueueFolderButton.IsEnabled = AddQueueFilesButton.IsEnabled;
+
+        PauseQueueButton.Content = queue?.IsPaused == true ? "继续" : "暂停";
+        PauseQueueButton.IsEnabled = queue is { IsRunning: true };
 
         StartQueueButton.IsEnabled = canTransfer &&
                                      !_isSending &&

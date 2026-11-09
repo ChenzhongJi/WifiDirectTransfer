@@ -13,11 +13,14 @@ public static class FileTransferProtocol
     /// <summary>Magic 按 little-endian uint 读取时的值。</summary>
     public const uint MagicValue = 0x31444657;
 
-    public const byte Version = 1;
+    public const byte Version = 2;
 
     public const int FixedHeaderLength = 24;
 
     public const int MaxFileNameLength = 255;
+
+    /// <summary>相对目录的最大 UTF-8 字节长度。空字符串表示扁平文件。</summary>
+    public const int MaxRelativeDirectoryLength = 8 * 1024;
 
     /// <summary>默认最大文件大小 2 GiB，可在编解码器和传输 API 中覆盖。</summary>
     public const long DefaultMaxFileSize = 2L * 1024 * 1024 * 1024;

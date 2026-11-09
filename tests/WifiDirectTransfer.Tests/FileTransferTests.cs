@@ -37,6 +37,64 @@ public sealed class FileTransferTests
     }
 
     [Fact]
+    public Task SendReceive_NestedRelativeDirectory_CreatesFolder()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var data = CreatePayload(96 * 1024);
+
+            await using var session = new TransferTestSession(directory);
+
+            await session.SendBytesAsync(
+                data,
+                "report.bin",
+                relativeDirectory: "docs/2026");
+            var receiveResult = await session.Received.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+            var expectedPath = Path.Combine(
+                directory,
+                "docs",
+                "2026",
+                "report.bin");
+
+            Assert.Equal("report.bin", receiveResult.FileName);
+            Assert.Equal(expectedPath, receiveResult.FilePath);
+            Assert.Equal(data, File.ReadAllBytes(expectedPath));
+            Assert.Empty(
+                Directory.GetFiles(directory, "*.part", SearchOption.AllDirectories));
+            Assert.Empty(
+                Directory.GetFiles(directory, "*.meta", SearchOption.AllDirectories));
+        });
+    }
+
+    [Fact]
+    public Task SendReceive_PathTraversal_RejectsFile()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            await using var session = new TransferTestSession(directory);
+
+            using var source = new MemoryStream(CreatePayload(1024));
+
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => session.SendAsync(
+                    source,
+                    "evil.bin",
+                    relativeDirectory: "../outside"));
+            var error = await session.Failed.Task.WaitAsync(
+                TimeSpan.FromSeconds(5));
+
+            Assert.IsType<InvalidFileHeaderException>(error);
+            Assert.False(
+                File.Exists(Path.Combine(
+                    Path.GetDirectoryName(directory)!,
+                    "outside",
+                    "evil.bin")));
+        });
+    }
+
+    [Fact]
     public Task SendReceive_ZeroByteFile_CreatesEmptyFile()
     {
         return InTempDirectoryAsync(async directory =>

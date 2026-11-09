@@ -22,6 +22,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
     private PendingFile? _currentFile;
     private bool _isRunning;
+    private bool _pauseRequested;
+    private TaskCompletionSource? _pauseTcs;
     private int _completedCount;
     private int _failedCount;
     private int _skippedCount;
@@ -109,6 +111,24 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             }
         }
     }
+
+    /// <summary>
+    /// 是否已请求暂停。当前文件会继续完成，随后队列停在文件边界。
+    /// </summary>
+    public bool IsPaused
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pauseRequested;
+            }
+        }
+    }
+
+    public bool CanPause => IsRunning && !IsPaused;
+
+    public bool CanResume => IsPaused;
 
     public bool HasFiles => _files.Count > 0;
 
@@ -203,6 +223,36 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             added.Add(CreatePendingFile(path));
         }
 
+        return AddPendingFiles(added);
+    }
+
+    /// <summary>
+    /// 将带相对目录的源文件加入队尾。相对目录为空表示发送到接收目录根。
+    /// </summary>
+    public IReadOnlyList<PendingFile> EnqueueItems(
+        IEnumerable<TransferSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var added = new List<PendingFile>();
+
+        foreach (var source in sources)
+        {
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.SourcePath))
+            {
+                continue;
+            }
+
+            added.Add(CreatePendingFile(source));
+        }
+
+        return AddPendingFiles(added);
+    }
+
+    private IReadOnlyList<PendingFile> AddPendingFiles(
+        List<PendingFile> added)
+    {
         if (added.Count == 0)
         {
             return added;
@@ -263,6 +313,162 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// 请求在当前文件完成后暂停。暂停期间不会发送下一个文件的 FileStart。
+    /// </summary>
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            if (!_isRunning || _pauseRequested)
+            {
+                return;
+            }
+
+            _pauseRequested = true;
+
+            if (_pauseTcs is null || _pauseTcs.Task.IsCompleted)
+            {
+                _pauseTcs = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        OnPropertyChanged(nameof(IsPaused));
+        OnPropertyChanged(nameof(CanPause));
+        OnPropertyChanged(nameof(CanResume));
+        _log?.Invoke("已请求暂停，当前文件完成后暂停。");
+    }
+
+    /// <summary>
+    /// 继续已暂停的队列。
+    /// </summary>
+    public void Resume()
+    {
+        TaskCompletionSource? pauseTcs = null;
+
+        lock (_gate)
+        {
+            if (!_pauseRequested)
+            {
+                return;
+            }
+
+            _pauseRequested = false;
+            pauseTcs = _pauseTcs;
+        }
+
+        pauseTcs?.TrySetResult();
+        OnPropertyChanged(nameof(IsPaused));
+        OnPropertyChanged(nameof(CanPause));
+        OnPropertyChanged(nameof(CanResume));
+        _log?.Invoke("队列已继续。");
+    }
+
+    /// <summary>
+    /// 在等待队列中上移或下移一个文件。offset 为 -1 或 +1。
+    /// </summary>
+    public bool MoveWaiting(PendingFile file, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        lock (_gate)
+        {
+            if (file.Status != PendingFileStatus.Waiting)
+            {
+                return false;
+            }
+
+            var waiting = _files
+                .Where(item => item.Status == PendingFileStatus.Waiting)
+                .ToList();
+            var index = waiting.IndexOf(file);
+            var targetIndex = index + offset;
+
+            if (index < 0 ||
+                targetIndex < 0 ||
+                targetIndex >= waiting.Count)
+            {
+                return false;
+            }
+
+            var target = waiting[targetIndex];
+            var sourceListIndex = _files.IndexOf(file);
+            var targetListIndex = _files.IndexOf(target);
+
+            if (sourceListIndex < 0 || targetListIndex < 0)
+            {
+                return false;
+            }
+
+            _files.Move(sourceListIndex, targetListIndex);
+            RebuildPendingQueue();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 从等待队列中移除一个尚未开始的文件。
+    /// </summary>
+    public bool RemoveWaiting(PendingFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        lock (_gate)
+        {
+            if (file.Status != PendingFileStatus.Waiting ||
+                !_files.Remove(file))
+            {
+                return false;
+            }
+
+            RebuildPendingQueue();
+        }
+
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(HasFiles));
+        OnPropertyChanged(nameof(HasWaitingFiles));
+        OnPropertyChanged(nameof(CanStart));
+        OnPropertyChanged(nameof(CurrentPositionText));
+        OnPropertyChanged(nameof(OverallProgressText));
+        OnPropertyChanged(nameof(OverallProgressPercent));
+
+        return true;
+    }
+
+    private async Task WaitIfPausedAsync(CancellationToken cancellationToken)
+    {
+        Task pauseTask;
+
+        lock (_gate)
+        {
+            if (!_pauseRequested)
+            {
+                return;
+            }
+
+            _pauseTcs ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            pauseTask = _pauseTcs.Task;
+        }
+
+        await pauseTask.WaitAsync(cancellationToken).ConfigureAwait(true);
+    }
+
+    private void RebuildPendingQueue()
+    {
+        _pending.Clear();
+
+        foreach (var file in _files)
+        {
+            if (file.Status == PendingFileStatus.Waiting)
+            {
+                _pending.Enqueue(file);
+            }
+        }
+    }
+
+    /// <summary>
     /// 串行发送队列中的文件。取消令牌触发时停止当前文件，剩余文件标记为 Skipped；
     /// 方法本身不会因用户取消而抛出 <see cref="OperationCanceledException"/>。
     /// </summary>
@@ -276,11 +482,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             }
 
             _isRunning = true;
+            _pauseRequested = false;
+            _pauseTcs = null;
         }
 
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
+        OnPropertyChanged(nameof(IsPaused));
+        OnPropertyChanged(nameof(CanPause));
+        OnPropertyChanged(nameof(CanResume));
 
         var canceled = false;
         string? stopReason = null;
@@ -311,6 +522,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             while (true)
             {
                 PendingFile? file;
+
+                await WaitIfPausedAsync(cancellationToken).ConfigureAwait(true);
 
                 lock (_gate)
                 {
@@ -394,11 +607,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 }
 
                 _isRunning = false;
+                _pauseRequested = false;
+                _pauseTcs = null;
             }
 
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(HasWaitingFiles));
             OnPropertyChanged(nameof(CanStart));
+            OnPropertyChanged(nameof(IsPaused));
+            OnPropertyChanged(nameof(CanPause));
+            OnPropertyChanged(nameof(CanResume));
             OnPropertyChanged(nameof(CompletedCount));
             OnPropertyChanged(nameof(FailedCount));
             OnPropertyChanged(nameof(SkippedCount));
@@ -458,7 +676,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     progress,
                     startProgress,
                     cancellationToken,
-                    _log)
+                    _log,
+                    relativeDirectory: file.RelativeDirectory)
                 .ConfigureAwait(true);
 
             file.BytesTransferred = result.FileSize;
@@ -605,6 +824,51 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
 
         return new PendingFile(fullPath, fileName, size);
+    }
+
+    private static PendingFile CreatePendingFile(TransferSource source)
+    {
+        string fullPath;
+
+        try
+        {
+            fullPath = Path.GetFullPath(source.SourcePath);
+        }
+        catch (Exception)
+        {
+            fullPath = source.SourcePath;
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(source.FileName)
+            ? Path.GetFileName(fullPath)
+            : source.FileName;
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = fullPath;
+        }
+
+        long size = 0;
+
+        try
+        {
+            var info = new FileInfo(fullPath);
+
+            if (info.Exists)
+            {
+                size = info.Length;
+            }
+        }
+        catch (Exception)
+        {
+            // 大小读取失败不影响入队，发送时会给出具体错误。
+        }
+
+        return new PendingFile(
+            fullPath,
+            fileName,
+            size,
+            source.RelativeDirectory);
     }
 
     private void RaiseFileStarted(QueueFileStartedEventArgs args)

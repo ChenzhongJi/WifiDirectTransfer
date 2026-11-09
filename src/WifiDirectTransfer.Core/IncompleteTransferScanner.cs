@@ -22,7 +22,10 @@ public static class IncompleteTransferScanner
 
         var results = new List<IncompleteTransfer>();
 
-        foreach (var partPath in Directory.EnumerateFiles(directory, "*.part"))
+        foreach (var partPath in Directory.EnumerateFiles(
+                     directory,
+                     "*.part",
+                     SearchOption.AllDirectories))
         {
             try
             {
@@ -51,8 +54,9 @@ public static class IncompleteTransferScanner
 
                 var partInfo = new FileInfo(partPath);
                 var partLength = partInfo.Length;
-                var fileName = metadata?.FileName
-                               ?? Path.GetFileNameWithoutExtension(partPath);
+                var fileName = Path.GetRelativePath(
+                    directory,
+                    partPath[..^".part".Length]);
                 var receivedBytes = metadata is null
                     ? partLength
                     : Math.Min(metadata.PersistedBytes, partLength);

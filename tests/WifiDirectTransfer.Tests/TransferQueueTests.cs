@@ -144,6 +144,75 @@ public sealed class TransferQueueTests
     }
 
     [Fact]
+    public Task EnqueueItems_PreservesRelativeDirectories()
+    {
+        return InTempDirectoryAsync(async root =>
+        {
+            var sourceDirectory = Path.Combine(root, "source");
+            var receiveDirectory = Path.Combine(root, "receive");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(receiveDirectory);
+
+            var firstPath = Path.Combine(sourceDirectory, "a.bin");
+            var secondPath = Path.Combine(sourceDirectory, "b.bin");
+            await File.WriteAllBytesAsync(firstPath, CreatePayload(16 * 1024));
+            await File.WriteAllBytesAsync(secondPath, CreatePayload(8 * 1024));
+
+            await using var session = new TransferTestSession(receiveDirectory);
+            var queue = new TransferQueueManager(session.SenderDispatcher);
+            var received = new List<FileReceiveResult>();
+            var allReceived = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            session.Receiver.FileReceived += (_, args) =>
+            {
+                lock (received)
+                {
+                    received.Add(args.Result);
+
+                    if (received.Count == 2)
+                    {
+                        allReceived.TrySetResult();
+                    }
+                }
+            };
+
+            queue.EnqueueItems(new[]
+            {
+                new TransferSource(firstPath, "a.bin", "docs/2026"),
+                new TransferSource(secondPath, "b.bin", "images")
+            });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await queue.StartAsync(cts.Token);
+            await allReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            lock (received)
+            {
+                Assert.Contains(
+                    received,
+                    result => result.FilePath == Path.Combine(
+                        receiveDirectory,
+                        "docs",
+                        "2026",
+                        "a.bin"));
+                Assert.Contains(
+                    received,
+                    result => result.FilePath == Path.Combine(
+                        receiveDirectory,
+                        "images",
+                        "b.bin"));
+            }
+
+            Assert.Empty(
+                Directory.GetFiles(
+                    receiveDirectory,
+                    "*.part",
+                    SearchOption.AllDirectories));
+        });
+    }
+
+    [Fact]
     public Task StartAsync_FileAppendedWhileRunning_IsDrainedInSameRun()
     {
         return InTempDirectoryAsync(async root =>
@@ -514,6 +583,36 @@ public sealed class TransferQueueTests
             Assert.Equal(100d, queue.OverallProgressPercent);
             Assert.False(queue.IsRunning);
         });
+    }
+
+    [Fact]
+    public void MoveWaitingAndRemoveWaiting_ReorderOnlyWaitingFiles()
+    {
+        var dispatcher = new MessageDispatcher(Stream.Null, Stream.Null);
+        var queue = new TransferQueueManager(dispatcher);
+
+        queue.EnqueueItems(new[]
+        {
+            new TransferSource("a", "a.bin", string.Empty),
+            new TransferSource("b", "b.bin", string.Empty),
+            new TransferSource("c", "c.bin", string.Empty)
+        });
+
+        Assert.Equal(
+            new[] { "a.bin", "b.bin", "c.bin" },
+            queue.Files.Select(file => file.DisplayPath));
+
+        Assert.True(queue.MoveWaiting(queue.Files[1], -1));
+        Assert.Equal(
+            new[] { "b.bin", "a.bin", "c.bin" },
+            queue.Files.Select(file => file.DisplayPath));
+
+        Assert.True(queue.RemoveWaiting(queue.Files[2]));
+        Assert.Equal(2, queue.TotalCount);
+        Assert.Equal(
+            new[] { "b.bin", "a.bin" },
+            queue.Files.Select(file => file.DisplayPath));
+        Assert.False(queue.MoveWaiting(queue.Files[0], -1));
     }
 
     private static List<string> WriteSources(

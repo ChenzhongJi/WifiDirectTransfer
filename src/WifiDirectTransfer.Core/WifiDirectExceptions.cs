@@ -120,7 +120,8 @@ public sealed class ProtocolVersionMismatchException : WifiDirectException
         : base(
             WifiDirectErrorCode.InvalidProtocolData,
             $"两端协议版本不一致（本端 v{localVersion}，对端 v{peerVersion}）。" +
-            "请更新到同一构建。")
+            "1.1 起协议升级为 v4，不再兼容 1.0.x；" +
+            "请把两台电脑都升级到同一新版本。")
     {
         LocalVersion = localVersion;
         PeerVersion = peerVersion;

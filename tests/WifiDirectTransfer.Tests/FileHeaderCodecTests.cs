@@ -42,7 +42,7 @@ public sealed class FileHeaderCodecTests
         var expected = new byte[]
         {
             0x57, 0x46, 0x44, 0x31,                         // Magic "WFD1"
-            0x01,                                           // Version
+            0x02,                                           // Version
             0x01,                                           // MessageType.FileStart
             0x1D, 0x00,                                     // HeaderLength 29
             0x05, 0x00,                                     // FileNameLength 5
@@ -158,6 +158,51 @@ public sealed class FileHeaderCodecTests
             payload.Length);
         Assert.Equal(header, roundTripped.Header);
         Assert.Equal("../CON.txt", roundTripped.FileName);
+        Assert.Equal(string.Empty, roundTripped.RelativeDirectory);
+    }
+
+    [Fact]
+    public void FileStartPayload_RoundTripsRelativeDirectory()
+    {
+        var codec = new FileHeaderCodec();
+        var fileNameBytes = FileHeaderCodec.EncodeFileName("report.pdf");
+        var relativeBytes = FileHeaderCodec.EncodeRelativeDirectory("docs/2026");
+        var header = FileHeader.CreateFileStart(
+            fileSize: 12345,
+            fileNameByteLength: fileNameBytes.Length,
+            relativeDirectoryByteLength: relativeBytes.Length);
+
+        var payload = codec.SerializeFileStartPayload(
+            header,
+            fileNameBytes,
+            relativeBytes);
+        var roundTripped = codec.DeserializeFileStartPayload(payload);
+
+        Assert.Equal(
+            FileTransferProtocol.FixedHeaderLength +
+            fileNameBytes.Length +
+            relativeBytes.Length,
+            payload.Length);
+        Assert.Equal(header, roundTripped.Header);
+        Assert.Equal("report.pdf", roundTripped.FileName);
+        Assert.Equal("docs/2026", roundTripped.RelativeDirectory);
+    }
+
+    [Fact]
+    public void FileStartPayload_RejectsHeaderLengthMismatchForRelativeDirectory()
+    {
+        var codec = new FileHeaderCodec();
+        var fileNameBytes = FileHeaderCodec.EncodeFileName("report.pdf");
+        var relativeBytes = FileHeaderCodec.EncodeRelativeDirectory("docs");
+        var header = FileHeader.CreateFileStart(
+            fileSize: 12345,
+            fileNameByteLength: fileNameBytes.Length);
+
+        Assert.Throws<InvalidFileHeaderException>(
+            () => codec.SerializeFileStartPayload(
+                header,
+                fileNameBytes,
+                relativeBytes));
     }
 
     [Fact]
@@ -212,7 +257,7 @@ public sealed class FileHeaderCodecTests
         var validBytes = codec.Serialize(header);
 
         AssertRejected(codec, validBytes, bytes => bytes[0] ^= 0xFF);
-        AssertRejected(codec, validBytes, bytes => bytes[4] = 2);
+        AssertRejected(codec, validBytes, bytes => bytes[4] = 1);
         AssertRejected(codec, validBytes, bytes => bytes[5] = (byte)MessageType.FileChunk);
         AssertRejected(
             codec,
