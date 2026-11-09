@@ -642,6 +642,43 @@ public sealed class TransferQueueTests
         Assert.Equal("—", queue.DetailsPositionText);
     }
 
+    [Fact]
+    public Task RemoveFinished_RemovesCompletedFileAndUpdatesCounts()
+    {
+        return InTempDirectoryAsync(async root =>
+        {
+            var sourceDirectory = Path.Combine(root, "source");
+            var receiveDirectory = Path.Combine(root, "receive");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(receiveDirectory);
+
+            var sourcePath = Path.Combine(sourceDirectory, "done.bin");
+            await File.WriteAllBytesAsync(sourcePath, CreatePayload(8 * 1024));
+
+            await using var session = new TransferTestSession(receiveDirectory);
+            var queue = new TransferQueueManager(session.SenderDispatcher);
+            var received = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            session.Receiver.FileReceived += (_, _) => received.TrySetResult();
+
+            queue.EnqueueFiles(new[] { sourcePath });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await queue.StartAsync(cts.Token);
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var completed = Assert.Single(queue.Files);
+            Assert.Equal(PendingFileStatus.Completed, completed.Status);
+            Assert.Equal(1, queue.CompletedCount);
+
+            Assert.True(queue.RemoveFinished(completed));
+            Assert.Empty(queue.Files);
+            Assert.Equal(0, queue.TotalCount);
+            Assert.Equal(0, queue.CompletedCount);
+        });
+    }
+
     private static List<string> WriteSources(
         string directory,
         IReadOnlyDictionary<string, byte[]> payloads)

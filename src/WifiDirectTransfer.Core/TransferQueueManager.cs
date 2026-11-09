@@ -385,7 +385,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsPaused));
         OnPropertyChanged(nameof(CanPause));
         OnPropertyChanged(nameof(CanResume));
-        _log?.Invoke("已请求暂停，当前文件完成后暂停。");
+        _log?.Invoke("已请求暂停，当前块完成后停止发送。");
     }
 
     /// <summary>
@@ -493,6 +493,85 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CurrentPositionText));
+        OnPropertyChanged(nameof(OverallProgressText));
+        OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(DetailsFile));
+        OnPropertyChanged(nameof(DetailsPositionText));
+
+        return true;
+    }
+
+    /// <summary>
+    /// 从队列中移除一个已完成、失败或跳过的文件，并同步修正统计。
+    /// </summary>
+    public bool RemoveFinished(PendingFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        var selectedChanged = false;
+        var currentChanged = false;
+
+        lock (_gate)
+        {
+            if (file.Status is PendingFileStatus.Waiting or
+                PendingFileStatus.Transferring)
+            {
+                return false;
+            }
+
+            if (!_files.Remove(file))
+            {
+                return false;
+            }
+
+            switch (file.Status)
+            {
+                case PendingFileStatus.Completed:
+                    _completedCount = Math.Max(0, _completedCount - 1);
+                    break;
+                case PendingFileStatus.Failed:
+                    _failedCount = Math.Max(0, _failedCount - 1);
+                    break;
+                case PendingFileStatus.Skipped:
+                    _skippedCount = Math.Max(0, _skippedCount - 1);
+                    break;
+            }
+
+            if (ReferenceEquals(_selectedFile, file))
+            {
+                _selectedFile = null;
+                selectedChanged = true;
+            }
+
+            if (ReferenceEquals(_currentFile, file))
+            {
+                _currentFile = null;
+                currentChanged = true;
+            }
+
+            RebuildPendingQueue();
+        }
+
+        if (selectedChanged)
+        {
+            OnPropertyChanged(nameof(SelectedFile));
+        }
+
+        if (currentChanged)
+        {
+            OnPropertyChanged(nameof(CurrentFile));
+            OnPropertyChanged(nameof(CurrentIndex));
+            OnPropertyChanged(nameof(CurrentPositionText));
+        }
+
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(HasFiles));
+        OnPropertyChanged(nameof(HasWaitingFiles));
+        OnPropertyChanged(nameof(CanStart));
+        OnPropertyChanged(nameof(CompletedCount));
+        OnPropertyChanged(nameof(FailedCount));
+        OnPropertyChanged(nameof(SkippedCount));
+        OnPropertyChanged(nameof(FinishedCount));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
         OnPropertyChanged(nameof(DetailsFile));
@@ -742,7 +821,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     startProgress,
                     cancellationToken,
                     _log,
-                    relativeDirectory: file.RelativeDirectory)
+                    relativeDirectory: file.RelativeDirectory,
+                    pauseAsync: WaitIfPausedAsync)
                 .ConfigureAwait(true);
 
             file.BytesTransferred = result.FileSize;

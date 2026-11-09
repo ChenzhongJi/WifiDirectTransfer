@@ -715,15 +715,24 @@
                                                  ItemContainerStyle="{StaticResource QueueListItemStyle}"
                                                  ItemsSource="{Binding Files}"
                                                  SelectionChanged="QueueList_SelectionChanged"
+                                                 PreviewMouseRightButtonDown="QueueList_PreviewMouseRightButtonDown"
+                                                 ContextMenuOpening="QueueList_ContextMenuOpening"
                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
                                             <ListBox.ContextMenu>
                                                 <ContextMenu>
-                                                    <MenuItem Header="上移"
+                                                    <MenuItem x:Name="ViewQueueItemDetailsMenuItem"
+                                                              Header="查看详情"
+                                                              Click="ViewQueueItemDetailsMenuItem_Click" />
+                                                    <Separator />
+                                                    <MenuItem x:Name="MoveQueueUpMenuItem"
+                                                              Header="上移"
                                                               Click="MoveQueueUpMenuItem_Click" />
-                                                    <MenuItem Header="下移"
+                                                    <MenuItem x:Name="MoveQueueDownMenuItem"
+                                                              Header="下移"
                                                               Click="MoveQueueDownMenuItem_Click" />
-                                                    <MenuItem Header="从队列移除"
+                                                    <MenuItem x:Name="RemoveQueueItemMenuItem"
+                                                              Header="从队列移除"
                                                               Click="RemoveQueueItemMenuItem_Click" />
                                                 </ContextMenu>
                                             </ListBox.ContextMenu>
