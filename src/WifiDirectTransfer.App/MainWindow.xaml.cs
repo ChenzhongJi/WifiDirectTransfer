@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private bool _isApplyingNotificationsPreference;
     private AppThemeMode _themeMode = AppThemeMode.System;
     private bool _isApplyingThemePreference;
+    private bool _isApplyingExplorerContextMenuPreference;
+    private readonly List<string> _pendingExternalPaths = new();
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
     private ReceivedFileItem? _receivedDragItem;
@@ -296,6 +298,18 @@ public partial class MainWindow : Window
         UpdateUi();
         UpdateTextInboxButton();
 
+        var launchPaths = Program.TakePendingPaths();
+
+        if (launchPaths.Count > 0)
+        {
+            ActivateFromExternalLaunch(launchPaths);
+        }
+
+        if (_pendingExternalPaths.Count > 0)
+        {
+            FlushPendingExternalPaths();
+        }
+
         _ = Dispatcher.BeginInvoke(
             new Action(ShowIncompleteTransfersIfAny),
             DispatcherPriority.Background);
@@ -450,6 +464,30 @@ public partial class MainWindow : Window
 
         ThemeManager.Apply(_themeMode);
         _clipboardSyncService.SetEnabled(_clipboardSyncEnabled);
+
+        _isApplyingExplorerContextMenuPreference = true;
+
+        try
+        {
+            var explorerRegistered = ExplorerContextMenu.IsRegistered();
+            ExplorerContextMenuCheckBox.IsChecked = explorerRegistered;
+
+            if (explorerRegistered)
+            {
+                var executablePath = GetExecutablePath();
+
+                if (!string.IsNullOrWhiteSpace(executablePath) &&
+                    !ExplorerContextMenu.IsRegisteredFor(executablePath) &&
+                    !ExplorerContextMenu.Register(executablePath))
+                {
+                    Log("更新资源管理器右键菜单失败。");
+                }
+            }
+        }
+        finally
+        {
+            _isApplyingExplorerContextMenuPreference = false;
+        }
     }
 
     private void SameNamePolicyComboBox_SelectionChanged(
@@ -671,6 +709,75 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("系统通知已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void ExplorerContextMenuCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized ||
+            _isApplyingExplorerContextMenuPreference ||
+            _isClosing)
+        {
+            return;
+        }
+
+        var executablePath = GetExecutablePath();
+
+        if (string.IsNullOrWhiteSpace(executablePath) ||
+            !ExplorerContextMenu.Register(executablePath))
+        {
+            _isApplyingExplorerContextMenuPreference = true;
+
+            try
+            {
+                ExplorerContextMenuCheckBox.IsChecked = false;
+            }
+            finally
+            {
+                _isApplyingExplorerContextMenuPreference = false;
+            }
+
+            Log("注册资源管理器右键菜单失败。");
+            UpdateStatus("注册资源管理器右键菜单失败");
+            return;
+        }
+
+        Log("已注册资源管理器右键菜单。");
+        UpdateStatus("已启用资源管理器右键发送");
+    }
+
+    private void ExplorerContextMenuCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized ||
+            _isApplyingExplorerContextMenuPreference ||
+            _isClosing)
+        {
+            return;
+        }
+
+        if (!ExplorerContextMenu.Unregister())
+        {
+            _isApplyingExplorerContextMenuPreference = true;
+
+            try
+            {
+                ExplorerContextMenuCheckBox.IsChecked = true;
+            }
+            finally
+            {
+                _isApplyingExplorerContextMenuPreference = false;
+            }
+
+            Log("移除资源管理器右键菜单失败。");
+            UpdateStatus("移除资源管理器右键菜单失败");
+            return;
+        }
+
+        Log("已移除资源管理器右键菜单。");
+        UpdateStatus("已关闭资源管理器右键发送");
     }
 
     private static string GetSameNamePolicyText(SameNamePolicy policy) => policy switch
@@ -2155,6 +2262,7 @@ public partial class MainWindow : Window
 
         var queue = new TransferQueueManager(
             dispatcher,
+            PeerBuildCompatibility.GetMaxFileSize(_peerBuild),
             errorMessageFactory: CreateQueueErrorMessage,
             log: Log);
 
@@ -2172,10 +2280,15 @@ public partial class MainWindow : Window
         _messageLayerReady = true;
         UpdateUi();
 
+        _ = Dispatcher.BeginInvoke(
+            new Action(FlushPendingExternalPaths),
+            DispatcherPriority.Background);
+
         Log(
             $"双向传输层已就绪：role={_role}，" +
             $"maxPayload={dispatcher.MaxPayloadLength}，" +
             $"peerMaxPayload={peerHello.MaxPayloadLength}，" +
+            $"peerMaxFileSize={FormatBytes(PeerBuildCompatibility.GetMaxFileSize(_peerBuild))}，" +
             $"clipboardSync={_clipboardSyncEnabled}。");
 
         return true;
@@ -2656,6 +2769,180 @@ public partial class MainWindow : Window
                 WifiDirectErrorContext.FileIo,
                 _lifetimeCts.Token);
             UpdateStatus(message);
+        }
+    }
+
+    /// <summary>
+    /// 从资源管理器右键菜单、启动参数或第二个实例收到路径。
+    /// 未连接时先暂存，连接并建立传输层后自动加入队列。
+    /// </summary>
+    public void ActivateFromExternalLaunch(IReadOnlyList<string> paths)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => ActivateFromExternalLaunch(paths)));
+            return;
+        }
+
+        ShowFromTray();
+
+        if (!_initialized)
+        {
+            AddPendingExternalPaths(paths);
+            return;
+        }
+
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        SendTabButton.IsChecked = true;
+
+        if (_channel is not null &&
+            _queueManager is not null &&
+            _step0Passed)
+        {
+            EnqueueExternalPaths(paths);
+            return;
+        }
+
+        AddPendingExternalPaths(paths);
+
+        if (_channel is null &&
+            _role != AppRole.Sender &&
+            CapabilitySupported &&
+            !_isConnecting &&
+            !_isScanning &&
+            !_isRestartingDiscovery &&
+            !_isAutoReconnecting)
+        {
+            RoleSenderRadio.IsChecked = true;
+        }
+
+        var message =
+            $"已收到 {_pendingExternalPaths.Count} 个待发送路径，" +
+            "请连接设备；连接后会自动加入发送队列。";
+
+        Log(message);
+        UpdateStatus(message);
+        UpdateUi();
+    }
+
+    private void FlushPendingExternalPaths()
+    {
+        if (_isClosing ||
+            _pendingExternalPaths.Count == 0 ||
+            _channel is null ||
+            _queueManager is null ||
+            !_step0Passed)
+        {
+            return;
+        }
+
+        var paths = _pendingExternalPaths.ToArray();
+        _pendingExternalPaths.Clear();
+        EnqueueExternalPaths(paths);
+    }
+
+    private void EnqueueExternalPaths(IReadOnlyList<string> paths)
+    {
+        if (_isClosing || paths.Count == 0)
+        {
+            return;
+        }
+
+        if (_queueManager is not { } queue ||
+            _channel is null ||
+            !_step0Passed)
+        {
+            AddPendingExternalPaths(paths);
+            return;
+        }
+
+        try
+        {
+            var items = DroppedFileCollector.CollectItems(paths, Log);
+
+            if (items.Count == 0)
+            {
+                Log("右键发送内容中没有可发送的文件。");
+                UpdateStatus("右键发送内容中没有可发送的文件");
+                return;
+            }
+
+            var wasRunning = queue.IsRunning;
+            var added = queue.EnqueueItems(items);
+
+            if (added.Count == 0)
+            {
+                return;
+            }
+
+            SelectFirstQueueItemIfNeeded(added);
+            SendTabButton.IsChecked = true;
+
+            Log(wasRunning
+                ? $"资源管理器追加 {added.Count} 个文件到队列。"
+                : $"资源管理器添加 {added.Count} 个文件到队列。");
+            UpdateStatus(wasRunning
+                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
+                : $"已添加 {added.Count} 个文件，点击“开始传输”");
+            UpdateUi();
+        }
+        catch (Exception exception)
+        {
+            var message = LogException(
+                exception,
+                WifiDirectOperation.Transfer,
+                WifiDirectErrorContext.FileIo,
+                _lifetimeCts.Token);
+            UpdateStatus(message);
+        }
+    }
+
+    private void AddPendingExternalPaths(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            if (_pendingExternalPaths.Contains(
+                    path,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _pendingExternalPaths.Add(path);
+        }
+    }
+
+    private static string? GetExecutablePath()
+    {
+        var processPath = Environment.ProcessPath;
+
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            return processPath;
+        }
+
+        try
+        {
+            return Process.GetCurrentProcess().MainModule?.FileName;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

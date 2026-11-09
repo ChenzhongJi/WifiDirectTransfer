@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace WifiDirectTransfer.Core;
@@ -19,6 +20,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     private readonly ObservableCollection<PendingFile> _files = new();
     private readonly ReadOnlyObservableCollection<PendingFile> _readOnlyFiles;
     private readonly object _gate = new();
+    private readonly TransferRateTracker _overallRate = new();
+    private readonly Stopwatch _overallWatch = new();
 
     private PendingFile? _currentFile;
     private PendingFile? _selectedFile;
@@ -233,6 +236,63 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         ? 0d
         : Math.Clamp((double)FinishedCount / TotalCount * 100d, 0d, 100d);
 
+    /// <summary>队列中所有文件的字节总数。</summary>
+    public long TotalBytes
+    {
+        get
+        {
+            long total = 0;
+
+            foreach (var file in _files)
+            {
+                total += file.Size;
+            }
+
+            return total;
+        }
+    }
+
+    /// <summary>队列总体平滑速率，单位字节/秒。</summary>
+    public double OverallSpeedBytesPerSecond => IsRunning
+        ? _overallRate.BytesPerSecond
+        : 0d;
+
+    public string OverallSpeedText => IsRunning
+        ? TransferFormat.FormatSpeed(_overallRate.BytesPerSecond)
+        : "—";
+
+    public string OverallEtaText
+    {
+        get
+        {
+            if (!IsRunning)
+            {
+                return "—";
+            }
+
+            var remaining = _overallRate.GetRemaining(TotalBytes);
+            return remaining.HasValue
+                ? TransferFormat.FormatDuration(remaining.Value)
+                : "—";
+        }
+    }
+
+    /// <summary>供总体进度条下方显示，例如“12.3 MB/s · 剩余 01:24”。</summary>
+    public string OverallTransferText
+    {
+        get
+        {
+            if (!IsRunning)
+            {
+                return "—";
+            }
+
+            return _overallRate.HasValue
+                ? $"{OverallSpeedText} · 剩余 {OverallEtaText}"
+                : "正在估算速度…";
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public event EventHandler<QueueFileStartedEventArgs>? FileStarted;
@@ -317,6 +377,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(TotalBytes));
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
 
@@ -344,11 +409,14 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         _completedCount = 0;
         _failedCount = 0;
         _skippedCount = 0;
+        _overallRate.Reset();
+        _overallWatch.Reset();
 
         OnPropertyChanged(nameof(SelectedFile));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
         OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
@@ -359,6 +427,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(FinishedCount));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
     }
 
     /// <summary>
@@ -489,12 +561,17 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
 
         OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
 
@@ -565,6 +642,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
 
         OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
@@ -574,6 +652,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(FinishedCount));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
 
@@ -612,6 +694,26 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
     }
 
+    private void UpdateOverallRate()
+    {
+        long transferred = 0;
+
+        lock (_gate)
+        {
+            foreach (var file in _files)
+            {
+                transferred += file.BytesTransferred;
+            }
+        }
+
+        _overallRate.Update(transferred, _overallWatch.Elapsed);
+
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
+    }
+
     /// <summary>
     /// 串行发送队列中的文件。取消令牌触发时停止当前文件，剩余文件标记为 Skipped；
     /// 方法本身不会因用户取消而抛出 <see cref="OperationCanceledException"/>。
@@ -630,12 +732,30 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             _pauseTcs = null;
         }
 
+        long initialTransferred = 0;
+
+        lock (_gate)
+        {
+            foreach (var pendingFile in _files)
+            {
+                initialTransferred += pendingFile.BytesTransferred;
+            }
+        }
+
+        _overallRate.Reset(initialTransferred);
+        _overallWatch.Restart();
+
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(IsPaused));
         OnPropertyChanged(nameof(CanPause));
         OnPropertyChanged(nameof(CanResume));
+        OnPropertyChanged(nameof(TotalBytes));
+        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+        OnPropertyChanged(nameof(OverallSpeedText));
+        OnPropertyChanged(nameof(OverallEtaText));
+        OnPropertyChanged(nameof(OverallTransferText));
 
         var canceled = false;
         string? stopReason = null;
@@ -767,6 +887,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             OnPropertyChanged(nameof(FinishedCount));
             OnPropertyChanged(nameof(OverallProgressText));
             OnPropertyChanged(nameof(OverallProgressPercent));
+            OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
+            OnPropertyChanged(nameof(OverallSpeedText));
+            OnPropertyChanged(nameof(OverallEtaText));
+            OnPropertyChanged(nameof(OverallTransferText));
 
             RaiseQueueCompleted(
                 new TransferQueueCompletedEventArgs(
@@ -805,7 +929,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         });
 
         var progress = new ThrottledProgress<FileTransferProgress>(
-            value => file.BytesTransferred = value.BytesTransferred,
+            value =>
+            {
+                file.BytesTransferred = value.BytesTransferred;
+                UpdateOverallRate();
+            },
             TimeSpan.FromMilliseconds(150),
             value => value.TotalBytes > 0 &&
                      value.BytesTransferred >= value.TotalBytes);
@@ -829,6 +957,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             file.StartOffset = result.StartOffset;
             file.Status = PendingFileStatus.Completed;
             _completedCount++;
+            UpdateOverallRate();
 
             RaiseFileCompleted(new QueueFileCompletedEventArgs(file, result));
             return null;

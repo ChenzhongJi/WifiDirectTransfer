@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace WifiDirectTransfer.Core;
@@ -14,6 +15,9 @@ public enum PendingFileStatus
 
 public sealed class PendingFile : INotifyPropertyChanged
 {
+    private readonly TransferRateTracker _rateTracker = new();
+    private readonly Stopwatch _transferWatch = new();
+
     private PendingFileStatus _status;
     private string? _errorMessage;
     private long _bytesTransferred;
@@ -54,10 +58,25 @@ public sealed class PendingFile : INotifyPropertyChanged
             }
 
             _status = value;
+
+            if (value == PendingFileStatus.Transferring)
+            {
+                _rateTracker.Reset(_bytesTransferred);
+                _transferWatch.Restart();
+            }
+            else
+            {
+                _transferWatch.Stop();
+            }
+
             OnPropertyChanged();
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(ProgressPercent));
             OnPropertyChanged(nameof(ProgressText));
+            OnPropertyChanged(nameof(SpeedBytesPerSecond));
+            OnPropertyChanged(nameof(SpeedText));
+            OnPropertyChanged(nameof(EtaText));
+            OnPropertyChanged(nameof(TransferRateText));
         }
     }
 
@@ -97,9 +116,14 @@ public sealed class PendingFile : INotifyPropertyChanged
             }
 
             _bytesTransferred = value;
+            _rateTracker.Update(value, _transferWatch.Elapsed);
             OnPropertyChanged();
             OnPropertyChanged(nameof(ProgressPercent));
             OnPropertyChanged(nameof(ProgressText));
+            OnPropertyChanged(nameof(SpeedBytesPerSecond));
+            OnPropertyChanged(nameof(SpeedText));
+            OnPropertyChanged(nameof(EtaText));
+            OnPropertyChanged(nameof(TransferRateText));
         }
     }
 
@@ -114,8 +138,13 @@ public sealed class PendingFile : INotifyPropertyChanged
             }
 
             _startOffset = value;
+            _rateTracker.Reset(value);
             OnPropertyChanged();
             OnPropertyChanged(nameof(IsResume));
+            OnPropertyChanged(nameof(SpeedBytesPerSecond));
+            OnPropertyChanged(nameof(SpeedText));
+            OnPropertyChanged(nameof(EtaText));
+            OnPropertyChanged(nameof(TransferRateText));
         }
     }
 
@@ -145,6 +174,48 @@ public sealed class PendingFile : INotifyPropertyChanged
     public string ProgressText => Status == PendingFileStatus.Waiting
         ? "—"
         : $"{ProgressPercent:0}%";
+
+    /// <summary>当前平滑速率，单位字节/秒；未开始或尚未采样时为 0。</summary>
+    public double SpeedBytesPerSecond =>
+        Status == PendingFileStatus.Transferring
+            ? _rateTracker.BytesPerSecond
+            : 0d;
+
+    public string SpeedText => Status == PendingFileStatus.Transferring
+        ? TransferFormat.FormatSpeed(_rateTracker.BytesPerSecond)
+        : "—";
+
+    public string EtaText
+    {
+        get
+        {
+            if (Status != PendingFileStatus.Transferring)
+            {
+                return "—";
+            }
+
+            var remaining = _rateTracker.GetRemaining(Size);
+            return remaining.HasValue
+                ? TransferFormat.FormatDuration(remaining.Value)
+                : "—";
+        }
+    }
+
+    /// <summary>供队列当前文件摘要显示，例如“12.3 MB/s · 剩余 01:24”。</summary>
+    public string TransferRateText
+    {
+        get
+        {
+            if (Status != PendingFileStatus.Transferring)
+            {
+                return "—";
+            }
+
+            return _rateTracker.HasValue
+                ? $"{SpeedText} · 剩余 {EtaText}"
+                : "正在估算速度…";
+        }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

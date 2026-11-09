@@ -21,7 +21,7 @@ public sealed class FileTooLargeException : FileTransferException
     public FileTooLargeException(long actualSize, long maxSize)
         : base(
             WifiDirectErrorCode.FileTooLarge,
-            $"文件大小 {actualSize} 字节超过允许的最大值 {maxSize} 字节。")
+            BuildMessage(actualSize, maxSize))
     {
         ActualSize = actualSize;
         MaxSize = maxSize;
@@ -30,6 +30,28 @@ public sealed class FileTooLargeException : FileTransferException
     public long ActualSize { get; }
 
     public long MaxSize { get; }
+
+    private static string BuildMessage(long actualSize, long maxSize)
+    {
+        var message =
+            $"文件大小 {FormatBytes(actualSize)} 超过允许的最大值 " +
+            $"{FormatBytes(maxSize)}。";
+
+        if (maxSize == FileTransferProtocol.LegacyMaxFileSize)
+        {
+            message += " 对端版本低于 1.2，单文件最大 2 GiB。";
+        }
+
+        return message;
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} 字节",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.0} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):0.0} MB",
+        _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):0.0} GB"
+    };
 }
 
 public sealed class FileChangedException : FileTransferException

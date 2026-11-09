@@ -68,10 +68,10 @@ public sealed class FileHeaderCodecTests
     }
 
     [Fact]
-    public void Serialize_Deserialize_AllowsTwoGiBFile()
+    public void Serialize_Deserialize_AllowsDefaultMaximumFile()
     {
         var codec = new FileHeaderCodec();
-        var size = 2L * 1024 * 1024 * 1024;
+        var size = FileTransferProtocol.DefaultMaxFileSize;
         var header = FileHeader.CreateFileStart(size, fileNameByteLength: 8);
 
         var roundTripped = codec.Deserialize(codec.Serialize(header));
@@ -80,11 +80,23 @@ public sealed class FileHeaderCodecTests
     }
 
     [Fact]
-    public void Deserialize_RejectsFileAboveTwoGiB()
+    public void Serialize_Deserialize_AllowsFileAboveTwoGiB()
+    {
+        var codec = new FileHeaderCodec();
+        var size = 3L * 1024 * 1024 * 1024;
+        var header = FileHeader.CreateFileStart(size, fileNameByteLength: 8);
+
+        var roundTripped = codec.Deserialize(codec.Serialize(header));
+
+        Assert.Equal(size, roundTripped.FileSize);
+    }
+
+    [Fact]
+    public void Deserialize_RejectsFileAboveDefaultMaximum()
     {
         var permissiveCodec = new FileHeaderCodec(long.MaxValue);
         var header = FileHeader.CreateFileStart(
-            2L * 1024 * 1024 * 1024 + 1,
+            FileTransferProtocol.DefaultMaxFileSize + 1,
             fileNameByteLength: 8);
         var bytes = permissiveCodec.Serialize(header);
 

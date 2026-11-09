@@ -22,8 +22,14 @@ public static class FileTransferProtocol
     /// <summary>相对目录的最大 UTF-8 字节长度。空字符串表示扁平文件。</summary>
     public const int MaxRelativeDirectoryLength = 8 * 1024;
 
-    /// <summary>默认最大文件大小 2 GiB，可在编解码器和传输 API 中覆盖。</summary>
-    public const long DefaultMaxFileSize = 2L * 1024 * 1024 * 1024;
+    /// <summary>1.1.x 及更早版本的单文件上限。</summary>
+    public const long LegacyMaxFileSize = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// 默认最大文件大小 16 GiB，可在编解码器和传输 API 中覆盖。
+    /// 超过 2 GiB 的文件要求两端都使用 1.2 或更高版本。
+    /// </summary>
+    public const long DefaultMaxFileSize = 16L * 1024 * 1024 * 1024;
 
     public const int BlockSize = 64 * 1024;
 }
