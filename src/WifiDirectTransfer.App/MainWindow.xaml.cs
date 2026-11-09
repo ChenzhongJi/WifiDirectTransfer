@@ -142,6 +142,9 @@ public partial class MainWindow : Window
 
         InitializeComponent();
 
+        ProtocolVersionText.Text =
+            $"双向传输 · 协议 v{MessageProtocol.ProtocolVersion}";
+
         SendPanel.Visibility = Visibility.Visible;
         ReceivePanel.Visibility = Visibility.Collapsed;
 
@@ -2579,6 +2582,7 @@ public partial class MainWindow : Window
 
             var wasRunning = _queueManager.IsRunning;
             var added = _queueManager.EnqueueItems(items);
+            SelectFirstQueueItemIfNeeded(added);
             Log(wasRunning
                 ? $"队列运行中追加 {added.Count} 个文件。"
                 : $"拖入添加 {added.Count} 个文件到队列。");
@@ -2643,7 +2647,29 @@ public partial class MainWindow : Window
             ? $"正在发送 {args.File.FileName}（从 {args.StartInfo.StartOffset} 字节继续）…"
             : $"正在发送 {args.File.FileName}…");
 
+        QueueList.SelectedItem = args.File;
         UpdateTransferTabHeaders();
+    }
+
+    private void QueueList_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_queueManager is { } queue)
+        {
+            queue.SelectedFile = QueueList.SelectedItem as PendingFile;
+        }
+
+        UpdateUi();
+    }
+
+    private void SelectFirstQueueItemIfNeeded(
+        IReadOnlyList<PendingFile> added)
+    {
+        if (QueueList.SelectedItem is null && added.Count > 0)
+        {
+            QueueList.SelectedItem = added[0];
+        }
     }
 
     private void OnQueueFileCompleted(object? sender, QueueFileCompletedEventArgs args)
@@ -3188,6 +3214,8 @@ public partial class MainWindow : Window
                 return;
             }
 
+            SelectFirstQueueItemIfNeeded(added);
+
             Log(wasRunning
                 ? $"队列运行中追加 {added.Count} 个文件。"
                 : $"已添加 {added.Count} 个文件到队列。");
@@ -3243,6 +3271,8 @@ public partial class MainWindow : Window
             {
                 return;
             }
+
+            SelectFirstQueueItemIfNeeded(added);
 
             Log(wasRunning
                 ? $"队列运行中追加 {added.Count} 个文件。"

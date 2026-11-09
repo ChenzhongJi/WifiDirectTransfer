@@ -615,6 +615,33 @@ public sealed class TransferQueueTests
         Assert.False(queue.MoveWaiting(queue.Files[0], -1));
     }
 
+    [Fact]
+    public void DetailsFile_TracksSelectionAndFallsBackToCurrent()
+    {
+        var dispatcher = new MessageDispatcher(Stream.Null, Stream.Null);
+        var queue = new TransferQueueManager(dispatcher);
+
+        queue.EnqueueItems(new[]
+        {
+            new TransferSource("a", "a.bin", string.Empty),
+            new TransferSource("b", "b.bin", string.Empty)
+        });
+
+        Assert.Null(queue.DetailsFile);
+        Assert.Equal("—", queue.DetailsPositionText);
+
+        var second = queue.Files[1];
+        queue.SelectedFile = second;
+
+        Assert.Same(second, queue.DetailsFile);
+        Assert.Equal("第 2 / 2 个文件", queue.DetailsPositionText);
+
+        Assert.True(queue.RemoveWaiting(second));
+        Assert.Null(queue.SelectedFile);
+        Assert.Null(queue.DetailsFile);
+        Assert.Equal("—", queue.DetailsPositionText);
+    }
+
     private static List<string> WriteSources(
         string directory,
         IReadOnlyDictionary<string, byte[]> payloads)
