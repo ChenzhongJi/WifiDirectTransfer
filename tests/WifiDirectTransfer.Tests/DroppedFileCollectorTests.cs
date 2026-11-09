@@ -38,6 +38,66 @@ public sealed class DroppedFileCollectorTests
     }
 
     [Fact]
+    public async Task CollectItems_PreservesFolderStructure()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var photos = Path.Combine(directory, "photos");
+            var nested = Path.Combine(photos, "2026");
+            var first = Path.Combine(nested, "a.jpg");
+            var second = Path.Combine(nested, "b.jpg");
+
+            Directory.CreateDirectory(nested);
+            await File.WriteAllTextAsync(first, "a");
+            await File.WriteAllTextAsync(second, "b");
+
+            var items = DroppedFileCollector.CollectItems(new[] { photos });
+
+            Assert.Equal(2, items.Count);
+            Assert.All(
+                items,
+                item => Assert.Equal(
+                    Path.Combine("photos", "2026"),
+                    item.RelativeDirectory));
+            Assert.Contains(items, item => item.FileName == "a.jpg");
+            Assert.Contains(items, item => item.FileName == "b.jpg");
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task CollectItems_RenamesDuplicateRootFolders()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var firstRoot = Path.Combine(directory, "first", "docs");
+            var secondRoot = Path.Combine(directory, "second", "docs");
+            Directory.CreateDirectory(firstRoot);
+            Directory.CreateDirectory(secondRoot);
+            await File.WriteAllTextAsync(Path.Combine(firstRoot, "a.txt"), "a");
+            await File.WriteAllTextAsync(Path.Combine(secondRoot, "b.txt"), "b");
+
+            var items = DroppedFileCollector.CollectItems(
+                new[] { firstRoot, secondRoot });
+
+            Assert.Equal(2, items.Count);
+            Assert.Contains(items, item => item.RelativeDirectory == "docs");
+            Assert.Contains(items, item => item.RelativeDirectory == "docs (2)");
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Collect_SkipsMissingPaths()
     {
         var directory = CreateTempDirectory();

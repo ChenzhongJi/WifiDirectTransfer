@@ -50,6 +50,33 @@ public sealed class IncompleteTransferScannerTests
     }
 
     [Fact]
+    public Task Scan_FindsNestedPartAndMeta()
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            var nested = Path.Combine(directory, "docs", "2026");
+            Directory.CreateDirectory(nested);
+
+            await File.WriteAllBytesAsync(
+                Path.Combine(nested, "video.mp4.part"),
+                new byte[100]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(nested, "video.mp4.meta"),
+                TransferMetadataCodec.Serialize(
+                    new TransferMetadata("video.mp4", 200, 100)));
+
+            var results = IncompleteTransferScanner.Scan(directory);
+
+            var item = Assert.Single(results);
+            Assert.Equal(
+                Path.Combine("docs", "2026", "video.mp4"),
+                item.FileName);
+            Assert.Equal(200, item.ExpectedBytes);
+            Assert.Equal(100, item.ReceivedBytes);
+        });
+    }
+
+    [Fact]
     public Task Delete_RemovesPartAndMeta_AndKeepsCompleteFiles()
     {
         return InTempDirectoryAsync(async directory =>

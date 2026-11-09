@@ -26,11 +26,13 @@ public static class FileSender
         IProgress<FileTransferStartInfo>? startProgress = null,
         CancellationToken cancellationToken = default,
         Action<string>? log = null,
-        TimeSpan? verificationTimeout = null)
+        TimeSpan? verificationTimeout = null,
+        string relativeDirectory = "")
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(fileName);
+        ArgumentNullException.ThrowIfNull(relativeDirectory);
 
         var verifyTimeout = verificationTimeout ?? DefaultVerificationTimeout;
 
@@ -70,9 +72,17 @@ public static class FileSender
         }
 
         var fileNameBytes = FileHeaderCodec.EncodeFileName(fileName);
-        var header = FileHeader.CreateFileStart(initialLength, fileNameBytes.Length);
+        var relativeDirectoryBytes = FileHeaderCodec.EncodeRelativeDirectory(
+            relativeDirectory);
+        var header = FileHeader.CreateFileStart(
+            initialLength,
+            fileNameBytes.Length,
+            relativeDirectoryBytes.Length);
         var codec = new FileHeaderCodec(maxFileSize);
-        var startPayload = codec.SerializeFileStartPayload(header, fileNameBytes);
+        var startPayload = codec.SerializeFileStartPayload(
+            header,
+            fileNameBytes,
+            relativeDirectoryBytes);
 
         var controlState = new ControlWaitState();
         dispatcher.MessageReceived += controlState.OnMessageReceivedAsync;
@@ -322,7 +332,8 @@ public static class FileSender
         IProgress<FileTransferStartInfo>? startProgress = null,
         CancellationToken cancellationToken = default,
         Action<string>? log = null,
-        TimeSpan? verificationTimeout = null)
+        TimeSpan? verificationTimeout = null,
+        string relativeDirectory = "")
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -346,7 +357,8 @@ public static class FileSender
                 startProgress,
                 cancellationToken,
                 log,
-                verificationTimeout)
+                verificationTimeout,
+                relativeDirectory)
             .ConfigureAwait(false);
     }
 

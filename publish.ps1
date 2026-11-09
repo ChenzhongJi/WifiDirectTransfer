@@ -2,7 +2,7 @@
 param(
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
-    [string]$Version = '1.0.2',
+    [string]$Version = '1.1.0',
     [string]$Label,
     [switch]$IncludePdb,
     [switch]$SkipTests,

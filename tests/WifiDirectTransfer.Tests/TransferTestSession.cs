@@ -70,16 +70,23 @@ internal sealed class TransferTestSession : IAsyncDisposable
     public async Task<FileSendResult> SendBytesAsync(
         byte[] data,
         string fileName,
-        long maxFileSize = FileTransferProtocol.DefaultMaxFileSize)
+        long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
+        string relativeDirectory = "")
     {
         using var source = new MemoryStream(data);
-        return await SendAsync(source, fileName, maxFileSize).ConfigureAwait(false);
+        return await SendAsync(
+                source,
+                fileName,
+                maxFileSize,
+                relativeDirectory)
+            .ConfigureAwait(false);
     }
 
     public async Task<FileSendResult> SendAsync(
         Stream source,
         string fileName,
-        long maxFileSize = FileTransferProtocol.DefaultMaxFileSize)
+        long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
+        string relativeDirectory = "")
     {
         var startProgress = new InlineProgress<FileTransferStartInfo>(
             SenderStarts.Add);
@@ -90,7 +97,8 @@ internal sealed class TransferTestSession : IAsyncDisposable
                 fileName,
                 maxFileSize,
                 startProgress: startProgress,
-                cancellationToken: _senderCts.Token)
+                cancellationToken: _senderCts.Token,
+                relativeDirectory: relativeDirectory)
             .ConfigureAwait(false);
     }
 

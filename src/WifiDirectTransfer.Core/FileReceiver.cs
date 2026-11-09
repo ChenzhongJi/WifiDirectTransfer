@@ -30,6 +30,7 @@ public sealed class FileReceiver : IAsyncDisposable
     private IncrementalHash? _hash;
     private FileHeader? _header;
     private string? _rawFileName;
+    private string _relativeDirectory = string.Empty;
     private string? _safeFileName;
     private string? _partPath;
     private string? _metaPath;
@@ -174,20 +175,37 @@ public sealed class FileReceiver : IAsyncDisposable
             return;
         }
 
-        var safeFileName = SafeFileName.Sanitize(start.FileName);
+        string targetDirectory;
+        string safeFileName;
+
+        try
+        {
+            targetDirectory = SafeRelativePath.ResolveDirectory(
+                _destinationDirectory,
+                start.RelativeDirectory);
+            safeFileName = SafeFileName.Sanitize(start.FileName);
+        }
+        catch (Exception exception)
+        {
+            await SendTransferErrorBestEffortAsync(exception, cancellationToken)
+                .ConfigureAwait(false);
+            PreserveActive(exception, fileName: null);
+            return;
+        }
+
         var queueBytes = _pendingQueueBytes;
         _pendingQueueBytes = null;
 
         var targetFileName = safeFileName;
         var skip = false;
 
-        if (PathExists(_destinationDirectory, safeFileName))
+        if (PathExists(targetDirectory, safeFileName))
         {
             switch (_sameNamePolicy)
             {
                 case SameNamePolicy.AutoRename:
                     targetFileName = GetAvailableFileName(
-                        _destinationDirectory,
+                        targetDirectory,
                         safeFileName);
                     break;
 
@@ -204,7 +222,7 @@ public sealed class FileReceiver : IAsyncDisposable
             }
         }
 
-        var finalPath = Path.Combine(_destinationDirectory, targetFileName);
+        var finalPath = Path.Combine(targetDirectory, targetFileName);
         var partPath = finalPath + ".part";
         var metaPath = finalPath + ".meta";
 
@@ -242,7 +260,7 @@ public sealed class FileReceiver : IAsyncDisposable
 
         try
         {
-            Directory.CreateDirectory(_destinationDirectory);
+            Directory.CreateDirectory(targetDirectory);
             TryDelete(metaPath + ".tmp");
 
             var resume = await TryLoadResumeMetadataAsync(
@@ -254,6 +272,7 @@ public sealed class FileReceiver : IAsyncDisposable
 
             _header = start.Header;
             _rawFileName = start.FileName;
+            _relativeDirectory = SafeRelativePath.ToWire(start.RelativeDirectory);
             _safeFileName = targetFileName;
             _finalPath = finalPath;
             _partPath = partPath;
@@ -334,7 +353,8 @@ public sealed class FileReceiver : IAsyncDisposable
                     new FileTransferStartInfo(
                         targetFileName,
                         start.Header.FileSize,
-                        resumeOffset)));
+                        resumeOffset,
+                        _relativeDirectory)));
         }
         catch (Exception exception)
         {
@@ -537,13 +557,15 @@ public sealed class FileReceiver : IAsyncDisposable
                     verifyError.GetType().Name);
             }
 
+            var relativeDirectory = _relativeDirectory;
             ResetState();
 
             var result = new FileReceiveResult(
                 moved.FileName,
                 moved.FilePath,
                 header.FileSize,
-                actualDigest);
+                actualDigest,
+                relativeDirectory);
 
             RaiseFileReceived(new FileReceivedEventArgs(result, elapsed));
         }
@@ -692,12 +714,10 @@ public sealed class FileReceiver : IAsyncDisposable
 
                 if (!overwrite && File.Exists(finalPath))
                 {
-                    safeFileName = GetAvailableFileName(
-                        _destinationDirectory,
-                        safeFileName);
-                    finalPath = Path.Combine(
-                        _destinationDirectory,
-                        safeFileName);
+                    var directory = Path.GetDirectoryName(finalPath) ??
+                                    _destinationDirectory;
+                    safeFileName = GetAvailableFileName(directory, safeFileName);
+                    finalPath = Path.Combine(directory, safeFileName);
                 }
             }
         }
@@ -976,6 +996,7 @@ public sealed class FileReceiver : IAsyncDisposable
         _hash = null;
         _header = null;
         _rawFileName = null;
+        _relativeDirectory = string.Empty;
         _safeFileName = null;
         _partPath = null;
         _metaPath = null;

@@ -16,9 +16,14 @@ public sealed record FileSendResult(
 public sealed record FileTransferStartInfo(
     string FileName,
     long TotalBytes,
-    long StartOffset)
+    long StartOffset,
+    string RelativeDirectory = "")
 {
     public bool IsResume => StartOffset > 0;
+
+    public string DisplayPath => string.IsNullOrEmpty(RelativeDirectory)
+        ? FileName
+        : Path.Combine(RelativeDirectory, FileName);
 }
 
 public sealed class FileStartedEventArgs : EventArgs
@@ -36,7 +41,13 @@ public sealed record FileReceiveResult(
     string FileName,
     string FilePath,
     long FileSize,
-    byte[] Sha256);
+    byte[] Sha256,
+    string RelativeDirectory = "")
+{
+    public string DisplayPath => string.IsNullOrEmpty(RelativeDirectory)
+        ? FileName
+        : Path.Combine(RelativeDirectory, FileName);
+}
 
 public sealed class FileReceivedEventArgs : EventArgs
 {

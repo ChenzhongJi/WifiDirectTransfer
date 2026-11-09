@@ -4,8 +4,8 @@ using System.Text;
 namespace WifiDirectTransfer.Core;
 
 /// <summary>
-/// 负责 24 字节定长前缀的序列化和校验，以及文件名的严格 UTF-8 编解码。
-/// 这里不做任何文件系统名称净化，SafeFileName 由接收端在落盘前调用。
+/// 负责 24 字节定长前缀的序列化和校验，以及文件名和相对目录的严格 UTF-8 编解码。
+/// 这里不做任何文件系统路径净化，SafeFileName / SafeRelativePath 由接收端在落盘前调用。
 /// </summary>
 public sealed class FileHeaderCodec
 {
@@ -91,22 +91,46 @@ public sealed class FileHeaderCodec
     }
 
     /// <summary>
-    /// 序列化 M1 FileStart payload：24 字节 FileHeader + UTF-8 文件名。
+    /// 序列化 FileStart payload：24 字节 FileHeader + UTF-8 文件名 + UTF-8 相对目录。
+    /// 相对目录为空时保持扁平文件格式。
     /// </summary>
-    public byte[] SerializeFileStartPayload(FileHeader header, string fileName)
+    public byte[] SerializeFileStartPayload(
+        FileHeader header,
+        string fileName,
+        string relativeDirectory = "")
     {
         ArgumentNullException.ThrowIfNull(fileName);
-        return SerializeFileStartPayload(header, EncodeFileName(fileName));
+        ArgumentNullException.ThrowIfNull(relativeDirectory);
+
+        return SerializeFileStartPayload(
+            header,
+            EncodeFileName(fileName),
+            EncodeRelativeDirectory(relativeDirectory));
     }
 
     /// <summary>
-    /// 序列化 M1 FileStart payload：24 字节 FileHeader + 已编码的 UTF-8 文件名。
+    /// 序列化扁平 FileStart payload，文件名称已编码为 UTF-8。
     /// </summary>
     public byte[] SerializeFileStartPayload(
         FileHeader header,
         ReadOnlySpan<byte> fileNameBytes)
     {
+        return SerializeFileStartPayload(
+            header,
+            fileNameBytes,
+            ReadOnlySpan<byte>.Empty);
+    }
+
+    /// <summary>
+    /// 序列化 FileStart payload，文件名称和相对目录已编码为 UTF-8。
+    /// </summary>
+    public byte[] SerializeFileStartPayload(
+        FileHeader header,
+        ReadOnlySpan<byte> fileNameBytes,
+        ReadOnlySpan<byte> relativeDirectoryBytes)
+    {
         ValidateFileNameLength(fileNameBytes.Length);
+        ValidateRelativeDirectoryLength(relativeDirectoryBytes.Length);
 
         if (header.FileNameLength != fileNameBytes.Length)
         {
@@ -114,17 +138,29 @@ public sealed class FileHeaderCodec
                 "FileHeader.FileNameLength 与实际文件名长度不一致。");
         }
 
+        var expectedHeaderLength = FileTransferProtocol.FixedHeaderLength +
+                                   fileNameBytes.Length +
+                                   relativeDirectoryBytes.Length;
+
+        if (header.HeaderLength != expectedHeaderLength)
+        {
+            throw new InvalidFileHeaderException(
+                "FileHeader.HeaderLength 与文件名、相对目录长度不一致。");
+        }
+
         var headerBytes = Serialize(header);
-        var payload = new byte[FileTransferProtocol.FixedHeaderLength + fileNameBytes.Length];
+        var payload = new byte[expectedHeaderLength];
 
         headerBytes.CopyTo(payload, 0);
         fileNameBytes.CopyTo(payload.AsSpan(FileTransferProtocol.FixedHeaderLength));
+        relativeDirectoryBytes.CopyTo(
+            payload.AsSpan(FileTransferProtocol.FixedHeaderLength + fileNameBytes.Length));
 
         return payload;
     }
 
     /// <summary>
-    /// 反序列化 M1 FileStart payload。返回的 FileName 尚未经过 SafeFileName。
+    /// 反序列化 FileStart payload。返回的文件名和相对目录尚未经过路径净化。
     /// </summary>
     public FileStartPayload DeserializeFileStartPayload(ReadOnlySpan<byte> payload)
     {
@@ -134,19 +170,26 @@ public sealed class FileHeaderCodec
         }
 
         var header = Deserialize(payload[..FileTransferProtocol.FixedHeaderLength]);
+        var relativeDirectoryLength = header.HeaderLength -
+                                      FileTransferProtocol.FixedHeaderLength -
+                                      header.FileNameLength;
 
-        var expectedLength = FileTransferProtocol.FixedHeaderLength + header.FileNameLength;
+        ValidateRelativeDirectoryLength(relativeDirectoryLength);
 
-        if (payload.Length != expectedLength)
+        if (payload.Length != header.HeaderLength)
         {
             throw new InvalidFileHeaderException(
-                $"FileStart payload 长度必须为 {expectedLength} 字节。");
+                $"FileStart payload 长度必须为 {header.HeaderLength} 字节。");
         }
 
         var fileName = DecodeFileName(
             payload.Slice(FileTransferProtocol.FixedHeaderLength, header.FileNameLength));
+        var relativeDirectory = DecodeRelativeDirectory(
+            payload.Slice(
+                FileTransferProtocol.FixedHeaderLength + header.FileNameLength,
+                relativeDirectoryLength));
 
-        return new FileStartPayload(header, fileName);
+        return new FileStartPayload(header, fileName, relativeDirectory);
     }
 
     public static byte[] EncodeFileName(string fileName)
@@ -182,12 +225,68 @@ public sealed class FileHeaderCodec
         }
     }
 
+    public static byte[] EncodeRelativeDirectory(string relativeDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(relativeDirectory);
+
+        if (relativeDirectory.Length == 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        byte[] bytes;
+
+        try
+        {
+            bytes = StrictUtf8.GetBytes(relativeDirectory);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw new InvalidFileHeaderException(
+                "相对目录包含无法编码的 Unicode 字符。",
+                exception);
+        }
+
+        ValidateRelativeDirectoryLength(bytes.Length);
+        return bytes;
+    }
+
+    public static string DecodeRelativeDirectory(ReadOnlySpan<byte> relativeDirectoryBytes)
+    {
+        if (relativeDirectoryBytes.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        ValidateRelativeDirectoryLength(relativeDirectoryBytes.Length);
+
+        try
+        {
+            return StrictUtf8.GetString(relativeDirectoryBytes);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidFileHeaderException(
+                "相对目录不是有效的 UTF-8 编码。",
+                exception);
+        }
+    }
+
     private static void ValidateFileNameLength(int fileNameByteLength)
     {
         if (fileNameByteLength is < 1 or > FileTransferProtocol.MaxFileNameLength)
         {
             throw new InvalidFileHeaderException(
                 $"文件名字节长度必须在 1..{FileTransferProtocol.MaxFileNameLength} 之间。");
+        }
+    }
+
+    private static void ValidateRelativeDirectoryLength(int relativeDirectoryByteLength)
+    {
+        if (relativeDirectoryByteLength is < 0 or > FileTransferProtocol.MaxRelativeDirectoryLength)
+        {
+            throw new InvalidFileHeaderException(
+                $"相对目录字节长度必须在 0..{FileTransferProtocol.MaxRelativeDirectoryLength} 之间。");
         }
     }
 
@@ -210,11 +309,18 @@ public sealed class FileHeaderCodec
 
         ValidateFileNameLength(header.FileNameLength);
 
-        if (header.HeaderLength != FileTransferProtocol.FixedHeaderLength + header.FileNameLength)
+        if (header.HeaderLength <
+            FileTransferProtocol.FixedHeaderLength + header.FileNameLength)
         {
             throw new InvalidFileHeaderException(
-                "HeaderLength 必须等于 24 加 FileNameLength。");
+                "HeaderLength 不能小于 24 加 FileNameLength。");
         }
+
+        var relativeDirectoryLength = header.HeaderLength -
+                                      FileTransferProtocol.FixedHeaderLength -
+                                      header.FileNameLength;
+
+        ValidateRelativeDirectoryLength(relativeDirectoryLength);
 
         if (header.FileSize < 0)
         {

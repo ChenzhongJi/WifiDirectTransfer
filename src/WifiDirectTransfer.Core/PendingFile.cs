@@ -19,16 +19,27 @@ public sealed class PendingFile : INotifyPropertyChanged
     private long _bytesTransferred;
     private long _startOffset;
 
-    public PendingFile(string sourcePath, string fileName, long size)
+    public PendingFile(
+        string sourcePath,
+        string fileName,
+        long size,
+        string relativeDirectory = "")
     {
         SourcePath = sourcePath;
         FileName = fileName;
         Size = size;
+        RelativeDirectory = relativeDirectory;
     }
 
     public string SourcePath { get; }
 
     public string FileName { get; }
+
+    public string RelativeDirectory { get; }
+
+    public string DisplayPath => string.IsNullOrEmpty(RelativeDirectory)
+        ? FileName
+        : Path.Combine(RelativeDirectory, FileName);
 
     public long Size { get; }
 

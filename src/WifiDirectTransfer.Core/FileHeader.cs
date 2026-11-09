@@ -26,6 +26,7 @@ public sealed record FileHeader
     public static FileHeader CreateFileStart(
         long fileSize,
         int fileNameByteLength,
+        int relativeDirectoryByteLength = 0,
         FileFlags flags = FileFlags.LastFile)
     {
         if (fileSize < 0)
@@ -40,6 +41,24 @@ public sealed record FileHeader
                 $"文件名字节长度必须在 1..{FileTransferProtocol.MaxFileNameLength} 之间。");
         }
 
+        if (relativeDirectoryByteLength is < 0 or > FileTransferProtocol.MaxRelativeDirectoryLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(relativeDirectoryByteLength),
+                $"相对目录字节长度必须在 0..{FileTransferProtocol.MaxRelativeDirectoryLength} 之间。");
+        }
+
+        var headerLength = FileTransferProtocol.FixedHeaderLength +
+                           fileNameByteLength +
+                           relativeDirectoryByteLength;
+
+        if (headerLength > ushort.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(relativeDirectoryByteLength),
+                "文件头总长度超过 65535 字节。");
+        }
+
         if ((flags & ~FileFlags.LastFile) != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(flags), "FileFlags 包含未知标志。");
@@ -47,7 +66,7 @@ public sealed record FileHeader
 
         return new FileHeader
         {
-            HeaderLength = (ushort)(FileTransferProtocol.FixedHeaderLength + fileNameByteLength),
+            HeaderLength = (ushort)headerLength,
             FileNameLength = (ushort)fileNameByteLength,
             FileSize = fileSize,
             ChecksumAlgorithm = ChecksumAlgorithm.Sha256,

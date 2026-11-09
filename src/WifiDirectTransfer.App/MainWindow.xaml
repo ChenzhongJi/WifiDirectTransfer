@@ -515,11 +515,21 @@
                                         Content="添加文件…"
                                         Style="{StaticResource SmallButtonStyle}"
                                         Click="AddQueueFilesButton_Click" />
+                                <Button x:Name="AddQueueFolderButton"
+                                        Margin="6,0,0,0"
+                                        Content="添加文件夹…"
+                                        Style="{StaticResource SmallButtonStyle}"
+                                        Click="AddQueueFolderButton_Click" />
                                 <Button x:Name="StartQueueButton"
                                         Margin="6,0,0,0"
                                         Content="开始传输"
                                         Style="{StaticResource SmallPrimaryButtonStyle}"
                                         Click="StartQueueButton_Click" />
+                                <Button x:Name="PauseQueueButton"
+                                        Margin="6,0,0,0"
+                                        Content="暂停"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        Click="PauseQueueButton_Click" />
                                 <Button x:Name="ClearQueueButton"
                                         Margin="4,0,0,0"
                                         Content="清空"
@@ -582,7 +592,7 @@
                                         <TextBlock MaxWidth="420"
                                                    FontSize="11.5"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
-                                                   Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                                   Text="{Binding CurrentFile.DisplayPath, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
                                                    TextTrimming="CharacterEllipsis"
                                                    ToolTip="{Binding CurrentFile.SourcePath}" />
                                     </StackPanel>
@@ -695,6 +705,16 @@
                                                  ItemsSource="{Binding Files}"
                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                                  ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                            <ListBox.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="上移"
+                                                              Click="MoveQueueUpMenuItem_Click" />
+                                                    <MenuItem Header="下移"
+                                                              Click="MoveQueueDownMenuItem_Click" />
+                                                    <MenuItem Header="从队列移除"
+                                                              Click="RemoveQueueItemMenuItem_Click" />
+                                                </ContextMenu>
+                                            </ListBox.ContextMenu>
                                             <ListBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border BorderBrush="{StaticResource RowSeparatorBrush}"
@@ -722,7 +742,7 @@
                                                                 <StackPanel Grid.Column="1"
                                                                             Margin="8,0,0,0"
                                                                             VerticalAlignment="Center">
-                                                                    <TextBlock Text="{Binding FileName}"
+                                                                    <TextBlock Text="{Binding DisplayPath}"
                                                                                FontSize="12"
                                                                                FontWeight="SemiBold"
                                                                                TextTrimming="CharacterEllipsis"
@@ -838,7 +858,7 @@
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="12"
                                                    FontWeight="SemiBold"
-                                                   Text="{Binding CurrentFile.FileName, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
+                                                   Text="{Binding CurrentFile.DisplayPath, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,4,0,0"
                                                    Style="{StaticResource TinyText}"
@@ -982,7 +1002,7 @@
                                 </StackPanel>
                                 <TextBlock Grid.Row="1"
                                            Margin="0,4,0,0"
-                                           Text="{Binding FileName}"
+                                           Text="{Binding DisplayPath}"
                                            FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Row="2"
@@ -1064,7 +1084,7 @@
                                                         <StackPanel Grid.Column="1"
                                                                     Margin="9,0,0,0"
                                                                     VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding FileName}"
+                                                            <TextBlock Text="{Binding DisplayPath}"
                                                                        FontSize="12"
                                                                        FontWeight="SemiBold"
                                                                        TextTrimming="CharacterEllipsis"

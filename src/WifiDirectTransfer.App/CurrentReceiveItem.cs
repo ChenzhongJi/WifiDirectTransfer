@@ -13,6 +13,7 @@ internal sealed class CurrentReceiveItem : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(info);
 
         FileName = info.FileName;
+        DisplayPath = info.DisplayPath;
         FileSize = info.TotalBytes;
         StartOffset = info.StartOffset;
         IsResume = info.IsResume;
@@ -20,6 +21,8 @@ internal sealed class CurrentReceiveItem : INotifyPropertyChanged
     }
 
     public string FileName { get; }
+
+    public string DisplayPath { get; }
 
     public long FileSize { get; }
 
