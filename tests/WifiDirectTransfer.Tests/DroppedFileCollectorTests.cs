@@ -176,6 +176,29 @@ public sealed class DroppedFileCollectorTests
     }
 
     [Fact]
+    public void CollectPlan_FolderWithOnlyEmptySubfolders_ReturnsSubdirectories()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var root = Path.Combine(directory, "docs");
+            var nested = Path.Combine(root, "2026", "q1");
+            Directory.CreateDirectory(nested);
+
+            var plan = DroppedFileCollector.CollectPlan(new[] { root });
+
+            Assert.Empty(plan.Files);
+            Assert.Contains("docs/2026", plan.EmptyDirectories);
+            Assert.Contains("docs/2026/q1", plan.EmptyDirectories);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public async Task CollectItems_StillReturnsOnlyFilesForEmptyFolderPlan()
     {
         var directory = CreateTempDirectory();
