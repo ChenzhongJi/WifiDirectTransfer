@@ -59,7 +59,7 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 文本传输（W4）：接收端显式开启，单条最大 64 KiB，内存收件箱最多 100 条；显示完整日期，正文可选择复制。
 - 剪贴板同步：文本和图片，默认关闭，带防循环处理。
 - 同名文件策略：自动重命名、覆盖、跳过。
-- 传输历史、诊断导出、系统托盘、单实例。
+- 传输历史（含平均速度和耗时）、诊断导出、系统托盘、单实例。
 - 主窗口“发送 / 接收”标签、队列表格、可折叠当前传输详情、可折叠日志。
 - 接收文件拖出到资源管理器；在应用窗口内松手不会重新加入发送队列。
 - 接收文件选中后可打开所在文件夹；文件被外部删除时会标记并提示。
@@ -96,9 +96,9 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 资源管理器右键菜单是传统 Win32 菜单项；Windows 11 默认新菜单中可能位于“显示更多选项”下。
 - 资源管理器多选时当前只发送第一个项目；需要发送多个文件时请逐个操作或拖入窗口。
 - W5 远程截图尚未实现，后续单独设计。
-- 深色模式：支持跟随系统、浅色、深色三种模式，切换会立即应用到主窗口和对话框；高对比度尚未完整适配。
+- 深色模式：支持跟随系统、浅色、深色三种模式，切换会立即应用到主窗口和对话框；高对比度使用系统高对比度颜色，但个别自定义控件仍可能不完全遵循系统主题。
 - 清空历史、清空文本等系统确认框仍使用 Windows 原生 `MessageBox`。
-- 窗口宽度 980 且展开“详情”时，队列表格会明显变窄；可收起详情。
+- 主窗口最小宽度 1000，详情面板宽度 220；低分辨率屏幕可收起详情。
 
 ## 常见问题
 
@@ -164,7 +164,7 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 日志：`%LOCALAPPDATA%\WifiDirectTransfer\logs\app.log`
 - 设置：`%LOCALAPPDATA%\WifiDirectTransfer\settings.json`
 - 历史：`%LOCALAPPDATA%\WifiDirectTransfer\history.json`
-- 诊断导出：主窗口日志栏“诊断”，会打包日志、设置和构建信息到 `%LOCALAPPDATA%\WifiDirectTransfer\diagnostics\*.zip`
+- 诊断导出：主窗口日志栏“诊断”，会打包日志、设置、构建信息、当前速率和对端能力到 `%LOCALAPPDATA%\WifiDirectTransfer\diagnostics\*.zip`
 
 ## 从源码构建
 
@@ -181,12 +181,12 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.3.0-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.3.1-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
 ```powershell
-.\publish.ps1 -Label 1.3.0          # 自定义 zip 标签
+.\publish.ps1 -Label 1.3.1          # 自定义 zip 标签
 .\publish.ps1 -IncludePdb           # 把 pdb 一并打包
 .\publish.ps1 -SkipTests            # 跳过测试（不建议用于发布）
 .\publish.ps1 -AllowDirty           # 允许未提交改动，zip 标签会带 -dirty
@@ -203,7 +203,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.3.0`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+当前版本 `1.3.1`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
 
 ## 反馈问题
 

@@ -5,7 +5,7 @@
         Icon="pack://application:,,,/Assets/app.ico"
         Width="1120"
         Height="760"
-        MinWidth="980"
+        MinWidth="1000"
         MinHeight="640"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
@@ -953,7 +953,7 @@
 
                             <Border x:Name="QueueDetailsPanel"
                                     Grid.Column="1"
-                                    Width="240"
+                                    Width="220"
                                     Margin="12,0,0,0"
                                     Padding="12"
                                     Background="{DynamicResource SurfaceBrush}"

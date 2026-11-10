@@ -25,7 +25,9 @@ public sealed record TransferHistoryEntry(
     TransferOutcome Outcome,
     string? PeerName = null,
     string? FilePath = null,
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    TimeSpan? Duration = null,
+    double? BytesPerSecond = null);
 
 /// <summary>
 /// 持久化传输历史。写入失败只记录日志，不影响传输主流程。

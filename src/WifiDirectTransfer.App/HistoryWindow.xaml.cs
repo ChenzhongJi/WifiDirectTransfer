@@ -29,6 +29,16 @@ internal sealed class HistoryItem
     public string SizeText =>
         Entry.FileSize > 0 ? FormatBytes(Entry.FileSize) : "—";
 
+    public string SpeedText => Entry.BytesPerSecond is { } speed &&
+                               speed > 0
+        ? TransferFormat.FormatSpeed(speed)
+        : "—";
+
+    public string DurationText => Entry.Duration is { } duration &&
+                                  duration > TimeSpan.Zero
+        ? TransferFormat.FormatDuration(duration)
+        : "—";
+
     public string OutcomeText => Entry.Outcome switch
     {
         TransferOutcome.Completed => "完成",

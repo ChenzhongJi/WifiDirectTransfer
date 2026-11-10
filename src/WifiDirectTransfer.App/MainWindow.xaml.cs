@@ -2371,7 +2371,8 @@ public partial class MainWindow : Window
             result.FileName,
             result.FileSize,
             TransferOutcome.Completed,
-            result.FilePath);
+            result.FilePath,
+            duration: args.Elapsed);
     }
 
     private void OnFileFailed(object? sender, FileFailedEventArgs args)
@@ -3213,7 +3214,8 @@ public partial class MainWindow : Window
             result.FileName,
             result.FileSize,
             TransferOutcome.Completed,
-            args.File.SourcePath);
+            args.File.SourcePath,
+            duration: args.Elapsed);
 
         UpdateTransferTabHeaders();
     }
@@ -4904,11 +4906,37 @@ public partial class MainWindow : Window
 
     private string BuildDiagnosticsInfo()
     {
+        var peerMaxFileSize = _peerBuild is null
+            ? "未连接"
+            : FormatBytes(PeerBuildCompatibility.GetMaxFileSize(_peerBuild));
+        var directoryManifest = _peerBuild is null
+            ? "未连接"
+            : PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)
+                ? "支持"
+                : "不支持";
+        var queue = _queueManager;
+        var queueText = queue is null
+            ? "未连接"
+            : $"{queue.GroupCount} 个项目，{queue.TotalCount} 个文件，" +
+              $"{queue.EmptyDirectoryCount} 个空文件夹，" +
+              (queue.IsRunning
+                  ? queue.IsPaused ? "已暂停" : "运行中"
+                  : "空闲");
+        var receiveText =
+            $"{_receivedProjects.Projects.Count} 个项目，" +
+            $"{_receivedProjects.Projects.Sum(project => project.FileCount)} 个文件";
+        var currentRate = BuildCurrentRateText();
+
         return
             $"生成时间：{DateTimeOffset.Now:O}{Environment.NewLine}" +
             $"本端构建：{GetBuildInfo()}{Environment.NewLine}" +
             $"协议版本：{MessageProtocol.ProtocolVersion}{Environment.NewLine}" +
             $"对端构建：{_peerBuild ?? "未连接"}{Environment.NewLine}" +
+            $"对端单文件上限：{peerMaxFileSize}{Environment.NewLine}" +
+            $"空文件夹清单：{directoryManifest}{Environment.NewLine}" +
+            $"当前传输速率：{currentRate}{Environment.NewLine}" +
+            $"发送队列：{queueText}{Environment.NewLine}" +
+            $"本次接收：{receiveText}{Environment.NewLine}" +
             $"接收目录：{_receiveDirectory}{Environment.NewLine}" +
             $"同名文件策略：{GetSameNamePolicyText(_sameNamePolicy)}{Environment.NewLine}" +
             $"剪贴板同步：{(_clipboardSyncEnabled ? "已启用" : "已关闭")}{Environment.NewLine}" +
@@ -4921,16 +4949,42 @@ public partial class MainWindow : Window
             $"日志：{AppLog.FilePath}";
     }
 
+    private string BuildCurrentRateText()
+    {
+        var parts = new List<string>();
+
+        if (_queueManager is { IsRunning: true } queue)
+        {
+            parts.Add($"发送 {queue.OverallSpeedText}");
+        }
+
+        if (_currentReceiveItem is { } receiveItem)
+        {
+            parts.Add($"接收 {receiveItem.SpeedText}");
+        }
+
+        return parts.Count > 0
+            ? string.Join(" / ", parts)
+            : "—";
+    }
+
     private void RecordHistory(
         TransferDirection direction,
         string fileName,
         long fileSize,
         TransferOutcome outcome,
         string? filePath = null,
-        string? errorMessage = null)
+        string? errorMessage = null,
+        TimeSpan? duration = null)
     {
         try
         {
+            var normalizedSize = Math.Max(0, fileSize);
+            var bytesPerSecond = duration is { TotalSeconds: > 0 } &&
+                                  normalizedSize > 0
+                ? normalizedSize / duration.Value.TotalSeconds
+                : (double?)null;
+
             _historyStore.Add(
                 new TransferHistoryEntry(
                     DateTimeOffset.Now,
@@ -4938,11 +4992,13 @@ public partial class MainWindow : Window
                     string.IsNullOrWhiteSpace(fileName)
                         ? "未知文件"
                         : fileName,
-                    Math.Max(0, fileSize),
+                    normalizedSize,
                     outcome,
                     _connectedPeerName,
                     filePath,
-                    errorMessage));
+                    errorMessage,
+                    duration,
+                    bytesPerSecond));
         }
         catch (Exception exception)
         {
