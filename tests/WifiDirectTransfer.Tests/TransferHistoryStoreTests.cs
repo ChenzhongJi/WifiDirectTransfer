@@ -33,6 +33,67 @@ public sealed class TransferHistoryStoreTests
     }
 
     [Fact]
+    public void Add_PersistsDurationAndAverageSpeed()
+    {
+        InTempDirectory(directory =>
+        {
+            var path = Path.Combine(directory, "history.json");
+            var store = new TransferHistoryStore(path);
+            var duration = TimeSpan.FromSeconds(12.5);
+            const double bytesPerSecond = 8_000_000;
+
+            store.Add(
+                new TransferHistoryEntry(
+                    DateTimeOffset.Now,
+                    TransferDirection.Send,
+                    "video.bin",
+                    100_000_000,
+                    TransferOutcome.Completed,
+                    "PEER",
+                    @"C:\sent\video.bin",
+                    Duration: duration,
+                    BytesPerSecond: bytesPerSecond));
+
+            var reloaded = Assert.Single(new TransferHistoryStore(path).Load());
+
+            Assert.Equal(duration, reloaded.Duration);
+            Assert.Equal(bytesPerSecond, reloaded.BytesPerSecond);
+        });
+    }
+
+    [Fact]
+    public void Load_LegacyEntryWithoutDurationFields_RemainsCompatible()
+    {
+        InTempDirectory(directory =>
+        {
+            var path = Path.Combine(directory, "history.json");
+            File.WriteAllText(
+                path,
+                """
+                [
+                  {
+                    "OccurredAt": "2026-01-01T10:00:00+08:00",
+                    "Direction": "Receive",
+                    "FileName": "legacy.bin",
+                    "FileSize": 1234,
+                    "Outcome": "Completed",
+                    "PeerName": "PEER",
+                    "FilePath": "C:\\received\\legacy.bin"
+                  }
+                ]
+                """,
+                new UTF8Encoding(false));
+
+            var entry = Assert.Single(new TransferHistoryStore(path).Load());
+
+            Assert.Equal("legacy.bin", entry.FileName);
+            Assert.Null(entry.Duration);
+            Assert.Null(entry.BytesPerSecond);
+        });
+    }
+
+
+    [Fact]
     public void Load_TrimsToMaxEntries_NewestKept()
     {
         InTempDirectory(directory =>

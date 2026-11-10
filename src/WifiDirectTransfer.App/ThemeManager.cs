@@ -15,6 +15,7 @@ internal static class ThemeManager
 {
     private const string LightThemePath = "Themes/Light.xaml";
     private const string DarkThemePath = "Themes/Dark.xaml";
+    private const string HighContrastThemePath = "Themes/HighContrast.xaml";
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaUseImmersiveDarkModeBefore20H1 = 19;
 
@@ -54,11 +55,12 @@ internal static class ThemeManager
     {
         _mode = mode;
 
-        var useDark = !SystemParameters.HighContrast &&
+        var highContrast = SystemParameters.HighContrast;
+        var useDark = !highContrast &&
                       (mode == AppThemeMode.Dark ||
                        (mode == AppThemeMode.System && IsSystemDark()));
 
-        SetThemeDictionary(useDark);
+        SetThemeDictionary(useDark, highContrast);
         IsDark = useDark;
         ApplyWindowChromeToOpenWindows();
     }
@@ -128,7 +130,7 @@ internal static class ThemeManager
         }
     }
 
-    private static void SetThemeDictionary(bool dark)
+    private static void SetThemeDictionary(bool dark, bool highContrast)
     {
         var app = Application.Current;
 
@@ -145,12 +147,18 @@ internal static class ThemeManager
                                StringComparison.OrdinalIgnoreCase) ||
                            dictionary.Source.OriginalString.EndsWith(
                                "Dark.xaml",
+                               StringComparison.OrdinalIgnoreCase) ||
+                           dictionary.Source.OriginalString.EndsWith(
+                               "HighContrast.xaml",
                                StringComparison.OrdinalIgnoreCase)));
+        var themePath = highContrast
+            ? HighContrastThemePath
+            : dark
+                ? DarkThemePath
+                : LightThemePath;
         var replacement = new ResourceDictionary
         {
-            Source = new Uri(
-                dark ? DarkThemePath : LightThemePath,
-                UriKind.Relative)
+            Source = new Uri(themePath, UriKind.Relative)
         };
 
         if (existing is null)

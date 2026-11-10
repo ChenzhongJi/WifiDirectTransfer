@@ -18,18 +18,24 @@ public sealed class QueueFileStartedEventArgs : EventArgs
 
 public sealed class QueueFileCompletedEventArgs : EventArgs
 {
-    public QueueFileCompletedEventArgs(PendingFile file, FileSendResult result)
+    public QueueFileCompletedEventArgs(
+        PendingFile file,
+        FileSendResult result,
+        TimeSpan elapsed = default)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(result);
 
         File = file;
         Result = result;
+        Elapsed = elapsed;
     }
 
     public PendingFile File { get; }
 
     public FileSendResult Result { get; }
+
+    public TimeSpan Elapsed { get; }
 }
 
 public sealed class QueueFileFailedEventArgs : EventArgs

@@ -1698,6 +1698,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         file.BytesTransferred = 0;
         file.ErrorMessage = null;
         file.Status = PendingFileStatus.Transferring;
+        var transferWatch = Stopwatch.StartNew();
 
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
@@ -1744,8 +1745,13 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             file.Status = PendingFileStatus.Completed;
             _completedCount++;
             UpdateOverallRate();
+            transferWatch.Stop();
 
-            RaiseFileCompleted(new QueueFileCompletedEventArgs(file, result));
+            RaiseFileCompleted(
+                new QueueFileCompletedEventArgs(
+                    file,
+                    result,
+                    transferWatch.Elapsed));
             return null;
         }
         catch (FileSkippedException exception)

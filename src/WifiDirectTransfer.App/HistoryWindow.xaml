@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="传输历史"
         Icon="pack://application:,,,/Assets/app.ico"
-        Width="880"
+        Width="920"
         Height="540"
-        MinWidth="720"
+        MinWidth="780"
         MinHeight="420"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
@@ -127,10 +127,10 @@
                                             Width="140"
                                             DisplayMemberBinding="{Binding TimeText}" />
                             <GridViewColumn Header="方向"
-                                            Width="55"
+                                            Width="50"
                                             DisplayMemberBinding="{Binding DirectionText}" />
                             <GridViewColumn Header="文件名"
-                                            Width="280">
+                                            Width="220">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding FileName}"
@@ -142,10 +142,16 @@
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
                             <GridViewColumn Header="大小"
-                                            Width="85"
+                                            Width="80"
                                             DisplayMemberBinding="{Binding SizeText}" />
+                            <GridViewColumn Header="平均速度"
+                                            Width="90"
+                                            DisplayMemberBinding="{Binding SpeedText}" />
+                            <GridViewColumn Header="耗时"
+                                            Width="70"
+                                            DisplayMemberBinding="{Binding DurationText}" />
                             <GridViewColumn Header="结果"
-                                            Width="70">
+                                            Width="65">
                                 <GridViewColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding OutcomeText}">
@@ -170,7 +176,7 @@
                                 </GridViewColumn.CellTemplate>
                             </GridViewColumn>
                             <GridViewColumn Header="对端"
-                                            Width="140"
+                                            Width="100"
                                             DisplayMemberBinding="{Binding PeerText}" />
                         </GridView>
                     </ListView.View>
