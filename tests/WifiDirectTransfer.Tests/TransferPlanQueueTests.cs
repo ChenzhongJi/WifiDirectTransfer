@@ -30,6 +30,7 @@ public sealed class TransferPlanQueueTests
             var eventGate = new object();
             var directoriesReceived = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+            DirectoryManifestEventArgs? manifestArgs = null;
 
             session.Receiver.FileStarted += (_, _) =>
             {
@@ -41,6 +42,8 @@ public sealed class TransferPlanQueueTests
 
             session.Receiver.DirectoriesReceived += (_, args) =>
             {
+                manifestArgs = args;
+
                 lock (eventGate)
                 {
                     events.Add("directories");
@@ -66,6 +69,11 @@ public sealed class TransferPlanQueueTests
             Assert.True(
                 Directory.Exists(
                     Path.Combine(receiveRoot, "photos", "empty")));
+            Assert.NotNull(manifestArgs);
+            Assert.Contains(
+                "photos/empty",
+                manifestArgs!.CreatedDirectories,
+                StringComparer.OrdinalIgnoreCase);
 
             lock (eventGate)
             {
