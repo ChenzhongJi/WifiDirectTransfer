@@ -23,6 +23,8 @@ public sealed class PendingFile : INotifyPropertyChanged
     private long _bytesTransferred;
     private long _startOffset;
 
+    internal Guid QueueGroupId { get; set; }
+
     public PendingFile(
         string sourcePath,
         string fileName,

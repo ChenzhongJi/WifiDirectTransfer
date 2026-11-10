@@ -756,7 +756,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock VerticalAlignment="Center"
                                                        Style="{StaticResource TinyText}"
-                                                       Text="文件" />
+                                                       Text="项目" />
                                             <TextBlock Grid.Column="1"
                                                        VerticalAlignment="Center"
                                                        Style="{StaticResource TinyText}"
@@ -777,7 +777,7 @@
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  ItemContainerStyle="{StaticResource QueueListItemStyle}"
-                                                 ItemsSource="{Binding Files}"
+                                                 ItemsSource="{Binding Groups}"
                                                  SelectionChanged="QueueList_SelectionChanged"
                                                  PreviewMouseRightButtonDown="QueueList_PreviewMouseRightButtonDown"
                                                  ContextMenuOpening="QueueList_ContextMenuOpening"
@@ -820,14 +820,45 @@
                                                                         Height="24"
                                                                         Background="{DynamicResource IconBackgroundBrush}"
                                                                         CornerRadius="4">
-                                                                    <Path Data="{StaticResource FileIconGeometry}"
-                                                                          Style="{StaticResource SmallGlyphPath}"
-                                                                          Stroke="{DynamicResource IconStrokeBrush}" />
+                                                                    <Grid>
+                                                                        <Path Data="{StaticResource FolderIconGeometry}">
+                                                                            <Path.Style>
+                                                                                <Style TargetType="Path"
+                                                                                       BasedOn="{StaticResource SmallGlyphPath}">
+                                                                                    <Setter Property="Visibility"
+                                                                                            Value="Collapsed" />
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding IsFolder}"
+                                                                                                     Value="True">
+                                                                                            <Setter Property="Visibility"
+                                                                                                    Value="Visible" />
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Path.Style>
+                                                                        </Path>
+                                                                        <Path Data="{StaticResource FileIconGeometry}">
+                                                                            <Path.Style>
+                                                                                <Style TargetType="Path"
+                                                                                       BasedOn="{StaticResource SmallGlyphPath}">
+                                                                                    <Setter Property="Visibility"
+                                                                                            Value="Visible" />
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding IsFolder}"
+                                                                                                     Value="True">
+                                                                                            <Setter Property="Visibility"
+                                                                                                    Value="Collapsed" />
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Path.Style>
+                                                                        </Path>
+                                                                    </Grid>
                                                                 </Border>
                                                                 <StackPanel Grid.Column="1"
                                                                             Margin="8,0,0,0"
                                                                             VerticalAlignment="Center">
-                                                                    <TextBlock Text="{Binding DisplayPath}"
+                                                                    <TextBlock Text="{Binding DisplayName}"
                                                                                FontSize="12"
                                                                                FontWeight="SemiBold"
                                                                                TextTrimming="CharacterEllipsis"
@@ -835,7 +866,7 @@
                                                                     <TextBlock Margin="0,2,0,0"
                                                                                FontSize="10"
                                                                                Foreground="{DynamicResource TextTertiaryBrush}"
-                                                                               Text="{Binding SourcePath}"
+                                                                               Text="{Binding Subtitle}"
                                                                                TextTrimming="CharacterEllipsis" />
                                                                 </StackPanel>
                                                             </Grid>
@@ -935,28 +966,28 @@
                                     <StackPanel>
                                         <Grid>
                                             <TextBlock Style="{StaticResource SectionTitleText}"
-                                                       Text="文件详情" />
+                                                       Text="项目详情" />
                                             <TextBlock HorizontalAlignment="Right"
                                                        VerticalAlignment="Center"
                                                        Style="{StaticResource CurrentStatusTextStyle}"
-                                                       Text="{Binding DetailsFile.StatusText, TargetNullValue=未选择, FallbackValue=未选择}" />
+                                                       Text="{Binding DetailsGroup.StatusText, TargetNullValue=未选择, FallbackValue=未选择}" />
                                         </Grid>
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="12"
                                                    FontWeight="SemiBold"
-                                                   Text="{Binding DetailsFile.DisplayPath, TargetNullValue=未选择, FallbackValue=未选择}"
+                                                   Text="{Binding DetailsGroup.DisplayPath, TargetNullValue=未选择, FallbackValue=未选择}"
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,4,0,0"
                                                    Style="{StaticResource TinyText}"
-                                                   Text="{Binding DetailsFile.SourcePath, TargetNullValue=选择队列中的文件或开始传输后显示完整路径, FallbackValue=选择队列中的文件或开始传输后显示完整路径}"
+                                                   Text="{Binding DetailsGroup.SourcePath, TargetNullValue=选择队列中的项目或开始传输后显示路径, FallbackValue=选择队列中的项目或开始传输后显示路径}"
                                                    TextWrapping="Wrap" />
                                         <TextBlock Margin="0,10,0,0"
-                                                   Text="选择队列中的文件，或开始传输后查看详情。">
+                                                   Text="选择队列中的项目，或开始传输后查看详情。">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource TinyText}">
                                                     <Setter Property="Visibility" Value="Collapsed" />
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DetailsFile, FallbackValue={x:Null}}"
+                                                        <DataTrigger Binding="{Binding DetailsGroup, FallbackValue={x:Null}}"
                                                                      Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Visible" />
                                                         </DataTrigger>
@@ -969,7 +1000,7 @@
                                             <StackPanel.Style>
                                                 <Style TargetType="StackPanel">
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DetailsFile, FallbackValue={x:Null}}"
+                                                        <DataTrigger Binding="{Binding DetailsGroup, FallbackValue={x:Null}}"
                                                                      Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed" />
                                                         </DataTrigger>
@@ -980,7 +1011,7 @@
                                                          Margin="0,10,0,0"
                                                          Maximum="100"
                                                          Minimum="0"
-                                                         Value="{Binding DetailsFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
+                                                         Value="{Binding DetailsGroup.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
 
                                         <Grid Margin="0,12,0,0">
                                             <Grid.ColumnDefinitions>
@@ -994,12 +1025,14 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <TextBlock Style="{StaticResource TinyText}" Text="大小" />
                                             <TextBlock Grid.Column="1"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroup.Size, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="1"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -1009,7 +1042,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroup.BytesTransferred, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="2"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -1019,7 +1052,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.SpeedText, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroup.SpeedText, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="3"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -1029,7 +1062,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.EtaText, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroup.EtaText, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="4"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -1039,7 +1072,7 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsFile.StartOffset, Converter={StaticResource ByteSizeConverter}, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroup.StartOffsetText, TargetNullValue=—}" />
                                             <TextBlock Grid.Row="5"
                                                        Margin="0,7,0,0"
                                                        Style="{StaticResource TinyText}"
@@ -1049,20 +1082,40 @@
                                                        Margin="0,7,0,0"
                                                        FontSize="10.5"
                                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                                       Text="{Binding DetailsPositionText, TargetNullValue=—}" />
+                                                       Text="{Binding DetailsGroupPositionText, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="6"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="文件数" />
+                                            <TextBlock Grid.Row="6"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       Text="{Binding DetailsGroup.FileCount, TargetNullValue=—}" />
+                                            <TextBlock Grid.Row="7"
+                                                       Margin="0,7,0,0"
+                                                       Style="{StaticResource TinyText}"
+                                                       Text="结果" />
+                                            <TextBlock Grid.Row="7"
+                                                       Grid.Column="1"
+                                                       Margin="0,7,0,0"
+                                                       FontSize="10.5"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       Text="{Binding DetailsGroup.ResultText, TargetNullValue=—}" />
                                         </Grid>
                                         </StackPanel>
 
                                         <TextBlock Margin="0,10,0,0"
                                                    FontSize="10.5"
                                                    Foreground="{DynamicResource DangerBrush}"
-                                                   Text="{Binding DetailsFile.ErrorMessage}"
+                                                   Text="{Binding DetailsGroup.ErrorMessage}"
                                                    TextWrapping="Wrap">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Visible" />
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DetailsFile.ErrorMessage}" Value="{x:Null}">
+                                                        <DataTrigger Binding="{Binding DetailsGroup.ErrorMessage}" Value="{x:Null}">
                                                             <Setter Property="Visibility" Value="Collapsed" />
                                                         </DataTrigger>
                                                     </Style.Triggers>

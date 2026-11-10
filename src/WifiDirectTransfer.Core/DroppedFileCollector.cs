@@ -2,7 +2,7 @@ namespace WifiDirectTransfer.Core;
 
 /// <summary>
 /// 将拖入的文件和文件夹展开为发送计划。
-/// 文件夹保留根目录名和子目录结构；1.3 起会记录需要创建的空文件夹。
+/// 每个直接选择的文件或文件夹都会形成一个顶层项目分组。
 /// </summary>
 public static class DroppedFileCollector
 {
@@ -31,10 +31,12 @@ public static class DroppedFileCollector
 
         var files = new List<TransferSource>();
         var emptyDirectories = new List<string>();
+        var groups = new List<TransferGroupPlan>();
         var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenEmptyDirectories = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase);
         var usedRootNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var path in paths)
         {
@@ -49,25 +51,54 @@ public static class DroppedFileCollector
                 {
                     var fullPath = Path.GetFullPath(path);
 
-                    if (seenFiles.Add(fullPath))
+                    if (!seenFiles.Add(fullPath))
                     {
-                        files.Add(
-                            new TransferSource(
-                                fullPath,
-                                Path.GetFileName(fullPath),
-                                string.Empty));
+                        continue;
                     }
+
+                    var fileName = Path.GetFileName(fullPath);
+                    var source = new TransferSource(
+                        fullPath,
+                        fileName,
+                        string.Empty);
+                    files.Add(source);
+                    groups.Add(
+                        new TransferGroupPlan(
+                            GetUniqueGroupName(fileName, usedGroupNames),
+                            isFolder: false,
+                            new[] { source },
+                            Array.Empty<string>(),
+                            fullPath));
                 }
                 else if (Directory.Exists(path))
                 {
-                    CollectDirectory(
+                    var groupFiles = new List<TransferSource>();
+                    var groupEmptyDirectories = new List<string>();
+                    var rootName = CollectDirectory(
                         path,
-                        files,
-                        emptyDirectories,
+                        groupFiles,
+                        groupEmptyDirectories,
                         seenFiles,
                         seenEmptyDirectories,
                         usedRootNames,
                         log);
+
+                    if (rootName is null ||
+                        (groupFiles.Count == 0 &&
+                         groupEmptyDirectories.Count == 0))
+                    {
+                        continue;
+                    }
+
+                    files.AddRange(groupFiles);
+                    emptyDirectories.AddRange(groupEmptyDirectories);
+                    groups.Add(
+                        new TransferGroupPlan(
+                            GetUniqueGroupName(rootName, usedGroupNames),
+                            isFolder: true,
+                            groupFiles,
+                            groupEmptyDirectories,
+                            groupFiles.FirstOrDefault()?.SourcePath));
                 }
                 else
                 {
@@ -86,10 +117,10 @@ public static class DroppedFileCollector
             }
         }
 
-        return new TransferPlan(files, emptyDirectories);
+        return new TransferPlan(files, emptyDirectories, groups);
     }
 
-    private static void CollectDirectory(
+    private static string? CollectDirectory(
         string path,
         List<TransferSource> files,
         List<string> emptyDirectories,
@@ -98,6 +129,8 @@ public static class DroppedFileCollector
         HashSet<string> usedRootNames,
         Action<string>? log)
     {
+        var initialFileCount = files.Count;
+        var initialEmptyDirectoryCount = emptyDirectories.Count;
         var fullRoot = Path.GetFullPath(path).TrimEnd(
             Path.DirectorySeparatorChar,
             Path.AltDirectorySeparatorChar);
@@ -106,8 +139,6 @@ public static class DroppedFileCollector
             usedRootNames);
         var nonEmptyDirectories = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase);
-        var includedFiles = 0;
-        var emptyDirectoryCountBefore = emptyDirectories.Count;
 
         foreach (var file in Directory.EnumerateFiles(
                      fullRoot,
@@ -121,7 +152,6 @@ public static class DroppedFileCollector
                 continue;
             }
 
-            includedFiles++;
             var directory = Path.GetDirectoryName(fullPath);
 
             if (!string.IsNullOrEmpty(directory))
@@ -180,11 +210,16 @@ public static class DroppedFileCollector
                 log);
         }
 
-        if (includedFiles == 0 &&
-            emptyDirectories.Count > emptyDirectoryCountBefore)
+        if (files.Count == initialFileCount &&
+            emptyDirectories.Count > initialEmptyDirectoryCount)
         {
             log?.Invoke($"文件夹中没有文件，将在接收端创建空文件夹：{path}");
         }
+
+        return files.Count > initialFileCount ||
+               emptyDirectories.Count > initialEmptyDirectoryCount
+            ? rootName
+            : null;
     }
 
     private static void MarkNonEmptyDirectories(
@@ -286,5 +321,32 @@ public static class DroppedFileCollector
         }
 
         return rootName;
+    }
+
+    private static string GetUniqueGroupName(
+        string groupName,
+        HashSet<string> usedGroupNames)
+    {
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            groupName = "项目";
+        }
+
+        if (usedGroupNames.Add(groupName))
+        {
+            return groupName;
+        }
+
+        for (var index = 2; index < int.MaxValue; index++)
+        {
+            var candidate = $"{groupName} ({index})";
+
+            if (usedGroupNames.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return groupName;
     }
 }

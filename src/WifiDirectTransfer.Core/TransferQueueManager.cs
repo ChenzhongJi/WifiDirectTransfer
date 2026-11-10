@@ -18,15 +18,19 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     private readonly Func<Exception, string>? _errorMessageFactory;
     private readonly Action<string>? _log;
     private readonly Queue<PendingFile> _pending = new();
-    private readonly Queue<IReadOnlyList<string>> _pendingManifests = new();
+    private readonly Queue<PendingManifestBatch> _pendingManifests = new();
     private readonly ObservableCollection<PendingFile> _files = new();
+    private readonly ObservableCollection<QueueGroup> _groups = new();
+    private readonly Dictionary<Guid, QueueGroup> _groupsById = new();
     private readonly ReadOnlyObservableCollection<PendingFile> _readOnlyFiles;
+    private readonly ReadOnlyObservableCollection<QueueGroup> _readOnlyGroups;
     private readonly object _gate = new();
     private readonly TransferRateTracker _overallRate = new();
     private readonly Stopwatch _overallWatch = new();
 
     private PendingFile? _currentFile;
     private PendingFile? _selectedFile;
+    private QueueGroup? _selectedGroup;
     private bool _isRunning;
     private bool _pauseRequested;
     private TaskCompletionSource? _pauseTcs;
@@ -59,6 +63,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         _errorMessageFactory = errorMessageFactory;
         _log = log;
         _readOnlyFiles = new ReadOnlyObservableCollection<PendingFile>(_files);
+        _readOnlyGroups = new ReadOnlyObservableCollection<QueueGroup>(_groups);
     }
 
     /// <summary>
@@ -66,6 +71,13 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     /// <see cref="Clear"/> 修改。
     /// </summary>
     public ReadOnlyObservableCollection<PendingFile> Files => _readOnlyFiles;
+
+    /// <summary>供 UI 绑定的顶层项目：直接文件或用户选择的文件夹。</summary>
+    public ReadOnlyObservableCollection<QueueGroup> Groups => _readOnlyGroups;
+
+    public int GroupCount => _groups.Count;
+
+    public bool HasGroups => _groups.Count > 0;
 
     public PendingFile? CurrentFile
     {
@@ -81,8 +93,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(CurrentIndex));
             OnPropertyChanged(nameof(CurrentPositionText));
+            OnPropertyChanged(nameof(CurrentGroup));
             OnPropertyChanged(nameof(DetailsFile));
             OnPropertyChanged(nameof(DetailsPositionText));
+            OnPropertyChanged(nameof(DetailsGroup));
+            OnPropertyChanged(nameof(DetailsGroupPositionText));
         }
     }
 
@@ -107,6 +122,58 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     }
 
     public PendingFile? DetailsFile => _selectedFile ?? CurrentFile;
+
+    public QueueGroup? CurrentGroup =>
+        _currentFile is null ? null : FindGroup(_currentFile);
+
+    /// <summary>
+    /// 用户在队列中选中的顶层项目。未选中时详情回退到当前文件所属分组。
+    /// </summary>
+    public QueueGroup? SelectedGroup
+    {
+        get => _selectedGroup;
+        set
+        {
+            if (ReferenceEquals(_selectedGroup, value))
+            {
+                return;
+            }
+
+            _selectedGroup = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DetailsGroup));
+            OnPropertyChanged(nameof(DetailsGroupPositionText));
+        }
+    }
+
+    public QueueGroup? DetailsGroup => _selectedGroup ?? CurrentGroup;
+
+    public string DetailsGroupPositionText
+    {
+        get
+        {
+            var group = DetailsGroup;
+
+            if (group is null)
+            {
+                return "—";
+            }
+
+            var index = _groups.IndexOf(group);
+            return index < 0
+                ? "—"
+                : $"第 {index + 1} / {_groups.Count} 项";
+        }
+    }
+
+    public QueueGroup? FindGroup(PendingFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        return _groupsById.TryGetValue(file.QueueGroupId, out var group)
+            ? group
+            : null;
+    }
 
     public string DetailsPositionText
     {
@@ -195,8 +262,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             lock (_gate)
             {
-                return _pendingManifests
-                    .SelectMany(item => item)
+                return _groups
+                    .Where(group => !group.EmptyDirectoriesSent)
+                    .SelectMany(group => group.EmptyDirectories)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
             }
@@ -240,9 +308,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             lock (_gate)
             {
-                return _isRunning ||
-                       _pending.Count > 0 ||
-                       _pendingManifests.Count > 0;
+                return _isRunning || HasPendingWorkLocked();
             }
         }
     }
@@ -253,10 +319,17 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             lock (_gate)
             {
-                return !_isRunning &&
-                       (_pending.Count > 0 || _pendingManifests.Count > 0);
+                return !_isRunning && HasPendingWorkLocked();
             }
         }
+    }
+
+    private bool HasPendingWorkLocked()
+    {
+        return _pending.Count > 0 ||
+               _groups.Any(group =>
+                   group.EmptyDirectoryCount > 0 &&
+                   !group.EmptyDirectoriesSent);
     }
 
     public string CurrentPositionText => TotalCount == 0
@@ -396,7 +469,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     public event EventHandler<TransferQueueCompletedEventArgs>? QueueCompleted;
 
     /// <summary>
-    /// 将文件加入队尾。运行期间也可以追加，队列会在当前文件完成后继续。
+    /// 将文件加入队尾。每个文件是一个顶层项目。
     /// 路径不存在时仍会入队，并在发送时标记为失败，
     /// 这样单个无效路径不会阻止其他文件。
     /// </summary>
@@ -404,7 +477,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        var added = new List<PendingFile>();
+        var sources = new List<TransferSource>();
 
         foreach (var path in paths)
         {
@@ -413,10 +486,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 continue;
             }
 
-            added.Add(CreatePendingFile(path));
+            sources.Add(CreateSourceFromPath(path));
         }
 
-        return AddFilesAndManifest(added, Array.Empty<string>()).Files;
+        return EnqueuePlan(new TransferPlan(sources, Array.Empty<string>())).Files;
     }
 
     /// <summary>
@@ -427,89 +500,119 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(sources);
 
-        var added = new List<PendingFile>();
+        var validSources = sources
+            .Where(source => source is not null &&
+                             !string.IsNullOrWhiteSpace(source.SourcePath))
+            .ToArray();
 
-        foreach (var source in sources)
-        {
-            if (source is null ||
-                string.IsNullOrWhiteSpace(source.SourcePath))
-            {
-                continue;
-            }
-
-            added.Add(CreatePendingFile(source));
-        }
-
-        return AddFilesAndManifest(added, Array.Empty<string>()).Files;
+        return EnqueuePlan(
+                new TransferPlan(validSources, Array.Empty<string>()))
+            .Files;
     }
 
     /// <summary>
-    /// 将文件和空文件夹清单加入队尾。运行期间追加的清单会在下一轮发送。
+    /// 将文件和空文件夹清单加入队尾。每个顶层项目形成一行队列。
     /// </summary>
     public QueueEnqueueResult EnqueuePlan(TransferPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
 
-        var added = new List<PendingFile>();
-
-        foreach (var source in plan.Files)
-        {
-            if (source is null ||
-                string.IsNullOrWhiteSpace(source.SourcePath))
-            {
-                continue;
-            }
-
-            added.Add(CreatePendingFile(source));
-        }
-
-        return AddFilesAndManifest(added, plan.EmptyDirectories);
-    }
-
-    private QueueEnqueueResult AddFilesAndManifest(
-        List<PendingFile> added,
-        IReadOnlyList<string> emptyDirectories)
-    {
-        var uniqueEmptyDirectories = emptyDirectories
-            .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
+        var groupPlans = plan.Groups.Count > 0
+            ? plan.Groups
+            : new TransferPlan(plan.Files, plan.EmptyDirectories).Groups;
+        var addedFiles = new List<PendingFile>();
+        var addedGroups = new List<QueueGroup>();
         var queuedEmptyDirectories = 0;
         var skippedEmptyDirectories = 0;
 
         lock (_gate)
         {
-            foreach (var file in added)
+            foreach (var groupPlan in groupPlans)
             {
-                _files.Add(file);
-                _pending.Enqueue(file);
-            }
+                var groupFiles = new List<PendingFile>();
 
-            if (uniqueEmptyDirectories.Length > 0)
-            {
-                if (_supportsDirectoryManifest)
+                foreach (var source in groupPlan.Files)
                 {
-                    _pendingManifests.Enqueue(uniqueEmptyDirectories);
-                    _emptyDirectoryCount += uniqueEmptyDirectories.Length;
-                    queuedEmptyDirectories = uniqueEmptyDirectories.Length;
+                    if (source is null ||
+                        string.IsNullOrWhiteSpace(source.SourcePath))
+                    {
+                        continue;
+                    }
+
+                    groupFiles.Add(CreatePendingFile(source));
                 }
-                else
+
+                var emptyDirectories = groupPlan.EmptyDirectories
+                    .Where(directory => !string.IsNullOrWhiteSpace(directory))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var groupEmptyDirectories = Array.Empty<string>();
+                var skipped = 0;
+
+                if (emptyDirectories.Length > 0)
                 {
-                    skippedEmptyDirectories = uniqueEmptyDirectories.Length;
-                    _skippedEmptyDirectoryCount += skippedEmptyDirectories;
+                    if (_supportsDirectoryManifest)
+                    {
+                        groupEmptyDirectories = emptyDirectories;
+                    }
+                    else
+                    {
+                        skipped = emptyDirectories.Length;
+                        _skippedEmptyDirectoryCount += skipped;
+                    }
+                }
+
+                skippedEmptyDirectories += skipped;
+
+                if (groupFiles.Count == 0 &&
+                    groupEmptyDirectories.Length == 0 &&
+                    skipped == 0)
+                {
+                    continue;
+                }
+
+                var displayName = GetUniqueGroupNameLocked(
+                    groupPlan.DisplayName);
+                var group = new QueueGroup(
+                    Guid.NewGuid(),
+                    displayName,
+                    groupPlan.IsFolder,
+                    groupFiles,
+                    groupEmptyDirectories,
+                    groupPlan.SourcePath);
+
+                _groups.Add(group);
+                _groupsById.Add(group.Id, group);
+                addedGroups.Add(group);
+                addedFiles.AddRange(groupFiles);
+
+                foreach (var file in groupFiles)
+                {
+                    _files.Add(file);
+                    _pending.Enqueue(file);
+                }
+
+                if (groupEmptyDirectories.Length > 0)
+                {
+                    _pendingManifests.Enqueue(
+                        new PendingManifestBatch(
+                            group.Id,
+                            groupEmptyDirectories));
+                    _emptyDirectoryCount += groupEmptyDirectories.Length;
+                    queuedEmptyDirectories += groupEmptyDirectories.Length;
                 }
             }
         }
 
-        if (added.Count == 0 &&
+        if (addedFiles.Count == 0 &&
             queuedEmptyDirectories == 0 &&
             skippedEmptyDirectories == 0)
         {
             return new QueueEnqueueResult(
-                added,
+                addedFiles,
                 queuedEmptyDirectories,
-                skippedEmptyDirectories);
+                skippedEmptyDirectories,
+                addedGroups);
         }
 
         if (skippedEmptyDirectories > 0)
@@ -518,11 +621,61 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 $"对端版本低于 1.3，已跳过 {skippedEmptyDirectories} 个空文件夹。");
         }
 
+        RaiseQueueStateChanged();
+
+        return new QueueEnqueueResult(
+            addedFiles,
+            queuedEmptyDirectories,
+            skippedEmptyDirectories,
+            addedGroups);
+    }
+
+    private string GetUniqueGroupNameLocked(string baseName)
+    {
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "项目";
+        }
+
+        if (!_groups.Any(group => string.Equals(
+                group.DisplayName,
+                baseName,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return baseName;
+        }
+
+        for (var index = 2; index < int.MaxValue; index++)
+        {
+            var candidate = $"{baseName} ({index})";
+
+            if (!_groups.Any(group => string.Equals(
+                    group.DisplayName,
+                    candidate,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                return candidate;
+            }
+        }
+
+        return baseName;
+    }
+
+    private void RaiseQueueStateChanged()
+    {
         OnPropertyChanged(nameof(TotalCount));
         OnPropertyChanged(nameof(HasFiles));
+        OnPropertyChanged(nameof(HasGroups));
+        OnPropertyChanged(nameof(GroupCount));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(CanStart));
+        OnPropertyChanged(nameof(CurrentIndex));
         OnPropertyChanged(nameof(CurrentPositionText));
+        OnPropertyChanged(nameof(CurrentGroup));
+        OnPropertyChanged(nameof(CompletedCount));
+        OnPropertyChanged(nameof(FailedCount));
+        OnPropertyChanged(nameof(SkippedCount));
+        OnPropertyChanged(nameof(FinishedCount));
         OnPropertyChanged(nameof(OverallProgressText));
         OnPropertyChanged(nameof(OverallProgressPercent));
         OnPropertyChanged(nameof(TotalBytes));
@@ -535,13 +688,44 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasEmptyDirectories));
         OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
         OnPropertyChanged(nameof(EmptyDirectorySummary));
+        OnPropertyChanged(nameof(SelectedFile));
+        OnPropertyChanged(nameof(SelectedGroup));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
+        OnPropertyChanged(nameof(DetailsGroup));
+        OnPropertyChanged(nameof(DetailsGroupPositionText));
+    }
 
-        return new QueueEnqueueResult(
-            added,
-            queuedEmptyDirectories,
-            skippedEmptyDirectories);
+    private static TransferSource CreateSourceFromPath(string path)
+    {
+        string fullPath;
+
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            fullPath = path;
+        }
+
+        string fileName;
+
+        try
+        {
+            fileName = Path.GetFileName(fullPath);
+        }
+        catch (Exception)
+        {
+            fileName = fullPath;
+        }
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = fullPath;
+        }
+
+        return new TransferSource(fullPath, fileName, string.Empty);
     }
 
     /// <summary>
@@ -558,6 +742,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
             _pending.Clear();
             _pendingManifests.Clear();
+            _groups.Clear();
+            _groupsById.Clear();
             _emptyDirectoryCount = 0;
             _skippedEmptyDirectoryCount = 0;
             _sentEmptyDirectoryCount = 0;
@@ -565,6 +751,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
         CurrentFile = null;
         _selectedFile = null;
+        _selectedGroup = null;
         _files.Clear();
         _completedCount = 0;
         _failedCount = 0;
@@ -573,11 +760,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         _overallWatch.Reset();
 
         OnPropertyChanged(nameof(SelectedFile));
+        OnPropertyChanged(nameof(SelectedGroup));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
+        OnPropertyChanged(nameof(DetailsGroup));
+        OnPropertyChanged(nameof(DetailsGroupPositionText));
         OnPropertyChanged(nameof(TotalCount));
-        OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
+        OnPropertyChanged(nameof(HasGroups));
+        OnPropertyChanged(nameof(GroupCount));
+        OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasWaitingFiles));
         OnPropertyChanged(nameof(HasEmptyDirectories));
         OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
@@ -596,9 +788,6 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(OverallTransferText));
         OnPropertyChanged(nameof(EmptyDirectoryCount));
         OnPropertyChanged(nameof(SkippedEmptyDirectoryCount));
-        OnPropertyChanged(nameof(HasEmptyDirectories));
-        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
-        OnPropertyChanged(nameof(EmptyDirectorySummary));
     }
 
     /// <summary>
@@ -654,11 +843,14 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 在等待队列中上移或下移一个文件。offset 为 -1 或 +1。
+    /// 在等待队列中上移或下移一个文件。单文件分组等同于移动顶层项目；
+    /// 多文件分组只调整组内文件顺序。
     /// </summary>
     public bool MoveWaiting(PendingFile file, int offset)
     {
         ArgumentNullException.ThrowIfNull(file);
+
+        var changed = false;
 
         lock (_gate)
         {
@@ -667,34 +859,214 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 return false;
             }
 
-            var waiting = _files
-                .Where(item => item.Status == PendingFileStatus.Waiting)
-                .ToList();
-            var index = waiting.IndexOf(file);
-            var targetIndex = index + offset;
+            var group = FindGroup(file);
 
-            if (index < 0 ||
-                targetIndex < 0 ||
-                targetIndex >= waiting.Count)
+            if (group is null)
             {
                 return false;
             }
 
-            var target = waiting[targetIndex];
-            var sourceListIndex = _files.IndexOf(file);
-            var targetListIndex = _files.IndexOf(target);
+            changed = group.Files.Count == 1
+                ? MoveGroupLocked(group, offset)
+                : group.MoveFile(file, offset);
 
-            if (sourceListIndex < 0 || targetListIndex < 0)
+            if (changed && group.Files.Count > 1)
             {
-                return false;
+                RebuildFlatQueueLocked();
             }
-
-            _files.Move(sourceListIndex, targetListIndex);
-            RebuildPendingQueue();
         }
 
-        OnPropertyChanged(nameof(DetailsPositionText));
+        if (changed)
+        {
+            RaiseQueueStateChanged();
+        }
+
+        return changed;
+    }
+
+    /// <summary>上移或下移一个顶层项目。仅全部等待中的项目可移动。</summary>
+    public bool MoveGroup(QueueGroup group, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        var changed = false;
+
+        lock (_gate)
+        {
+            changed = MoveGroupLocked(group, offset);
+        }
+
+        if (changed)
+        {
+            RaiseQueueStateChanged();
+        }
+
+        return changed;
+    }
+
+    public bool CanMoveGroup(QueueGroup group, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        lock (_gate)
+        {
+            if (!CanMoveGroupLocked(group))
+            {
+                return false;
+            }
+
+            var movable = _groups
+                .Where(CanMoveGroupLocked)
+                .ToList();
+            var index = movable.IndexOf(group);
+            var targetIndex = index + offset;
+
+            return index >= 0 &&
+                   targetIndex >= 0 &&
+                   targetIndex < movable.Count;
+        }
+    }
+
+    private bool MoveGroupLocked(QueueGroup group, int offset)
+    {
+        if (!CanMoveGroupLocked(group))
+        {
+            return false;
+        }
+
+        var movable = _groups
+            .Where(CanMoveGroupLocked)
+            .ToList();
+        var index = movable.IndexOf(group);
+        var targetIndex = index + offset;
+
+        if (index < 0 ||
+            targetIndex < 0 ||
+            targetIndex >= movable.Count)
+        {
+            return false;
+        }
+
+        var target = movable[targetIndex];
+        var sourceListIndex = _groups.IndexOf(group);
+        var targetListIndex = _groups.IndexOf(target);
+
+        if (sourceListIndex < 0 || targetListIndex < 0)
+        {
+            return false;
+        }
+
+        _groups.Move(sourceListIndex, targetListIndex);
+        RebuildFlatQueueLocked();
         return true;
+    }
+
+    private bool CanMoveGroupLocked(QueueGroup group)
+    {
+        if (!_groups.Contains(group))
+        {
+            return false;
+        }
+
+        if (group.Files.Count == 0)
+        {
+            return group.EmptyDirectoryCount > 0 &&
+                   !group.EmptyDirectoriesSent;
+        }
+
+        return group.Files.All(
+            file => file.Status == PendingFileStatus.Waiting);
+    }
+
+    /// <summary>移除一个顶层项目。仅全部等待中的项目可移除。</summary>
+    public bool RemoveGroup(QueueGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        var removed = false;
+
+        lock (_gate)
+        {
+            if (!CanRemoveGroupLocked(group))
+            {
+                return false;
+            }
+
+            RemoveGroupLocked(group);
+            removed = true;
+        }
+
+        if (removed)
+        {
+            RaiseQueueStateChanged();
+        }
+
+        return removed;
+    }
+
+    public bool CanRemoveGroup(QueueGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        lock (_gate)
+        {
+            return CanRemoveGroupLocked(group);
+        }
+    }
+
+    private bool CanRemoveGroupLocked(QueueGroup group)
+    {
+        if (!_groups.Contains(group))
+        {
+            return false;
+        }
+
+        if (group.Files.Count == 0)
+        {
+            return group.EmptyDirectoryCount > 0 &&
+                   !group.EmptyDirectoriesSent;
+        }
+
+        return group.Files.All(
+            file => file.Status == PendingFileStatus.Waiting);
+    }
+
+    private void RemoveGroupLocked(QueueGroup group)
+    {
+        var selectedFileInGroup = _selectedFile is not null &&
+                                  group.Files.Contains(_selectedFile);
+
+        foreach (var file in group.Files.ToArray())
+        {
+            _files.Remove(file);
+            group.RemoveFile(file);
+        }
+
+        _groups.Remove(group);
+        _groupsById.Remove(group.Id);
+        _emptyDirectoryCount = Math.Max(
+            0,
+            _emptyDirectoryCount - group.EmptyDirectoryCount);
+
+        if (group.EmptyDirectoriesSent)
+        {
+            _sentEmptyDirectoryCount = Math.Max(
+                0,
+                _sentEmptyDirectoryCount - group.EmptyDirectoryCount);
+        }
+
+        if (ReferenceEquals(_selectedGroup, group))
+        {
+            _selectedGroup = null;
+        }
+
+        if (selectedFileInGroup)
+        {
+            _selectedFile = null;
+        }
+
+        RebuildPendingQueueLocked();
+        RebuildPendingManifestsLocked();
     }
 
     /// <summary>
@@ -704,8 +1076,6 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        var selectionChanged = false;
-
         lock (_gate)
         {
             if (file.Status != PendingFileStatus.Waiting ||
@@ -714,38 +1084,35 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 return false;
             }
 
+            var group = FindGroup(file);
+
+            if (group is not null)
+            {
+                group.RemoveFile(file);
+
+                if (group.Files.Count == 0 &&
+                    group.EmptyDirectoryCount == 0)
+                {
+                    _groups.Remove(group);
+                    _groupsById.Remove(group.Id);
+
+                    if (ReferenceEquals(_selectedGroup, group))
+                    {
+                        _selectedGroup = null;
+                    }
+                }
+            }
+
             if (ReferenceEquals(_selectedFile, file))
             {
                 _selectedFile = null;
-                selectionChanged = true;
             }
 
-            RebuildPendingQueue();
+            RebuildPendingQueueLocked();
+            RebuildPendingManifestsLocked();
         }
 
-        if (selectionChanged)
-        {
-            OnPropertyChanged(nameof(SelectedFile));
-        }
-
-        OnPropertyChanged(nameof(TotalCount));
-        OnPropertyChanged(nameof(TotalBytes));
-        OnPropertyChanged(nameof(HasFiles));
-        OnPropertyChanged(nameof(HasWaitingFiles));
-        OnPropertyChanged(nameof(HasEmptyDirectories));
-        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
-        OnPropertyChanged(nameof(EmptyDirectorySummary));
-        OnPropertyChanged(nameof(CanStart));
-        OnPropertyChanged(nameof(CurrentPositionText));
-        OnPropertyChanged(nameof(OverallProgressText));
-        OnPropertyChanged(nameof(OverallProgressPercent));
-        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
-        OnPropertyChanged(nameof(OverallSpeedText));
-        OnPropertyChanged(nameof(OverallEtaText));
-        OnPropertyChanged(nameof(OverallTransferText));
-        OnPropertyChanged(nameof(DetailsFile));
-        OnPropertyChanged(nameof(DetailsPositionText));
-
+        RaiseQueueStateChanged();
         return true;
     }
 
@@ -756,7 +1123,6 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        var selectedChanged = false;
         var currentChanged = false;
 
         lock (_gate)
@@ -785,10 +1151,28 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     break;
             }
 
+            var group = FindGroup(file);
+
+            if (group is not null)
+            {
+                group.RemoveFile(file);
+
+                if (group.Files.Count == 0 &&
+                    group.EmptyDirectoryCount == 0)
+                {
+                    _groups.Remove(group);
+                    _groupsById.Remove(group.Id);
+
+                    if (ReferenceEquals(_selectedGroup, group))
+                    {
+                        _selectedGroup = null;
+                    }
+                }
+            }
+
             if (ReferenceEquals(_selectedFile, file))
             {
                 _selectedFile = null;
-                selectedChanged = true;
             }
 
             if (ReferenceEquals(_currentFile, file))
@@ -797,12 +1181,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 currentChanged = true;
             }
 
-            RebuildPendingQueue();
-        }
-
-        if (selectedChanged)
-        {
-            OnPropertyChanged(nameof(SelectedFile));
+            RebuildPendingQueueLocked();
+            RebuildPendingManifestsLocked();
         }
 
         if (currentChanged)
@@ -810,29 +1190,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             OnPropertyChanged(nameof(CurrentFile));
             OnPropertyChanged(nameof(CurrentIndex));
             OnPropertyChanged(nameof(CurrentPositionText));
+            OnPropertyChanged(nameof(CurrentGroup));
         }
 
-        OnPropertyChanged(nameof(TotalCount));
-        OnPropertyChanged(nameof(TotalBytes));
-        OnPropertyChanged(nameof(HasFiles));
-        OnPropertyChanged(nameof(HasWaitingFiles));
-        OnPropertyChanged(nameof(HasEmptyDirectories));
-        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
-        OnPropertyChanged(nameof(EmptyDirectorySummary));
-        OnPropertyChanged(nameof(CanStart));
-        OnPropertyChanged(nameof(CompletedCount));
-        OnPropertyChanged(nameof(FailedCount));
-        OnPropertyChanged(nameof(SkippedCount));
-        OnPropertyChanged(nameof(FinishedCount));
-        OnPropertyChanged(nameof(OverallProgressText));
-        OnPropertyChanged(nameof(OverallProgressPercent));
-        OnPropertyChanged(nameof(OverallSpeedBytesPerSecond));
-        OnPropertyChanged(nameof(OverallSpeedText));
-        OnPropertyChanged(nameof(OverallEtaText));
-        OnPropertyChanged(nameof(OverallTransferText));
-        OnPropertyChanged(nameof(DetailsFile));
-        OnPropertyChanged(nameof(DetailsPositionText));
-
+        RaiseQueueStateChanged();
         return true;
     }
 
@@ -857,15 +1218,56 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
     private void RebuildPendingQueue()
     {
+        RebuildPendingQueueLocked();
+    }
+
+    private void RebuildPendingQueueLocked()
+    {
         _pending.Clear();
 
-        foreach (var file in _files)
+        foreach (var group in _groups)
         {
-            if (file.Status == PendingFileStatus.Waiting)
+            foreach (var file in group.Files)
             {
-                _pending.Enqueue(file);
+                if (file.Status == PendingFileStatus.Waiting)
+                {
+                    _pending.Enqueue(file);
+                }
             }
         }
+    }
+
+    private void RebuildPendingManifestsLocked()
+    {
+        _pendingManifests.Clear();
+
+        foreach (var group in _groups)
+        {
+            if (group.EmptyDirectoryCount > 0 &&
+                !group.EmptyDirectoriesSent)
+            {
+                _pendingManifests.Enqueue(
+                    new PendingManifestBatch(
+                        group.Id,
+                        group.EmptyDirectories));
+            }
+        }
+    }
+
+    private void RebuildFlatQueueLocked()
+    {
+        _files.Clear();
+
+        foreach (var group in _groups)
+        {
+            foreach (var file in group.Files)
+            {
+                _files.Add(file);
+            }
+        }
+
+        RebuildPendingQueueLocked();
+        RebuildPendingManifestsLocked();
     }
 
     private void UpdateOverallRate()
@@ -944,6 +1346,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
         lock (_gate)
         {
+            RebuildPendingManifestsLocked();
             hasPending = _pending.Count > 0;
 
             foreach (var pendingFile in _pending)
@@ -1095,7 +1498,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     {
         while (true)
         {
-            IReadOnlyList<string>? directories;
+            PendingManifestBatch? batch;
 
             lock (_gate)
             {
@@ -1104,20 +1507,32 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     return;
                 }
 
-                directories = _pendingManifests.Peek();
+                batch = _pendingManifests.Peek();
             }
 
-            await SendDirectoryManifestAsync(directories, cancellationToken)
+            await SendDirectoryManifestAsync(
+                    batch.Directories,
+                    cancellationToken)
                 .ConfigureAwait(true);
 
             lock (_gate)
             {
-                if (_pendingManifests.Count > 0)
+                if (_groupsById.TryGetValue(batch.GroupId, out var group))
                 {
-                    _pendingManifests.Dequeue();
+                    group.MarkEmptyDirectoriesSent();
                 }
 
-                _sentEmptyDirectoryCount += directories.Count;
+                var remaining = _pendingManifests
+                    .Where(item => item.GroupId != batch.GroupId)
+                    .ToArray();
+                _pendingManifests.Clear();
+
+                foreach (var item in remaining)
+                {
+                    _pendingManifests.Enqueue(item);
+                }
+
+                _sentEmptyDirectoryCount += batch.Directories.Count;
             }
 
             OnPropertyChanged(nameof(OverallProgressText));
@@ -1483,6 +1898,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private sealed record PendingManifestBatch(
+        Guid GroupId,
+        IReadOnlyList<string> Directories);
 
     private sealed class InlineProgress<T> : IProgress<T>
     {
