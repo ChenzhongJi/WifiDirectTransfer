@@ -2013,11 +2013,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        Log(
+            "收到 PeerFinder 连接请求事件：" +
+            $"DisplayName={e.Request.Peer.DisplayName}, " +
+            $"Id={e.Request.Peer.Id}。");
         _ = HandleConnectionRequestAsync(e.Request);
     }
 
     private async Task HandleConnectionRequestAsync(IWifiDirectConnectionRequest request)
     {
+        Log(
+            "处理连接请求：" +
+            $"DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}, " +
+            $"role={_role}, hasChannel={_channel is not null}, " +
+            $"isHandlingRequest={_isHandlingRequest}, " +
+            $"serviceState={_service.State}。");
+
         if (_isClosing)
         {
             return;
@@ -2046,6 +2057,8 @@ public partial class MainWindow : Window
         Log($"收到连接请求：DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
 
         var connectionEstablished = false;
+        var acceptAttempted = false;
+        var rejectedCleanupFailed = false;
 
         if (!IsVisible || WindowState == WindowState.Minimized)
         {
@@ -2103,7 +2116,17 @@ public partial class MainWindow : Window
                     Log(dialog.TimedOut
                         ? "接收确认超时，已自动拒绝。"
                         : "用户拒绝了连接请求。");
-                    UpdateStatus("已拒绝，继续等待连接…");
+                    UpdateStatus("已拒绝，正在清理连接…");
+
+                    rejectedCleanupFailed =
+                        !await CloseRejectedRequestAsync(request);
+                    SuppressNetworkChangeRecovery();
+                    UpdateStatus(rejectedCleanupFailed
+                        ? "已拒绝，但连接清理失败。请点击“重新等待”。"
+                        : "已拒绝，继续等待连接…");
+                    Log(rejectedCleanupFailed
+                        ? "拒绝处理完成，但连接清理失败，将继续重启等待广播。"
+                        : "拒绝处理完成，保持等待广播，不重启 PeerFinder。");
                     return;
                 }
 
@@ -2119,6 +2142,7 @@ public partial class MainWindow : Window
 
             using var acceptCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
             acceptCts.CancelAfter(TimeSpan.FromSeconds(30));
+            acceptAttempted = true;
 
             var channel = await _service.AcceptAsync(request, acceptCts.Token);
             AttachChannel(channel);
@@ -2182,11 +2206,62 @@ public partial class MainWindow : Window
             if (!connectionEstablished &&
                 !_isClosing &&
                 _serviceStarted &&
-                _channel is null)
+                _channel is null &&
+                (acceptAttempted || rejectedCleanupFailed))
             {
                 await RestartReceiverAdvertisementAsync("连接请求处理结束");
             }
         }
+    }
+
+    private async Task<bool> CloseRejectedRequestAsync(
+        IWifiDirectConnectionRequest request)
+    {
+        IDuplexChannel? channel = null;
+        var cleaned = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetimeCts.Token);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            // PeerFinder 没有显式拒绝 API。不调用 ConnectAsync 会让发送端
+            // 的请求一直挂到超时，并可能使后续 ConnectionRequested 不再触发。
+            // 这里完成传输握手后立即关闭，不创建任何文件接收或消息层。
+            Log("拒绝连接请求：正在完成并关闭传输握手，以释放 PeerFinder 请求。");
+            channel = await _service.AcceptAsync(request, cts.Token);
+            cleaned = true;
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            Log(
+                "拒绝连接请求后清理失败：" +
+                $"{exception.GetType().Name}");
+        }
+        finally
+        {
+            if (channel is not null)
+            {
+                try
+                {
+                    await channel.DisposeAsync();
+                    Log("已拒绝并关闭连接，保持等待广播。");
+                }
+                catch (Exception exception)
+                {
+                    cleaned = false;
+                    Log(
+                        "关闭已拒绝连接失败：" +
+                        $"{exception.GetType().Name}");
+                }
+            }
+        }
+
+        return cleaned;
     }
 
     private void AttachChannel(IDuplexChannel channel)
