@@ -1,8 +1,8 @@
 namespace WifiDirectTransfer.Core;
 
 /// <summary>
-/// 将拖入的文件和文件夹展开为带相对目录的传输源列表。
-/// 文件夹会保留根目录名和子目录结构；空目录暂不发送。
+/// 将拖入的文件和文件夹展开为发送计划。
+/// 文件夹保留根目录名和子目录结构；1.3 起会记录需要创建的空文件夹。
 /// </summary>
 public static class DroppedFileCollector
 {
@@ -10,7 +10,8 @@ public static class DroppedFileCollector
         IEnumerable<string> paths,
         Action<string>? log = null)
     {
-        return CollectItems(paths, log)
+        return CollectPlan(paths, log)
+            .Files
             .Select(item => item.SourcePath)
             .ToArray();
     }
@@ -19,10 +20,20 @@ public static class DroppedFileCollector
         IEnumerable<string> paths,
         Action<string>? log = null)
     {
+        return CollectPlan(paths, log).Files;
+    }
+
+    public static TransferPlan CollectPlan(
+        IEnumerable<string> paths,
+        Action<string>? log = null)
+    {
         ArgumentNullException.ThrowIfNull(paths);
 
-        var items = new List<TransferSource>();
+        var files = new List<TransferSource>();
+        var emptyDirectories = new List<string>();
         var seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenEmptyDirectories = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         var usedRootNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var path in paths)
@@ -40,7 +51,7 @@ public static class DroppedFileCollector
 
                     if (seenFiles.Add(fullPath))
                     {
-                        items.Add(
+                        files.Add(
                             new TransferSource(
                                 fullPath,
                                 Path.GetFileName(fullPath),
@@ -51,8 +62,10 @@ public static class DroppedFileCollector
                 {
                     CollectDirectory(
                         path,
-                        items,
+                        files,
+                        emptyDirectories,
                         seenFiles,
+                        seenEmptyDirectories,
                         usedRootNames,
                         log);
                 }
@@ -73,13 +86,15 @@ public static class DroppedFileCollector
             }
         }
 
-        return items;
+        return new TransferPlan(files, emptyDirectories);
     }
 
     private static void CollectDirectory(
         string path,
-        List<TransferSource> items,
+        List<TransferSource> files,
+        List<string> emptyDirectories,
         HashSet<string> seenFiles,
+        HashSet<string> seenEmptyDirectories,
         HashSet<string> usedRootNames,
         Action<string>? log)
     {
@@ -89,7 +104,10 @@ public static class DroppedFileCollector
         var rootName = GetUniqueRootName(
             GetRootName(fullRoot),
             usedRootNames);
-        var foundFile = false;
+        var nonEmptyDirectories = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        var includedFiles = 0;
+        var emptyDirectoryCountBefore = emptyDirectories.Count;
 
         foreach (var file in Directory.EnumerateFiles(
                      fullRoot,
@@ -103,7 +121,17 @@ public static class DroppedFileCollector
                 continue;
             }
 
-            foundFile = true;
+            includedFiles++;
+            var directory = Path.GetDirectoryName(fullPath);
+
+            if (!string.IsNullOrEmpty(directory))
+            {
+                MarkNonEmptyDirectories(
+                    nonEmptyDirectories,
+                    directory,
+                    fullRoot);
+            }
+
             var relativePath = Path.GetRelativePath(fullRoot, fullPath);
             var relativeDirectory = Path.GetDirectoryName(relativePath) ??
                                     string.Empty;
@@ -111,16 +139,112 @@ public static class DroppedFileCollector
                 ? rootName
                 : Path.Combine(rootName, relativeDirectory);
 
-            items.Add(
+            files.Add(
                 new TransferSource(
                     fullPath,
                     Path.GetFileName(fullPath),
                     destinationDirectory));
         }
 
-        if (!foundFile)
+        var subdirectories = Directory.EnumerateDirectories(
+                fullRoot,
+                "*",
+                SearchOption.AllDirectories)
+            .Select(Path.GetFullPath)
+            .ToArray();
+
+        if (subdirectories.Length == 0 &&
+            !nonEmptyDirectories.Contains(fullRoot))
         {
-            log?.Invoke($"文件夹为空，暂不发送：{path}");
+            AddEmptyDirectory(
+                rootName,
+                emptyDirectories,
+                seenEmptyDirectories,
+                log);
+        }
+
+        foreach (var subdirectory in subdirectories)
+        {
+            if (nonEmptyDirectories.Contains(subdirectory))
+            {
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(fullRoot, subdirectory);
+            var destinationDirectory = Path.Combine(rootName, relativePath);
+
+            AddEmptyDirectory(
+                destinationDirectory,
+                emptyDirectories,
+                seenEmptyDirectories,
+                log);
+        }
+
+        if (includedFiles == 0 &&
+            emptyDirectories.Count > emptyDirectoryCountBefore)
+        {
+            log?.Invoke($"文件夹中没有文件，将在接收端创建空文件夹：{path}");
+        }
+    }
+
+    private static void MarkNonEmptyDirectories(
+        HashSet<string> nonEmptyDirectories,
+        string directory,
+        string fullRoot)
+    {
+        var current = Path.GetFullPath(directory);
+
+        while (true)
+        {
+            if (!nonEmptyDirectories.Add(current))
+            {
+                break;
+            }
+
+            if (string.Equals(
+                    current,
+                    fullRoot,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            var parent = Path.GetDirectoryName(current);
+
+            if (string.IsNullOrEmpty(parent))
+            {
+                break;
+            }
+
+            current = parent;
+        }
+    }
+
+    private static void AddEmptyDirectory(
+        string destinationDirectory,
+        List<string> emptyDirectories,
+        HashSet<string> seenEmptyDirectories,
+        Action<string>? log)
+    {
+        try
+        {
+            var wirePath = SafeRelativePath.ToWire(destinationDirectory);
+
+            if (wirePath.Length == 0 || !seenEmptyDirectories.Add(wirePath))
+            {
+                return;
+            }
+
+            emptyDirectories.Add(wirePath);
+        }
+        catch (Exception exception)
+            when (exception is InvalidFileHeaderException
+                  or ArgumentException
+                  or NotSupportedException)
+        {
+            log?.Invoke(
+                "跳过无法发送的空文件夹：" +
+                $"{destinationDirectory}（{exception.GetType().Name}）");
         }
     }
 

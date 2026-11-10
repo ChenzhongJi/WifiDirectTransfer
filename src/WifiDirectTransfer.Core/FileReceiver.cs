@@ -41,6 +41,7 @@ public sealed class FileReceiver : IAsyncDisposable
     private long _lastMetadataAttemptReceived;
     private bool _metadataWarningLogged;
     private Stopwatch? _stopwatch;
+    private int _manifestEntryCount;
     private int _disposed;
 
     public FileReceiver(
@@ -94,6 +95,8 @@ public sealed class FileReceiver : IAsyncDisposable
     public event EventHandler<FileFailedEventArgs>? FileFailed;
 
     public event EventHandler<FileSkippedEventArgs>? FileSkipped;
+
+    public event EventHandler<DirectoryManifestEventArgs>? DirectoriesReceived;
 
     public ValueTask DisposeAsync()
     {
@@ -613,6 +616,56 @@ public sealed class FileReceiver : IAsyncDisposable
         if (message.Subtype == ControlMessageSubtype.QueueInfo)
         {
             _pendingQueueBytes = message.Offset;
+            return;
+        }
+
+        if (message.Subtype == ControlMessageSubtype.DirectoryManifest &&
+            message.Directories is { Count: > 0 } directories)
+        {
+            HandleDirectoryManifest(directories);
+        }
+    }
+
+    private void HandleDirectoryManifest(
+        IReadOnlyList<string> directories)
+    {
+        var created = 0;
+        var failed = 0;
+
+        foreach (var directory in directories)
+        {
+            if (_manifestEntryCount >=
+                DirectoryManifestCodec.MaxDirectoriesPerTransfer)
+            {
+                _log?.Invoke(
+                    "目录清单条目数超过上限，已忽略剩余空文件夹。");
+                failed += directories.Count - created - failed;
+                break;
+            }
+
+            _manifestEntryCount++;
+
+            try
+            {
+                var target = SafeRelativePath.ResolveDirectory(
+                    _destinationDirectory,
+                    directory);
+                Directory.CreateDirectory(target);
+                created++;
+            }
+            catch (Exception exception)
+            {
+                failed++;
+                _log?.Invoke(
+                    "创建空文件夹失败：" +
+                    $"{directory}（{exception.GetType().Name}）");
+            }
+        }
+
+        if (created > 0 || failed > 0)
+        {
+            RaiseDirectoriesReceived(
+                new DirectoryManifestEventArgs(created, failed));
         }
     }
 
@@ -1051,6 +1104,18 @@ public sealed class FileReceiver : IAsyncDisposable
         try
         {
             FileSkipped?.Invoke(this, args);
+        }
+        catch (Exception)
+        {
+            // 订阅方异常不应影响消息循环。
+        }
+    }
+
+    private void RaiseDirectoriesReceived(DirectoryManifestEventArgs args)
+    {
+        try
+        {
+            DirectoriesReceived?.Invoke(this, args);
         }
         catch (Exception)
         {

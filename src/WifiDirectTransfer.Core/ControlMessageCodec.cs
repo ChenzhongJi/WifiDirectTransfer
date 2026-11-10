@@ -10,7 +10,8 @@ public sealed record ControlMessage(
     string Message,
     byte[]? Digest = null,
     int ProtocolVersion = 0,
-    int MaxPayloadLength = 0);
+    int MaxPayloadLength = 0,
+    IReadOnlyList<string>? Directories = null);
 
 /// <summary>
 /// ControlMessage payload 编解码：subtype(1) + data。多字节字段使用大端。
@@ -65,6 +66,10 @@ public static class ControlMessageCodec
     {
         return new[] { (byte)ControlMessageSubtype.FileSkipped };
     }
+
+    public static byte[] SerializeDirectoryManifest(
+        IReadOnlyList<string> directories) =>
+        DirectoryManifestCodec.Serialize(directories);
 
     public static byte[] SerializeTextRejected()
     {
@@ -178,6 +183,8 @@ public static class ControlMessageCodec
             ControlMessageSubtype.FileVerified => DeserializeFileVerified(payload),
             ControlMessageSubtype.Hello => DeserializeHello(payload),
             ControlMessageSubtype.TextRejected => DeserializeTextRejected(payload),
+            ControlMessageSubtype.DirectoryManifest =>
+                DeserializeDirectoryManifest(payload),
             _ => throw new MessageProtocolException(
                 $"未知的 ControlMessage 子类型：0x{payload[0]:X2}。")
         };
@@ -228,6 +235,22 @@ public static class ControlMessageCodec
             0,
             default,
             string.Empty);
+    }
+
+    private static ControlMessage DeserializeDirectoryManifest(
+        ReadOnlySpan<byte> payload)
+    {
+        var directories = DirectoryManifestCodec.Deserialize(payload);
+
+        return new ControlMessage(
+            ControlMessageSubtype.DirectoryManifest,
+            0,
+            default,
+            string.Empty,
+            null,
+            0,
+            0,
+            directories);
     }
 
     private static ControlMessage DeserializeFileVerified(ReadOnlySpan<byte> payload)

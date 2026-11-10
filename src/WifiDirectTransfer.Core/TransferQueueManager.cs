@@ -14,9 +14,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 {
     private readonly MessageDispatcher _dispatcher;
     private readonly long _maxFileSize;
+    private readonly bool _supportsDirectoryManifest;
     private readonly Func<Exception, string>? _errorMessageFactory;
     private readonly Action<string>? _log;
     private readonly Queue<PendingFile> _pending = new();
+    private readonly Queue<IReadOnlyList<string>> _pendingManifests = new();
     private readonly ObservableCollection<PendingFile> _files = new();
     private readonly ReadOnlyObservableCollection<PendingFile> _readOnlyFiles;
     private readonly object _gate = new();
@@ -31,12 +33,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     private int _completedCount;
     private int _failedCount;
     private int _skippedCount;
+    private int _emptyDirectoryCount;
+    private int _skippedEmptyDirectoryCount;
+    private int _sentEmptyDirectoryCount;
 
     public TransferQueueManager(
         MessageDispatcher dispatcher,
         long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
         Func<Exception, string>? errorMessageFactory = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        bool supportsDirectoryManifest = true)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
 
@@ -49,6 +55,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
         _dispatcher = dispatcher;
         _maxFileSize = maxFileSize;
+        _supportsDirectoryManifest = supportsDirectoryManifest;
         _errorMessageFactory = errorMessageFactory;
         _log = log;
         _readOnlyFiles = new ReadOnlyObservableCollection<PendingFile>(_files);
@@ -145,7 +152,56 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
 
     public int SkippedCount => _skippedCount;
 
+    public int EmptyDirectoryCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _emptyDirectoryCount;
+            }
+        }
+    }
+
+    public int SkippedEmptyDirectoryCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _skippedEmptyDirectoryCount;
+            }
+        }
+    }
+
     public int FinishedCount => _completedCount + _failedCount + _skippedCount;
+
+    public bool HasEmptyDirectories => EmptyDirectoryCount > 0;
+
+    public bool ShowEmptyDirectorySummary => HasFiles && HasEmptyDirectories;
+
+    public string EmptyDirectorySummary => EmptyDirectoryCount == 0
+        ? string.Empty
+        : ShowEmptyDirectorySummary
+            ? $"另含 {EmptyDirectoryCount} 个空文件夹"
+            : $"将创建 {EmptyDirectoryCount} 个空文件夹";
+
+    public bool SupportsDirectoryManifest => _supportsDirectoryManifest;
+
+    /// <summary>尚未发送的空文件夹清单，用于自动重连。</summary>
+    public IReadOnlyList<string> PendingEmptyDirectories
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pendingManifests
+                    .SelectMany(item => item)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+        }
+    }
 
     public bool IsRunning
     {
@@ -184,7 +240,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             lock (_gate)
             {
-                return _isRunning || _pending.Count > 0;
+                return _isRunning ||
+                       _pending.Count > 0 ||
+                       _pendingManifests.Count > 0;
             }
         }
     }
@@ -195,7 +253,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             lock (_gate)
             {
-                return !_isRunning && _pending.Count > 0;
+                return !_isRunning &&
+                       (_pending.Count > 0 || _pendingManifests.Count > 0);
             }
         }
     }
@@ -210,7 +269,14 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             if (TotalCount == 0)
             {
-                return "尚未添加文件";
+                if (_emptyDirectoryCount == 0)
+                {
+                    return "尚未添加文件";
+                }
+
+                return _sentEmptyDirectoryCount >= _emptyDirectoryCount
+                    ? $"已创建 {_emptyDirectoryCount} 个空文件夹"
+                    : $"将创建 {_emptyDirectoryCount} 个空文件夹";
             }
 
             var text = $"已完成 {CompletedCount} / {TotalCount}";
@@ -225,16 +291,40 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 text += $"，跳过 {SkippedCount}";
             }
 
+            if (_emptyDirectoryCount > 0)
+            {
+                text += $"，空文件夹 {_emptyDirectoryCount}";
+            }
+
             return text;
         }
     }
 
     /// <summary>
     /// 总体进度按已处理（完成、失败、跳过）文件数计算，失败文件不会卡住进度条。
+    /// 没有文件时按已发送的空文件夹清单计算。
     /// </summary>
-    public double OverallProgressPercent => TotalCount == 0
-        ? 0d
-        : Math.Clamp((double)FinishedCount / TotalCount * 100d, 0d, 100d);
+    public double OverallProgressPercent
+    {
+        get
+        {
+            if (TotalCount == 0)
+            {
+                return _emptyDirectoryCount == 0
+                    ? 0d
+                    : Math.Clamp(
+                        (double)_sentEmptyDirectoryCount /
+                        _emptyDirectoryCount * 100d,
+                        0d,
+                        100d);
+            }
+
+            return Math.Clamp(
+                (double)FinishedCount / TotalCount * 100d,
+                0d,
+                100d);
+        }
+    }
 
     /// <summary>队列中所有文件的字节总数。</summary>
     public long TotalBytes
@@ -326,7 +416,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             added.Add(CreatePendingFile(path));
         }
 
-        return AddPendingFiles(added);
+        return AddFilesAndManifest(added, Array.Empty<string>()).Files;
     }
 
     /// <summary>
@@ -350,16 +440,43 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             added.Add(CreatePendingFile(source));
         }
 
-        return AddPendingFiles(added);
+        return AddFilesAndManifest(added, Array.Empty<string>()).Files;
     }
 
-    private IReadOnlyList<PendingFile> AddPendingFiles(
-        List<PendingFile> added)
+    /// <summary>
+    /// 将文件和空文件夹清单加入队尾。运行期间追加的清单会在下一轮发送。
+    /// </summary>
+    public QueueEnqueueResult EnqueuePlan(TransferPlan plan)
     {
-        if (added.Count == 0)
+        ArgumentNullException.ThrowIfNull(plan);
+
+        var added = new List<PendingFile>();
+
+        foreach (var source in plan.Files)
         {
-            return added;
+            if (source is null ||
+                string.IsNullOrWhiteSpace(source.SourcePath))
+            {
+                continue;
+            }
+
+            added.Add(CreatePendingFile(source));
         }
+
+        return AddFilesAndManifest(added, plan.EmptyDirectories);
+    }
+
+    private QueueEnqueueResult AddFilesAndManifest(
+        List<PendingFile> added,
+        IReadOnlyList<string> emptyDirectories)
+    {
+        var uniqueEmptyDirectories = emptyDirectories
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var queuedEmptyDirectories = 0;
+        var skippedEmptyDirectories = 0;
 
         lock (_gate)
         {
@@ -368,6 +485,37 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 _files.Add(file);
                 _pending.Enqueue(file);
             }
+
+            if (uniqueEmptyDirectories.Length > 0)
+            {
+                if (_supportsDirectoryManifest)
+                {
+                    _pendingManifests.Enqueue(uniqueEmptyDirectories);
+                    _emptyDirectoryCount += uniqueEmptyDirectories.Length;
+                    queuedEmptyDirectories = uniqueEmptyDirectories.Length;
+                }
+                else
+                {
+                    skippedEmptyDirectories = uniqueEmptyDirectories.Length;
+                    _skippedEmptyDirectoryCount += skippedEmptyDirectories;
+                }
+            }
+        }
+
+        if (added.Count == 0 &&
+            queuedEmptyDirectories == 0 &&
+            skippedEmptyDirectories == 0)
+        {
+            return new QueueEnqueueResult(
+                added,
+                queuedEmptyDirectories,
+                skippedEmptyDirectories);
+        }
+
+        if (skippedEmptyDirectories > 0)
+        {
+            _log?.Invoke(
+                $"对端版本低于 1.3，已跳过 {skippedEmptyDirectories} 个空文件夹。");
         }
 
         OnPropertyChanged(nameof(TotalCount));
@@ -382,10 +530,18 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(OverallSpeedText));
         OnPropertyChanged(nameof(OverallEtaText));
         OnPropertyChanged(nameof(OverallTransferText));
+        OnPropertyChanged(nameof(EmptyDirectoryCount));
+        OnPropertyChanged(nameof(SkippedEmptyDirectoryCount));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
         OnPropertyChanged(nameof(DetailsFile));
         OnPropertyChanged(nameof(DetailsPositionText));
 
-        return added;
+        return new QueueEnqueueResult(
+            added,
+            queuedEmptyDirectories,
+            skippedEmptyDirectories);
     }
 
     /// <summary>
@@ -401,6 +557,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             }
 
             _pending.Clear();
+            _pendingManifests.Clear();
+            _emptyDirectoryCount = 0;
+            _skippedEmptyDirectoryCount = 0;
+            _sentEmptyDirectoryCount = 0;
         }
 
         CurrentFile = null;
@@ -419,6 +579,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(CompletedCount));
@@ -431,6 +594,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(OverallSpeedText));
         OnPropertyChanged(nameof(OverallEtaText));
         OnPropertyChanged(nameof(OverallTransferText));
+        OnPropertyChanged(nameof(EmptyDirectoryCount));
+        OnPropertyChanged(nameof(SkippedEmptyDirectoryCount));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
     }
 
     /// <summary>
@@ -564,6 +732,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CurrentPositionText));
         OnPropertyChanged(nameof(OverallProgressText));
@@ -645,6 +816,9 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(TotalBytes));
         OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(HasWaitingFiles));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CompletedCount));
         OnPropertyChanged(nameof(FailedCount));
@@ -756,6 +930,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         OnPropertyChanged(nameof(OverallSpeedText));
         OnPropertyChanged(nameof(OverallEtaText));
         OnPropertyChanged(nameof(OverallTransferText));
+        OnPropertyChanged(nameof(EmptyDirectoryCount));
+        OnPropertyChanged(nameof(HasEmptyDirectories));
+        OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+        OnPropertyChanged(nameof(EmptyDirectorySummary));
 
         var canceled = false;
         string? stopReason = null;
@@ -788,6 +966,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 PendingFile? file;
 
                 await WaitIfPausedAsync(cancellationToken).ConfigureAwait(true);
+                await SendPendingManifestsAsync(cancellationToken)
+                    .ConfigureAwait(true);
 
                 lock (_gate)
                 {
@@ -859,6 +1039,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 // 取消或错误停止时仍把剩余文件标记为跳过。
                 if (canceled || stopReason is not null)
                 {
+                    _pendingManifests.Clear();
+
                     while (_pending.Count > 0)
                     {
                         var file = _pending.Dequeue();
@@ -891,6 +1073,10 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             OnPropertyChanged(nameof(OverallSpeedText));
             OnPropertyChanged(nameof(OverallEtaText));
             OnPropertyChanged(nameof(OverallTransferText));
+            OnPropertyChanged(nameof(EmptyDirectoryCount));
+            OnPropertyChanged(nameof(HasEmptyDirectories));
+            OnPropertyChanged(nameof(ShowEmptyDirectorySummary));
+            OnPropertyChanged(nameof(EmptyDirectorySummary));
 
             RaiseQueueCompleted(
                 new TransferQueueCompletedEventArgs(
@@ -898,9 +1084,99 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     CompletedCount,
                     FailedCount,
                     SkippedCount,
-                    canceled));
+                    canceled,
+                    _sentEmptyDirectoryCount,
+                    stopReason));
         }
     }
+
+    private async Task SendPendingManifestsAsync(
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            IReadOnlyList<string>? directories;
+
+            lock (_gate)
+            {
+                if (_pendingManifests.Count == 0)
+                {
+                    return;
+                }
+
+                directories = _pendingManifests.Peek();
+            }
+
+            await SendDirectoryManifestAsync(directories, cancellationToken)
+                .ConfigureAwait(true);
+
+            lock (_gate)
+            {
+                if (_pendingManifests.Count > 0)
+                {
+                    _pendingManifests.Dequeue();
+                }
+
+                _sentEmptyDirectoryCount += directories.Count;
+            }
+
+            OnPropertyChanged(nameof(OverallProgressText));
+            OnPropertyChanged(nameof(OverallProgressPercent));
+            OnPropertyChanged(nameof(EmptyDirectorySummary));
+        }
+    }
+
+    private async Task SendDirectoryManifestAsync(
+        IReadOnlyList<string> directories,
+        CancellationToken cancellationToken)
+    {
+        if (directories.Count == 0)
+        {
+            return;
+        }
+
+        var maximumPayloadLength = Math.Min(
+            _dispatcher.MaxPayloadLength,
+            256 * 1024);
+        var chunk = new List<string>();
+        var payloadLength = DirectoryManifestCodec.HeaderLength;
+
+        foreach (var directory in directories)
+        {
+            var entryLength = DirectoryManifestCodec.GetEncodedEntryLength(
+                directory);
+
+            if (chunk.Count > 0 &&
+                payloadLength + entryLength > maximumPayloadLength)
+            {
+                await SendDirectoryManifestChunkAsync(
+                        chunk,
+                        cancellationToken)
+                    .ConfigureAwait(true);
+                chunk.Clear();
+                payloadLength = DirectoryManifestCodec.HeaderLength;
+            }
+
+            chunk.Add(directory);
+            payloadLength += entryLength;
+        }
+
+        if (chunk.Count > 0)
+        {
+            await SendDirectoryManifestChunkAsync(chunk, cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        _log?.Invoke($"已发送目录清单：{directories.Count} 个空文件夹。");
+    }
+
+    private Task SendDirectoryManifestChunkAsync(
+        IReadOnlyList<string> directories,
+        CancellationToken cancellationToken) =>
+        _dispatcher.SendAsync(
+            MessageType.ControlMessage,
+            ControlMessageCodec.SerializeDirectoryManifest(directories),
+            cancellationToken);
 
     private async Task<string?> TransferFileAsync(
         PendingFile file,

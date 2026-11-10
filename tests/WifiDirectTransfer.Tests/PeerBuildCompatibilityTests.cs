@@ -18,4 +18,22 @@ public sealed class PeerBuildCompatibilityTests
     {
         Assert.Equal(expected, PeerBuildCompatibility.GetMaxFileSize(build));
     }
+
+    [Theory]
+    [InlineData("1.2.0", false)]
+    [InlineData("1.2.9+abc", false)]
+    [InlineData("1.3.0", true)]
+    [InlineData("1.3.0+abc", true)]
+    [InlineData("1.4.0-preview", true)]
+    [InlineData("2.0.0", true)]
+    [InlineData("unknown", false)]
+    [InlineData(null, false)]
+    public void SupportsDirectoryManifest_UsesPeerVersion(
+        string? build,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PeerBuildCompatibility.SupportsDirectoryManifest(build));
+    }
 }
