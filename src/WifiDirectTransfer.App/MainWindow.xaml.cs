@@ -29,6 +29,12 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<PeerListItem> _peerItems = new();
     private readonly ReceivedProjectCollection _receivedProjects;
     private readonly KnownDeviceStore _knownDeviceStore = new();
+    private readonly TrustedDeviceStore _trustedDeviceStore = new();
+    private readonly AuditLogStore _auditLog = new();
+    private WindowsDeviceIdentity? _deviceIdentity;
+    private PeerDeviceIdentity? _peerIdentity;
+    private bool _trustedAutoAcceptEnabled = true;
+    private bool _isApplyingTrustedPreference;
     private readonly Dictionary<string, KnownDevice> _knownDevices =
         new(StringComparer.Ordinal);
     private readonly List<WifiDirectPeer> _discoveredPeers = new();
@@ -252,6 +258,8 @@ public partial class MainWindow : Window
         _trayIcon?.Dispose();
         _trayIcon = null;
         _clipboardSyncService.Dispose();
+        _deviceIdentity?.Dispose();
+        _deviceIdentity = null;
         base.OnClosed(e);
     }
 
@@ -398,6 +406,7 @@ public partial class MainWindow : Window
             preferences.TextReceiveEnabled &&
             _textConsentAcknowledged;
         _notificationsEnabled = preferences.NotificationsEnabled;
+        _trustedAutoAcceptEnabled = preferences.TrustedAutoAcceptEnabled;
         _themeMode = preferences.ThemeMode;
 
         _isApplyingReceiverPreferences = true;
@@ -447,6 +456,17 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingNotificationsPreference = false;
+        }
+
+        _isApplyingTrustedPreference = true;
+
+        try
+        {
+            TrustedAutoAcceptCheckBox.IsChecked = _trustedAutoAcceptEnabled;
+        }
+        finally
+        {
+            _isApplyingTrustedPreference = false;
         }
 
         _isApplyingThemePreference = true;
@@ -534,6 +554,7 @@ public partial class MainWindow : Window
                 TextReceiveEnabled = _textReceiveEnabled,
                 TextConsentAcknowledged = _textConsentAcknowledged,
                 NotificationsEnabled = _notificationsEnabled,
+                TrustedAutoAcceptEnabled = _trustedAutoAcceptEnabled,
                 ThemeMode = _themeMode,
                 ReceiveDirectory = _receiveDirectory
             });
@@ -579,6 +600,9 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("剪贴板同步已启用。" + (saved ? string.Empty : "（保存失败）"));
+        _auditLog.Append(
+            AuditEventType.SensitiveFeatureEnabled,
+            detail: "剪贴板同步");
     }
 
     private void ClipboardSyncCheckBox_Unchecked(
@@ -595,6 +619,9 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("剪贴板同步已关闭。" + (saved ? string.Empty : "（保存失败）"));
+        _auditLog.Append(
+            AuditEventType.SensitiveFeatureDisabled,
+            detail: "剪贴板同步");
     }
 
     private void TextReceiveCheckBox_Checked(
@@ -636,6 +663,9 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("接收远程文本已启用。" + (saved ? string.Empty : "（保存失败）"));
+        _auditLog.Append(
+            AuditEventType.SensitiveFeatureEnabled,
+            detail: "接收远程文本");
     }
 
     private void TextReceiveCheckBox_Unchecked(
@@ -651,6 +681,9 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("接收远程文本已关闭。" + (saved ? string.Empty : "（保存失败）"));
+        _auditLog.Append(
+            AuditEventType.SensitiveFeatureDisabled,
+            detail: "接收远程文本");
     }
 
     private void ThemeModeComboBox_SelectionChanged(
@@ -712,6 +745,69 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("系统通知已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void TrustedAutoAcceptCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingTrustedPreference || _isClosing)
+        {
+            return;
+        }
+
+        _trustedAutoAcceptEnabled = true;
+
+        var saved = SaveReceiverPreferences();
+        Log("可信设备自动接受已启用。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void TrustedAutoAcceptCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingTrustedPreference || _isClosing)
+        {
+            return;
+        }
+
+        _trustedAutoAcceptEnabled = false;
+
+        var saved = SaveReceiverPreferences();
+        Log("可信设备自动接受已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void ManageTrustedDevicesButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window = new TrustedDevicesWindow(_trustedDeviceStore)
+        {
+            Owner = this
+        };
+
+        window.TrustRemoved += OnTrustedDeviceRemoved;
+
+        try
+        {
+            window.ShowDialog();
+        }
+        finally
+        {
+            window.TrustRemoved -= OnTrustedDeviceRemoved;
+        }
+    }
+
+    private void OnTrustedDeviceRemoved(object? sender, TrustedDevice device)
+    {
+        _auditLog.Append(
+            AuditEventType.TrustRemoved,
+            device.DisplayName,
+            device.Fingerprint,
+            "用户取消信任");
+        Log(
+            $"已取消信任设备：{device.DisplayName}，" +
+            $"指纹={DeviceIdentityCrypto.FormatFingerprint(device.Fingerprint)}。");
     }
 
     private void ExplorerContextMenuCheckBox_Checked(
@@ -1676,7 +1772,13 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!await StartMessageLayerAsync(channel))
+            if (!await StartMessageLayerAsync(
+                    channel,
+                    receiveConfirmed: true,
+                    expectedTrustedDevice: _trustedDeviceStore.FindByPeerCandidate(
+                        peer.Id,
+                        peer.DisplayName),
+                    peer: peer))
             {
                 return;
             }
@@ -1839,7 +1941,13 @@ public partial class MainWindow : Window
                 await ResetConnectionAsync();
                 fallbackToScan = true;
             }
-            else if (await StartMessageLayerAsync(channel))
+            else if (await StartMessageLayerAsync(
+                         channel,
+                         receiveConfirmed: true,
+                         expectedTrustedDevice: _trustedDeviceStore.FindByPeerCandidate(
+                             peer.Id,
+                             peer.DisplayName),
+                         peer: peer))
             {
                 RecordKnownDevice(peer);
                 _connectedPeerName = peer.DisplayName;
@@ -1905,11 +2013,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        Log(
+            "收到 PeerFinder 连接请求事件：" +
+            $"DisplayName={e.Request.Peer.DisplayName}, " +
+            $"Id={e.Request.Peer.Id}。");
         _ = HandleConnectionRequestAsync(e.Request);
     }
 
     private async Task HandleConnectionRequestAsync(IWifiDirectConnectionRequest request)
     {
+        Log(
+            "处理连接请求：" +
+            $"DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}, " +
+            $"role={_role}, hasChannel={_channel is not null}, " +
+            $"isHandlingRequest={_isHandlingRequest}, " +
+            $"serviceState={_service.State}。");
+
         if (_isClosing)
         {
             return;
@@ -1938,6 +2057,8 @@ public partial class MainWindow : Window
         Log($"收到连接请求：DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
 
         var connectionEstablished = false;
+        var acceptAttempted = false;
+        var rejectedCleanupFailed = false;
 
         if (!IsVisible || WindowState == WindowState.Minimized)
         {
@@ -1953,27 +2074,75 @@ public partial class MainWindow : Window
 
         try
         {
-            var dialog = new ReceiveConfirmationWindow(request.Peer)
-            {
-                Owner = this
-            };
+            var trustedCandidate = _trustedDeviceStore.FindByPeerCandidate(
+                request.Peer.Id,
+                request.Peer.DisplayName);
+            var autoAccept = _trustedAutoAcceptEnabled &&
+                             trustedCandidate is not null;
 
-            var accepted = dialog.ShowDialog() == true;
-
-            if (!accepted)
+            if (autoAccept)
             {
-                Log(dialog.TimedOut
-                    ? "接收确认超时，已自动拒绝。"
-                    : "用户拒绝了连接请求。");
-                UpdateStatus("已拒绝，继续等待连接…");
-                return;
+                Log(
+                    $"匹配到可信设备 {request.Peer.DisplayName}，" +
+                    "跳过接收确认，等待身份验证。");
+                _auditLog.Append(
+                    AuditEventType.TrustedAutoAccept,
+                    request.Peer.DisplayName,
+                    trustedCandidate!.Fingerprint,
+                    "已跳过接收确认，等待身份验证");
+                UpdateStatus("可信设备正在连接，等待身份验证…");
             }
+            else
+            {
+                var dialog = new ReceiveConfirmationWindow(request.Peer)
+                {
+                    Owner = this
+                };
 
-            Log("用户确认接收，开始 AcceptAsync。");
-            UpdateStatus("正在接受连接…");
+                var accepted = dialog.ShowDialog() == true;
+
+                if (!accepted)
+                {
+                    _auditLog.Append(
+                        dialog.TimedOut
+                            ? AuditEventType.ConnectionTimedOut
+                            : AuditEventType.ConnectionRejected,
+                        request.Peer.DisplayName,
+                        trustedCandidate?.Fingerprint,
+                        dialog.TimedOut
+                            ? "接收确认超时，已自动拒绝"
+                            : "用户拒绝了连接请求");
+
+                    Log(dialog.TimedOut
+                        ? "接收确认超时，已自动拒绝。"
+                        : "用户拒绝了连接请求。");
+                    UpdateStatus("已拒绝，正在清理连接…");
+
+                    rejectedCleanupFailed =
+                        !await CloseRejectedRequestAsync(request);
+                    SuppressNetworkChangeRecovery();
+                    UpdateStatus(rejectedCleanupFailed
+                        ? "已拒绝，但连接清理失败。请点击“重新等待”。"
+                        : "已拒绝，继续等待连接…");
+                    Log(rejectedCleanupFailed
+                        ? "拒绝处理完成，但连接清理失败，将继续重启等待广播。"
+                        : "拒绝处理完成，保持等待广播，不重启 PeerFinder。");
+                    return;
+                }
+
+                _auditLog.Append(
+                    AuditEventType.ConnectionAccepted,
+                    request.Peer.DisplayName,
+                    trustedCandidate?.Fingerprint,
+                    "用户确认接收");
+
+                Log("用户确认接收，开始 AcceptAsync。");
+                UpdateStatus("正在接受连接…");
+            }
 
             using var acceptCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
             acceptCts.CancelAfter(TimeSpan.FromSeconds(30));
+            acceptAttempted = true;
 
             var channel = await _service.AcceptAsync(request, acceptCts.Token);
             AttachChannel(channel);
@@ -1989,7 +2158,11 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!await StartMessageLayerAsync(channel))
+            if (!await StartMessageLayerAsync(
+                    channel,
+                    receiveConfirmed: !autoAccept,
+                    expectedTrustedDevice: trustedCandidate,
+                    peer: request.Peer))
             {
                 return;
             }
@@ -2033,11 +2206,62 @@ public partial class MainWindow : Window
             if (!connectionEstablished &&
                 !_isClosing &&
                 _serviceStarted &&
-                _channel is null)
+                _channel is null &&
+                (acceptAttempted || rejectedCleanupFailed))
             {
                 await RestartReceiverAdvertisementAsync("连接请求处理结束");
             }
         }
+    }
+
+    private async Task<bool> CloseRejectedRequestAsync(
+        IWifiDirectConnectionRequest request)
+    {
+        IDuplexChannel? channel = null;
+        var cleaned = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetimeCts.Token);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            // PeerFinder 没有显式拒绝 API。不调用 ConnectAsync 会让发送端
+            // 的请求一直挂到超时，并可能使后续 ConnectionRequested 不再触发。
+            // 这里完成传输握手后立即关闭，不创建任何文件接收或消息层。
+            Log("拒绝连接请求：正在完成并关闭传输握手，以释放 PeerFinder 请求。");
+            channel = await _service.AcceptAsync(request, cts.Token);
+            cleaned = true;
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            Log(
+                "拒绝连接请求后清理失败：" +
+                $"{exception.GetType().Name}");
+        }
+        finally
+        {
+            if (channel is not null)
+            {
+                try
+                {
+                    await channel.DisposeAsync();
+                    Log("已拒绝并关闭连接，保持等待广播。");
+                }
+                catch (Exception exception)
+                {
+                    cleaned = false;
+                    Log(
+                        "关闭已拒绝连接失败：" +
+                        $"{exception.GetType().Name}");
+                }
+            }
+        }
+
+        return cleaned;
     }
 
     private void AttachChannel(IDuplexChannel channel)
@@ -2160,7 +2384,216 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> StartMessageLayerAsync(IDuplexChannel channel)
+    private IDeviceIdentity GetOrCreateDeviceIdentity()
+    {
+        if (_deviceIdentity is not null)
+        {
+            return _deviceIdentity;
+        }
+
+        try
+        {
+            _deviceIdentity = new WindowsDeviceIdentity(GetLocalDisplayName());
+            Log(
+                "设备身份已加载：" +
+                $"指纹={DeviceIdentityCrypto.FormatFingerprint(_deviceIdentity.Fingerprint)}。");
+            return _deviceIdentity;
+        }
+        catch (Exception exception)
+        {
+            throw new WifiDirectException(
+                WifiDirectErrorCode.DeviceIdentityUnavailable,
+                "无法初始化本机设备身份，无法建立安全连接。",
+                exception);
+        }
+    }
+
+    private DeviceIdentityExchange? TryCreateDeviceIdentityExchange(
+        MessageDispatcher dispatcher,
+        out string? failureMessage)
+    {
+        try
+        {
+            failureMessage = null;
+            return new DeviceIdentityExchange(
+                dispatcher,
+                GetOrCreateDeviceIdentity(),
+                isInitiator: _role == AppRole.Sender,
+                TimeSpan.FromSeconds(10));
+        }
+        catch (Exception exception)
+        {
+            failureMessage =
+                "无法初始化本机设备身份，无法建立安全连接。" +
+                "请检查 Windows 用户密钥存储后重试。";
+            Log($"ERROR: {failureMessage} type={exception.GetType().Name}");
+            return null;
+        }
+    }
+
+    private async Task<string?> ConfirmPeerIdentityAsync(
+        PeerDeviceIdentity identity,
+        TrustedDevice? expectedTrustedDevice,
+        WifiDirectPeer? peer,
+        bool peerTrustsThisDevice)
+    {
+        var trusted = _trustedDeviceStore.FindByFingerprint(
+            identity.Fingerprint);
+
+        if (trusted is not null)
+        {
+            var displayName = string.IsNullOrWhiteSpace(identity.DisplayName)
+                ? trusted.DisplayName
+                : identity.DisplayName;
+
+            trusted.DisplayName = displayName;
+
+            if (peer is not null)
+            {
+                trusted.LastPeerId = peer.Id;
+                trusted.LastPeerName = peer.DisplayName;
+            }
+
+            trusted.LastConnectedAt = DateTimeOffset.Now;
+
+            if (!_trustedDeviceStore.AddOrUpdate(trusted))
+            {
+                Log("WARN: 更新可信设备最近连接时间失败。");
+            }
+
+            _auditLog.Append(
+                AuditEventType.IdentityVerified,
+                displayName,
+                identity.Fingerprint,
+                "公钥指纹匹配可信设备");
+            Log(
+                $"可信设备身份验证通过：{displayName}，" +
+                $"指纹={DeviceIdentityCrypto.FormatFingerprint(identity.Fingerprint)}。");
+
+            if (peerTrustsThisDevice)
+            {
+                return null;
+            }
+
+            Log("本机已信任对方，但对方尚未信任本机，显示配对码供双方确认。");
+        }
+        else if (expectedTrustedDevice is not null)
+        {
+            var message =
+                $"设备身份已变化：{identity.DisplayName} 的公钥指纹与可信记录不一致，" +
+                "连接已断开。如果确认是本人设备，请先在“管理可信设备”中取消旧记录，再重新配对。";
+
+            _auditLog.Append(
+                AuditEventType.IdentityVerificationFailed,
+                identity.DisplayName,
+                identity.Fingerprint,
+                "公钥指纹与可信记录不一致");
+            Log($"ERROR: {message}");
+            UpdateStatus(message);
+            NotifyIfInBackground("设备身份已变化", message, isError: true);
+            return message;
+        }
+
+        var (accepted, timedOut, trustRequested) = await Dispatcher.InvokeAsync(
+            () =>
+            {
+                var dialog = new DevicePairingWindow(
+                    identity,
+                    alreadyTrusted: trusted is not null)
+                {
+                    Owner = this
+                };
+
+                var confirmed = dialog.ShowDialog() == true;
+                return (confirmed, dialog.TimedOut, dialog.TrustRequested);
+            });
+
+        if (!accepted)
+        {
+            _auditLog.Append(
+                timedOut
+                    ? AuditEventType.PairingTimedOut
+                    : AuditEventType.PairingRejected,
+                identity.DisplayName,
+                identity.Fingerprint,
+                timedOut ? "配对码确认超时" : "用户拒绝配对");
+            Log(timedOut ? "设备配对超时，连接已断开。" : "用户拒绝设备配对。");
+            var failureMessage = timedOut
+                ? "配对超时，连接已断开。"
+                : "已拒绝配对，连接已断开。";
+            UpdateStatus(failureMessage);
+            return failureMessage;
+        }
+
+        _auditLog.Append(
+            AuditEventType.PairingAccepted,
+            identity.DisplayName,
+            identity.Fingerprint,
+            "用户确认配对码一致");
+        Log(
+            $"设备配对成功：{identity.DisplayName}，" +
+            $"指纹={DeviceIdentityCrypto.FormatFingerprint(identity.Fingerprint)}。");
+
+        if (trustRequested && trusted is null)
+        {
+            AddTrustedDevice(identity, peer);
+        }
+
+        UpdateStatus("配对成功，正在建立传输…");
+        return null;
+    }
+
+    private void AddTrustedDevice(
+        PeerDeviceIdentity identity,
+        WifiDirectPeer? peer)
+    {
+        var now = DateTimeOffset.Now;
+        var displayName = string.IsNullOrWhiteSpace(identity.DisplayName)
+            ? "未命名设备"
+            : identity.DisplayName;
+        var device = new TrustedDevice
+        {
+            Fingerprint = identity.Fingerprint,
+            PublicKey = Convert.ToBase64String(identity.PublicKey),
+            DisplayName = displayName,
+            LastPeerId = peer?.Id ?? string.Empty,
+            LastPeerName = peer?.DisplayName ?? displayName,
+            TrustedAt = now,
+            LastConnectedAt = now
+        };
+
+        if (!_trustedDeviceStore.AddOrUpdate(device))
+        {
+            Log("ERROR: 保存可信设备失败。");
+            UpdateStatus("已配对，但保存可信设备失败；以后连接仍需手动确认。");
+            return;
+        }
+
+        _auditLog.Append(
+            AuditEventType.TrustAdded,
+            displayName,
+            identity.Fingerprint,
+            "配对时选择信任");
+        Log($"已添加可信设备：{displayName}。");
+    }
+
+    private (bool Accepted, bool TimedOut) ShowReceiveConfirmationDialog(
+        WifiDirectPeer peer)
+    {
+        var dialog = new ReceiveConfirmationWindow(peer)
+        {
+            Owner = this
+        };
+
+        var accepted = dialog.ShowDialog() == true;
+        return (accepted, dialog.TimedOut);
+    }
+
+    private async Task<bool> StartMessageLayerAsync(
+        IDuplexChannel channel,
+        bool receiveConfirmed,
+        TrustedDevice? expectedTrustedDevice,
+        WifiDirectPeer? peer)
     {
         if (_dispatcher is not null)
         {
@@ -2175,6 +2608,12 @@ public partial class MainWindow : Window
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         _messageLoopCts = cts;
+
+        // 身份交换必须早于接收循环订阅，否则对端可能在握手完成后立刻发送
+        // IdentityHello，而本端尚未创建身份处理器，消息会被丢弃并导致超时。
+        using var identityExchange = TryCreateDeviceIdentityExchange(
+            dispatcher,
+            out var identityUnavailableMessage);
 
         // 先创建握手对象再启动接收循环，避免漏掉对端的 Hello。
         using var handshake = new ConnectionHandshake(
@@ -2232,6 +2671,155 @@ public partial class MainWindow : Window
             $"协议协商成功：peerProtocol={peerHello.ProtocolVersion}，" +
             $"peerBuild={peerHello.Build}，" +
             $"peerMaxPayload={peerHello.MaxPayloadLength}。");
+
+        if (PeerBuildCompatibility.SupportsDeviceIdentity(peerHello.Build))
+        {
+            UpdateStatus("正在验证设备身份…");
+
+            PeerDeviceIdentity peerIdentity;
+            bool peerTrustsThisDevice;
+
+            if (identityExchange is null)
+            {
+                _auditLog.Append(
+                    AuditEventType.IdentityVerificationFailed,
+                    peer?.DisplayName,
+                    detail: identityUnavailableMessage);
+                Log($"ERROR: {identityUnavailableMessage}");
+                await ResetConnectionAsync();
+                UpdateStatus(identityUnavailableMessage!);
+                return false;
+            }
+
+            try
+            {
+                Log("开始设备身份交换。");
+
+                peerIdentity = await identityExchange.ExchangeAsync(
+                    _lifetimeCts.Token);
+
+                Log(
+                    $"身份交换完成：peer={peerIdentity.DisplayName}，" +
+                    $"指纹={DeviceIdentityCrypto.FormatFingerprint(peerIdentity.Fingerprint)}。");
+
+                var localTrusted = _trustedDeviceStore.FindByFingerprint(
+                    peerIdentity.Fingerprint) is not null;
+
+                peerTrustsThisDevice =
+                    await identityExchange.ExchangeTrustStateAsync(
+                        localTrusted,
+                        _lifetimeCts.Token);
+
+                Log(
+                    $"信任状态交换完成：localTrusted={localTrusted}，" +
+                    $"peerTrustsThisDevice={peerTrustsThisDevice}。");
+            }
+            catch (DeviceIdentityTimeoutException exception)
+            {
+                _auditLog.Append(
+                    AuditEventType.IdentityVerificationFailed,
+                    peer?.DisplayName,
+                    detail: exception.Message);
+                Log($"ERROR: {exception.Message}");
+                await ResetConnectionAsync();
+                UpdateStatus(exception.Message);
+                return false;
+            }
+            catch (DeviceIdentityVerificationException exception)
+            {
+                _auditLog.Append(
+                    AuditEventType.IdentityVerificationFailed,
+                    peer?.DisplayName,
+                    detail: exception.Message);
+                Log($"ERROR: {exception.Message}");
+                await ResetConnectionAsync();
+                UpdateStatus(exception.Message);
+                return false;
+            }
+            catch (OperationCanceledException)
+                when (_lifetimeCts.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception exception)
+            {
+                var message = LogException(
+                    exception,
+                    WifiDirectOperation.Connection,
+                    WifiDirectErrorContext.WinRt,
+                    _lifetimeCts.Token);
+                _auditLog.Append(
+                    AuditEventType.IdentityVerificationFailed,
+                    peer?.DisplayName,
+                    detail: exception.Message);
+                await ResetConnectionAsync();
+                UpdateStatus(message);
+                return false;
+            }
+
+            _peerIdentity = peerIdentity;
+
+            Log(
+                $"设备身份验证成功：peer={peerIdentity.DisplayName}，" +
+                $"指纹={DeviceIdentityCrypto.FormatFingerprint(peerIdentity.Fingerprint)}。");
+
+            var identityFailure = await ConfirmPeerIdentityAsync(
+                peerIdentity,
+                expectedTrustedDevice,
+                peer,
+                peerTrustsThisDevice);
+
+            if (identityFailure is not null)
+            {
+                await ResetConnectionAsync();
+                UpdateStatus(identityFailure);
+                return false;
+            }
+        }
+        else
+        {
+            Log("对端不支持设备身份交换，使用旧版接收确认。");
+
+            if (!receiveConfirmed)
+            {
+                if (peer is null)
+                {
+                    Log("ERROR: 缺少对端信息，无法显示旧版接收确认。");
+                    await ResetConnectionAsync();
+                    return false;
+                }
+
+                var (accepted, timedOut) = ShowReceiveConfirmationDialog(peer);
+
+                if (!accepted)
+                {
+                    _auditLog.Append(
+                        timedOut
+                            ? AuditEventType.ConnectionTimedOut
+                            : AuditEventType.ConnectionRejected,
+                        peer.DisplayName,
+                        detail: "旧版对端，握手后补充确认");
+                    await ResetConnectionAsync();
+                    UpdateStatus(timedOut
+                        ? "接收确认超时，连接已断开。"
+                        : "已拒绝，连接已断开。");
+                    return false;
+                }
+
+                _auditLog.Append(
+                    AuditEventType.ConnectionAccepted,
+                    peer.DisplayName,
+                    detail: "旧版对端，握手后补充确认");
+            }
+        }
+
+        if (dispatcher.IsDisconnected)
+        {
+            Log("连接在身份验证期间已断开。");
+            await ResetConnectionAsync();
+            UpdateStatus("连接已断开。");
+            return false;
+        }
 
         _clipboardSyncService.SetSender(
             (payload, token) =>
@@ -3620,7 +4208,13 @@ public partial class MainWindow : Window
                         continue;
                     }
 
-                    if (!await StartMessageLayerAsync(channel))
+                    if (!await StartMessageLayerAsync(
+                            channel,
+                            receiveConfirmed: true,
+                            expectedTrustedDevice: _trustedDeviceStore.FindByPeerCandidate(
+                                plan.Peer.Id,
+                                plan.Peer.DisplayName),
+                            peer: plan.Peer))
                     {
                         await ResetConnectionAsync();
                         continue;
@@ -4138,6 +4732,7 @@ public partial class MainWindow : Window
             _step0Passed = false;
             _messageLayerReady = false;
             _connectedPeer = null;
+            _peerIdentity = null;
             SendPanel.DataContext = null;
             QueueDetailsPanel.Visibility = Visibility.Collapsed;
             QueueDetailsToggleButton.Content = "详情";
@@ -4846,6 +5441,7 @@ public partial class MainWindow : Window
             }
 
             files.Add(_receiverPreferencesStore.FilePath);
+            files.AddRange(_auditLog.GetFilePaths());
 
             DiagnosticsPackage.Create(
                 zipPath,
@@ -4926,12 +5522,24 @@ public partial class MainWindow : Window
             $"{_receivedProjects.Projects.Count} 个项目，" +
             $"{_receivedProjects.Projects.Sum(project => project.FileCount)} 个文件";
         var currentRate = BuildCurrentRateText();
+        var localIdentity = _deviceIdentity is null
+            ? "未初始化"
+            : DeviceIdentityCrypto.FormatFingerprint(
+                _deviceIdentity.Fingerprint);
+        var peerIdentity = _peerIdentity is null
+            ? (_peerBuild is null ? "未连接" : "未验证或不支持")
+            : $"{_peerIdentity.DisplayName}，" +
+              $"{DeviceIdentityCrypto.FormatFingerprint(_peerIdentity.Fingerprint)}";
+        var trustedDeviceCount = _trustedDeviceStore.Load().Count;
 
         return
             $"生成时间：{DateTimeOffset.Now:O}{Environment.NewLine}" +
             $"本端构建：{GetBuildInfo()}{Environment.NewLine}" +
             $"协议版本：{MessageProtocol.ProtocolVersion}{Environment.NewLine}" +
             $"对端构建：{_peerBuild ?? "未连接"}{Environment.NewLine}" +
+            $"本机身份指纹：{localIdentity}{Environment.NewLine}" +
+            $"对端身份：{peerIdentity}{Environment.NewLine}" +
+            $"可信设备：{trustedDeviceCount} 台{Environment.NewLine}" +
             $"对端单文件上限：{peerMaxFileSize}{Environment.NewLine}" +
             $"空文件夹清单：{directoryManifest}{Environment.NewLine}" +
             $"当前传输速率：{currentRate}{Environment.NewLine}" +
@@ -4946,6 +5554,8 @@ public partial class MainWindow : Window
             $"系统：{RuntimeInformation.OSDescription}{Environment.NewLine}" +
             $".NET：{RuntimeInformation.FrameworkDescription}{Environment.NewLine}" +
             $"进程：{(Environment.Is64BitProcess ? "x64" : "x86")}{Environment.NewLine}" +
+            $"可信设备文件：{_trustedDeviceStore.FilePath}{Environment.NewLine}" +
+            $"审计日志：{_auditLog.FilePath}{Environment.NewLine}" +
             $"日志：{AppLog.FilePath}";
     }
 

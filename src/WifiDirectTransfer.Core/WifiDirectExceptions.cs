@@ -58,6 +58,29 @@ public sealed class ConnectionTimeoutException : WifiDirectException
     }
 }
 
+public sealed class DeviceIdentityTimeoutException : WifiDirectException
+{
+    public DeviceIdentityTimeoutException(
+        string message = "设备身份验证超时，连接已断开。",
+        Exception? innerException = null)
+        : base(WifiDirectErrorCode.ConnectionTimeout, message, innerException)
+    {
+    }
+}
+
+public sealed class DeviceIdentityVerificationException : WifiDirectException
+{
+    public DeviceIdentityVerificationException(
+        string message = "设备身份验证失败，连接已断开。",
+        Exception? innerException = null)
+        : base(
+            WifiDirectErrorCode.IdentityVerificationFailed,
+            message,
+            innerException)
+    {
+    }
+}
+
 public sealed class TransferTimeoutException : WifiDirectException
 {
     public TransferTimeoutException(

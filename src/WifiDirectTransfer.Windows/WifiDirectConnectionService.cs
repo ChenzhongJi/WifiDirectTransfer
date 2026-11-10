@@ -166,11 +166,32 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             connected = true;
             return channel;
         }
+        catch
+        {
+            InvalidateCachedPeer(peerInformation);
+            throw;
+        }
         finally
         {
             if (!connected)
             {
                 SetState(GetRestingState());
+            }
+        }
+    }
+
+    private void InvalidateCachedPeer(PeerInformation peerInformation)
+    {
+        lock (_gate)
+        {
+            var keys = _peers
+                .Where(pair => ReferenceEquals(pair.Value, peerInformation))
+                .Select(pair => pair.Key)
+                .ToArray();
+
+            foreach (var key in keys)
+            {
+                _peers.Remove(key);
             }
         }
     }

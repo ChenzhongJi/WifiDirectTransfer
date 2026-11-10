@@ -22,6 +22,7 @@ public sealed class ReceiverPreferencesStoreTests
                     TextReceiveEnabled = true,
                     TextConsentAcknowledged = true,
                     NotificationsEnabled = false,
+                    TrustedAutoAcceptEnabled = false,
                     ThemeMode = AppThemeMode.Dark,
                     ReceiveDirectory = @"C:\Data\Inbox"
                 });
@@ -36,6 +37,7 @@ public sealed class ReceiverPreferencesStoreTests
             Assert.True(loaded.TextReceiveEnabled);
             Assert.True(loaded.TextConsentAcknowledged);
             Assert.False(loaded.NotificationsEnabled);
+            Assert.False(loaded.TrustedAutoAcceptEnabled);
             Assert.Equal(AppThemeMode.Dark, loaded.ThemeMode);
             Assert.Equal(@"C:\Data\Inbox", loaded.ReceiveDirectory);
         });
@@ -62,6 +64,7 @@ public sealed class ReceiverPreferencesStoreTests
             Assert.Equal(SameNamePolicy.Overwrite, loaded.SameNamePolicy);
             Assert.True(loaded.ClipboardSyncEnabled);
             Assert.True(loaded.NotificationsEnabled);
+            Assert.True(loaded.TrustedAutoAcceptEnabled);
             Assert.Equal(AppThemeMode.System, loaded.ThemeMode);
             Assert.Null(loaded.ReceiveDirectory);
         });

@@ -24,6 +24,8 @@ public sealed class ReceiverPreferences
 
     public bool NotificationsEnabled { get; set; } = true;
 
+    public bool TrustedAutoAcceptEnabled { get; set; } = true;
+
     public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
     public string? ReceiveDirectory { get; set; }

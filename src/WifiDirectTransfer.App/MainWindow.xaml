@@ -454,6 +454,23 @@
                                        Text="连接请求、传输完成和自动重连结果会显示托盘通知。"
                                        TextWrapping="Wrap" />
 
+                            <CheckBox x:Name="TrustedAutoAcceptCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="可信设备自动接受连接"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="TrustedAutoAcceptCheckBox_Checked"
+                                      Unchecked="TrustedAutoAcceptCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="只对已配对且公钥指纹一致的设备生效；首次配对仍需确认配对码。"
+                                       TextWrapping="Wrap" />
+                            <Button x:Name="ManageTrustedDevicesButton"
+                                    Margin="24,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Content="管理可信设备…"
+                                    Style="{StaticResource SmallSubtleButtonStyle}"
+                                    Click="ManageTrustedDevicesButton_Click" />
+
                             <StackPanel x:Name="SameNamePolicyPanel"
                                         Margin="0,12,0,0">
                                 <TextBlock Style="{StaticResource MetaText}"

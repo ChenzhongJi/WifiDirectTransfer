@@ -26,5 +26,7 @@ public enum WifiDirectErrorCode
     PermissionDenied = 18,
     InvalidState = 19,
     FileTooLarge = 20,
-    FileSkipped = 21
+    FileSkipped = 21,
+    IdentityVerificationFailed = 22,
+    DeviceIdentityUnavailable = 23
 }
