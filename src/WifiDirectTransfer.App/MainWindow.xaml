@@ -552,9 +552,30 @@
                         </Grid.RowDefinitions>
 
                         <Grid Margin="0,0,0,10">
-                            <TextBlock Style="{StaticResource SectionTitleText}"
-                                       Text="传输队列"
-                                       VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal"
+                                        VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource SectionTitleText}"
+                                           Text="传输队列"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Margin="10,0,0,0"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding EmptyDirectorySummary}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock"
+                                               BasedOn="{StaticResource TinyText}">
+                                            <Setter Property="Visibility"
+                                                    Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowEmptyDirectorySummary}"
+                                                             Value="True">
+                                                    <Setter Property="Visibility"
+                                                            Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="Right">
                                 <Button x:Name="AddQueueFilesButton"
@@ -880,7 +901,8 @@
                                                        FontSize="14"
                                                        FontWeight="SemiBold"
                                                        Text="队列为空" />
-                                            <TextBlock HorizontalAlignment="Center"
+                                            <TextBlock x:Name="QueueEmptyHintText"
+                                                       HorizontalAlignment="Center"
                                                        Margin="0,6,0,0"
                                                        FontSize="11"
                                                        Foreground="{DynamicResource TextTertiaryBrush}"

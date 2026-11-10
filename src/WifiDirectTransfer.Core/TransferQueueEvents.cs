@@ -71,13 +71,17 @@ public sealed class TransferQueueCompletedEventArgs : EventArgs
         int completedCount,
         int failedCount,
         int skippedCount,
-        bool wasCanceled)
+        bool wasCanceled,
+        int emptyDirectoryCount = 0,
+        string? stopReason = null)
     {
         TotalCount = totalCount;
         CompletedCount = completedCount;
         FailedCount = failedCount;
         SkippedCount = skippedCount;
         WasCanceled = wasCanceled;
+        EmptyDirectoryCount = Math.Max(0, emptyDirectoryCount);
+        StopReason = stopReason;
     }
 
     public int TotalCount { get; }
@@ -89,4 +93,8 @@ public sealed class TransferQueueCompletedEventArgs : EventArgs
     public int SkippedCount { get; }
 
     public bool WasCanceled { get; }
+
+    public int EmptyDirectoryCount { get; }
+
+    public string? StopReason { get; }
 }

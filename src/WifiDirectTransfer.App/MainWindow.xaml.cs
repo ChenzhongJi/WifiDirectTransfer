@@ -125,7 +125,8 @@ public partial class MainWindow : Window
 
     private sealed record AutoReconnectPlan(
         WifiDirectPeer Peer,
-        IReadOnlyList<TransferSource> Files);
+        IReadOnlyList<TransferSource> Files,
+        IReadOnlyList<string> EmptyDirectories);
     private string? _peerBuild;
     private bool _step0Passed;
     private bool _messageLayerReady;
@@ -2258,13 +2259,16 @@ public partial class MainWindow : Window
         receiver.FileReceived += OnFileReceived;
         receiver.FileFailed += OnFileFailed;
         receiver.FileSkipped += OnFileSkipped;
+        receiver.DirectoriesReceived += OnDirectoriesReceived;
         _fileReceiver = receiver;
 
         var queue = new TransferQueueManager(
             dispatcher,
             PeerBuildCompatibility.GetMaxFileSize(_peerBuild),
             errorMessageFactory: CreateQueueErrorMessage,
-            log: Log);
+            log: Log,
+            supportsDirectoryManifest:
+                PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild));
 
         queue.FileStarted += OnQueueFileStarted;
         queue.FileCompleted += OnQueueFileCompleted;
@@ -2289,6 +2293,7 @@ public partial class MainWindow : Window
             $"maxPayload={dispatcher.MaxPayloadLength}，" +
             $"peerMaxPayload={peerHello.MaxPayloadLength}，" +
             $"peerMaxFileSize={FormatBytes(PeerBuildCompatibility.GetMaxFileSize(_peerBuild))}，" +
+            $"directoryManifest={PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)}，" +
             $"clipboardSync={_clipboardSyncEnabled}。");
 
         return true;
@@ -2433,6 +2438,32 @@ public partial class MainWindow : Window
             null,
             "同名文件已跳过");
         ClearCurrentReceive();
+    }
+
+    private void OnDirectoriesReceived(
+        object? sender,
+        DirectoryManifestEventArgs args)
+    {
+        if (_isClosing || !ReferenceEquals(_fileReceiver, sender))
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnDirectoriesReceived(sender, args)));
+            return;
+        }
+
+        Log(
+            $"接收空文件夹：created={args.CreatedCount}, " +
+            $"failed={args.FailedCount}。");
+
+        UpdateStatus(args.FailedCount > 0
+            ? $"已创建 {args.CreatedCount} 个空文件夹，" +
+              $"{args.FailedCount} 个失败"
+            : $"已创建 {args.CreatedCount} 个空文件夹");
     }
 
     private void ReceivedFilesList_PreviewMouseLeftButtonDown(
@@ -2736,9 +2767,9 @@ public partial class MainWindow : Window
 
         try
         {
-            var items = DroppedFileCollector.CollectItems(droppedPaths, Log);
+            var plan = DroppedFileCollector.CollectPlan(droppedPaths, Log);
 
-            if (items.Count == 0)
+            if (!plan.HasWork)
             {
                 Log("拖入内容中没有可发送的文件。");
                 UpdateStatus("拖入内容中没有可发送的文件");
@@ -2746,14 +2777,10 @@ public partial class MainWindow : Window
             }
 
             var wasRunning = _queueManager.IsRunning;
-            var added = _queueManager.EnqueueItems(items);
-            SelectFirstQueueItemIfNeeded(added);
-            Log(wasRunning
-                ? $"队列运行中追加 {added.Count} 个文件。"
-                : $"拖入添加 {added.Count} 个文件到队列。");
-            UpdateStatus(wasRunning
-                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
-                : $"已从拖入添加 {added.Count} 个文件");
+            var result = _queueManager.EnqueuePlan(plan);
+            SelectFirstQueueItemIfNeeded(result.Files);
+            LogQueueEnqueueResult(result);
+            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
         }
         catch (InvalidOperationException exception)
@@ -2868,9 +2895,9 @@ public partial class MainWindow : Window
 
         try
         {
-            var items = DroppedFileCollector.CollectItems(paths, Log);
+            var plan = DroppedFileCollector.CollectPlan(paths, Log);
 
-            if (items.Count == 0)
+            if (!plan.HasWork)
             {
                 Log("右键发送内容中没有可发送的文件。");
                 UpdateStatus("右键发送内容中没有可发送的文件");
@@ -2878,22 +2905,19 @@ public partial class MainWindow : Window
             }
 
             var wasRunning = queue.IsRunning;
-            var added = queue.EnqueueItems(items);
+            var result = queue.EnqueuePlan(plan);
 
-            if (added.Count == 0)
+            if (!result.HasWork &&
+                result.SkippedEmptyDirectoryCount == 0)
             {
                 return;
             }
 
-            SelectFirstQueueItemIfNeeded(added);
+            SelectFirstQueueItemIfNeeded(result.Files);
             SendTabButton.IsChecked = true;
 
-            Log(wasRunning
-                ? $"资源管理器追加 {added.Count} 个文件到队列。"
-                : $"资源管理器添加 {added.Count} 个文件到队列。");
-            UpdateStatus(wasRunning
-                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
-                : $"已添加 {added.Count} 个文件，点击“开始传输”");
+            LogQueueEnqueueResult(result);
+            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
         }
         catch (Exception exception)
@@ -2944,6 +2968,50 @@ public partial class MainWindow : Window
         {
             return null;
         }
+    }
+
+    private void LogQueueEnqueueResult(QueueEnqueueResult result)
+    {
+        Log(
+            "队列添加：" +
+            $"files={result.Files.Count}, " +
+            $"emptyDirectories={result.EmptyDirectoryCount}, " +
+            $"skippedEmptyDirectories={result.SkippedEmptyDirectoryCount}。");
+    }
+
+    private static string BuildQueueAddStatus(
+        QueueEnqueueResult result,
+        bool wasRunning)
+    {
+        if (result.Files.Count == 0 && result.EmptyDirectoryCount > 0)
+        {
+            return $"已添加 {result.EmptyDirectoryCount} 个空文件夹，" +
+                   "点击“开始传输”";
+        }
+
+        if (result.SkippedEmptyDirectoryCount > 0)
+        {
+            return result.Files.Count > 0
+                ? $"已添加 {result.Files.Count} 个文件；" +
+                  $"对端版本低于 1.3，" +
+                  $"{result.SkippedEmptyDirectoryCount} 个空文件夹不会保留"
+                : $"对端版本低于 1.3，" +
+                  $"{result.SkippedEmptyDirectoryCount} 个空文件夹不会保留";
+        }
+
+        if (result.Files.Count > 0 && result.EmptyDirectoryCount > 0)
+        {
+            return wasRunning
+                ? $"已追加 {result.Files.Count} 个文件，" +
+                  $"另有 {result.EmptyDirectoryCount} 个空文件夹"
+                : $"已添加 {result.Files.Count} 个文件，" +
+                  $"另有 {result.EmptyDirectoryCount} 个空文件夹，" +
+                  "点击“开始传输”";
+        }
+
+        return wasRunning
+            ? $"已追加 {result.Files.Count} 个文件，当前文件完成后继续"
+            : $"已添加 {result.Files.Count} 个文件，点击“开始传输”";
     }
 
     private void ShowDropPrompt(string message)
@@ -3162,21 +3230,33 @@ public partial class MainWindow : Window
             $"completed={args.CompletedCount}, " +
             $"failed={args.FailedCount}, " +
             $"skipped={args.SkippedCount}, " +
+            $"emptyDirectories={args.EmptyDirectoryCount}, " +
             $"canceled={args.WasCanceled}");
 
         var hasWaiting =
             args.TotalCount >
             args.CompletedCount + args.FailedCount + args.SkippedCount;
 
+        var emptyDirectoryText = args.EmptyDirectoryCount > 0
+            ? $"，{args.EmptyDirectoryCount} 个空文件夹"
+            : string.Empty;
+
         UpdateStatus(args.WasCanceled
             ? "队列已取消"
             : args.FailedCount > 0
                 ? "队列完成，部分文件失败"
-                : hasWaiting
-                    ? "队列已结束，仍有等待文件"
-                    : args.SkippedCount > 0
-                        ? $"队列完成，{args.SkippedCount} 个文件被跳过"
-                        : "队列传输完成");
+                : !string.IsNullOrWhiteSpace(args.StopReason)
+                    ? $"队列已停止：{args.StopReason}"
+                    : hasWaiting
+                        ? "队列已结束，仍有等待文件"
+                        : args.TotalCount == 0 && args.EmptyDirectoryCount > 0
+                            ? $"空文件夹已创建：{args.EmptyDirectoryCount} 个"
+                            : args.SkippedCount > 0
+                                ? $"队列完成，{args.SkippedCount} 个文件被跳过" +
+                                  emptyDirectoryText
+                                : args.EmptyDirectoryCount > 0
+                                    ? $"队列传输完成{emptyDirectoryText}"
+                                    : "队列传输完成");
 
         NotifyIfInBackground(
             "发送队列",
@@ -3184,10 +3264,16 @@ public partial class MainWindow : Window
                 ? "队列已取消。"
                 : args.FailedCount > 0
                     ? $"队列完成，{args.FailedCount} 个文件失败。"
-                    : hasWaiting
-                        ? $"队列已结束，仍有 {args.TotalCount - args.CompletedCount - args.FailedCount - args.SkippedCount} 个文件等待开始。"
-                        : $"队列完成，成功 {args.CompletedCount} 个文件。",
-            isError: args.FailedCount > 0);
+                    : !string.IsNullOrWhiteSpace(args.StopReason)
+                        ? $"队列已停止：{args.StopReason}"
+                        : hasWaiting
+                            ? $"队列已结束，仍有 {args.TotalCount - args.CompletedCount - args.FailedCount - args.SkippedCount} 个文件等待开始。"
+                            : args.TotalCount == 0 && args.EmptyDirectoryCount > 0
+                                ? $"已创建 {args.EmptyDirectoryCount} 个空文件夹。"
+                                : $"队列完成，成功 {args.CompletedCount} 个文件" +
+                                  emptyDirectoryText + "。",
+            isError: args.FailedCount > 0 ||
+                     !string.IsNullOrWhiteSpace(args.StopReason));
 
         UpdateUi();
     }
@@ -3260,9 +3346,11 @@ public partial class MainWindow : Window
                         Log("文本消息被拒绝：对端未开启接收远程文本。");
                         UpdateStatus("对端未开启接收文本");
                     }
-                    else if (control.Subtype != ControlMessageSubtype.Ack)
+                    else if (control.Subtype != ControlMessageSubtype.Ack &&
+                             control.Subtype != ControlMessageSubtype.DirectoryManifest)
                     {
-                        // 每个 64 KiB 块都会产生 Ack，逐条写 UI 日志会拖垮界面。
+                        // 每个 64 KiB 块都会产生 Ack，目录清单可能拆成多条；
+                        // 逐条写 UI 日志会拖垮界面。
                         Log($"控制消息：{FormatControlMessage(control)}");
                     }
 
@@ -3397,16 +3485,22 @@ public partial class MainWindow : Window
                     file.RelativeDirectory));
         }
 
-        if (files.Count == 0)
+        var emptyDirectories = queue.PendingEmptyDirectories;
+
+        if (files.Count == 0 && emptyDirectories.Count == 0)
         {
             return null;
         }
 
         Log(
             $"准备自动重连：peer={_connectedPeer.DisplayName}, " +
-            $"files={files.Count}。");
+            $"files={files.Count}, " +
+            $"emptyDirectories={emptyDirectories.Count}。");
 
-        return new AutoReconnectPlan(_connectedPeer, files);
+        return new AutoReconnectPlan(
+            _connectedPeer,
+            files,
+            emptyDirectories);
     }
 
     private async Task AutoReconnectAsync(AutoReconnectPlan plan)
@@ -3482,8 +3576,14 @@ public partial class MainWindow : Window
                         return;
                     }
 
-                    var added = queue.EnqueueItems(plan.Files);
-                    Log($"自动重连成功，重新入队 {added.Count} 个文件。");
+                    var result = queue.EnqueuePlan(
+                        new TransferPlan(
+                            plan.Files,
+                            plan.EmptyDirectories));
+                    Log(
+                        "自动重连成功，重新入队 " +
+                        $"{result.Files.Count} 个文件，" +
+                        $"{result.EmptyDirectoryCount} 个空文件夹。");
                     NotifyIfInBackground("连接已恢复", "正在继续传输。");
                     succeeded = true;
                     _isAutoReconnecting = false;
@@ -3577,6 +3677,8 @@ public partial class MainWindow : Window
         ControlMessageSubtype.QueueInfo =>
             $"QueueInfo, totalBytes={message.Offset}",
         ControlMessageSubtype.FileSkipped => "FileSkipped",
+        ControlMessageSubtype.DirectoryManifest =>
+            $"DirectoryManifest, entries={message.Directories?.Count ?? 0}",
         _ => message.Subtype.ToString()
     };
 
@@ -3649,32 +3751,28 @@ public partial class MainWindow : Window
 
         try
         {
-            var items = DroppedFileCollector.CollectItems(
+            var plan = DroppedFileCollector.CollectPlan(
                 new[] { dialog.FolderName },
                 Log);
 
-            if (items.Count == 0)
+            if (!plan.HasWork)
             {
-                UpdateStatus("所选文件夹中没有可发送的文件");
+                UpdateStatus("所选文件夹中没有可发送的内容");
                 return;
             }
 
             var wasRunning = queue.IsRunning;
-            var added = queue.EnqueueItems(items);
+            var result = queue.EnqueuePlan(plan);
 
-            if (added.Count == 0)
+            if (!result.HasWork &&
+                result.SkippedEmptyDirectoryCount == 0)
             {
                 return;
             }
 
-            SelectFirstQueueItemIfNeeded(added);
-
-            Log(wasRunning
-                ? $"队列运行中追加 {added.Count} 个文件。"
-                : $"已添加文件夹中的 {added.Count} 个文件到队列。");
-            UpdateStatus(wasRunning
-                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
-                : $"队列已添加 {added.Count} 个文件");
+            SelectFirstQueueItemIfNeeded(result.Files);
+            LogQueueEnqueueResult(result);
+            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
         }
         catch (Exception exception)
@@ -5001,6 +5099,28 @@ public partial class MainWindow : Window
         QueueEmptyPanel.Visibility = queue is { HasFiles: true }
             ? Visibility.Collapsed
             : Visibility.Visible;
+
+        var emptyDirectoryCount = queue?.EmptyDirectoryCount ?? 0;
+
+        if (queue is { HasFiles: false } && emptyDirectoryCount > 0)
+        {
+            var created = !queue.IsRunning &&
+                          !queue.CanStart &&
+                          queue.OverallProgressPercent >= 100d;
+
+            QueueEmptyText.Text = created
+                ? $"已创建 {emptyDirectoryCount} 个空文件夹"
+                : $"将创建 {emptyDirectoryCount} 个空文件夹";
+            QueueEmptyHintText.Text = created
+                ? "可以继续添加文件或文件夹"
+                : "点击“开始传输”创建空文件夹";
+        }
+        else
+        {
+            QueueEmptyText.Text = "队列为空";
+            QueueEmptyHintText.Text =
+                "拖入文件或文件夹，或从资源管理器添加";
+        }
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&

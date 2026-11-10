@@ -74,6 +74,18 @@ public sealed class ControlMessageCodecTests
     }
 
     [Fact]
+    public void DirectoryManifest_RoundTripsEntries()
+    {
+        var payload = ControlMessageCodec.SerializeDirectoryManifest(
+            new[] { "empty", "photos/2026" });
+
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Equal(ControlMessageSubtype.DirectoryManifest, message.Subtype);
+        Assert.Equal(new[] { "empty", "photos/2026" }, message.Directories);
+    }
+
+    [Fact]
     public void TextRejected_RoundTrips()
     {
         var payload = ControlMessageCodec.SerializeTextRejected();

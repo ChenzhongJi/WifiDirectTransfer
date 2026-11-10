@@ -98,6 +98,109 @@ public sealed class DroppedFileCollectorTests
     }
 
     [Fact]
+    public void CollectPlan_EmptyFolder_ReturnsEmptyDirectory()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var emptyRoot = Path.Combine(directory, "empty");
+            Directory.CreateDirectory(emptyRoot);
+
+            var plan = DroppedFileCollector.CollectPlan(new[] { emptyRoot });
+
+            Assert.Empty(plan.Files);
+            Assert.Equal(new[] { "empty" }, plan.EmptyDirectories);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task CollectPlan_FilesAndEmptySubfolders_ReturnsBoth()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var photos = Path.Combine(directory, "photos");
+            var empty = Path.Combine(photos, "empty");
+            var nestedEmpty = Path.Combine(photos, "empty2", "child");
+            Directory.CreateDirectory(empty);
+            Directory.CreateDirectory(nestedEmpty);
+            await File.WriteAllTextAsync(
+                Path.Combine(photos, "a.jpg"),
+                "a");
+
+            var plan = DroppedFileCollector.CollectPlan(new[] { photos });
+
+            Assert.Single(plan.Files);
+            Assert.Equal("a.jpg", plan.Files[0].FileName);
+            Assert.Contains("photos/empty", plan.EmptyDirectories);
+            Assert.Contains("photos/empty2", plan.EmptyDirectories);
+            Assert.Contains("photos/empty2/child", plan.EmptyDirectories);
+            Assert.DoesNotContain("photos", plan.EmptyDirectories);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task CollectPlan_NestedEmptyFolders_PreservesHierarchy()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var root = Path.Combine(directory, "docs");
+            var nested = Path.Combine(root, "2026", "q1");
+            Directory.CreateDirectory(nested);
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "readme.txt"),
+                "readme");
+
+            var plan = DroppedFileCollector.CollectPlan(new[] { root });
+
+            Assert.Single(plan.Files);
+            Assert.Contains("docs/2026", plan.EmptyDirectories);
+            Assert.Contains("docs/2026/q1", plan.EmptyDirectories);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task CollectItems_StillReturnsOnlyFilesForEmptyFolderPlan()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var root = Path.Combine(directory, "docs");
+            Directory.CreateDirectory(root);
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "a.txt"),
+                "a");
+
+            var items = DroppedFileCollector.CollectItems(new[] { root });
+
+            Assert.Single(items);
+            Assert.Equal("a.txt", items[0].FileName);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+
+    [Fact]
     public void Collect_SkipsMissingPaths()
     {
         var directory = CreateTempDirectory();

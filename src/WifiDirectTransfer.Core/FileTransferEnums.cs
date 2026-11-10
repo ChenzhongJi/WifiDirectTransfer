@@ -21,7 +21,8 @@ public enum ControlMessageSubtype : byte
     FileSkipped = 0x05,
     FileVerified = 0x06,
     Hello = 0x07,
-    TextRejected = 0x08
+    TextRejected = 0x08,
+    DirectoryManifest = 0x09
 }
 
 public enum SameNamePolicy
