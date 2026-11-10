@@ -22,7 +22,10 @@ public enum ControlMessageSubtype : byte
     FileVerified = 0x06,
     Hello = 0x07,
     TextRejected = 0x08,
-    DirectoryManifest = 0x09
+    DirectoryManifest = 0x09,
+    IdentityHello = 0x0A,
+    IdentityProof = 0x0B,
+    IdentityTrust = 0x0C
 }
 
 public enum SameNamePolicy

@@ -29,6 +29,16 @@ public static class PeerBuildCompatibility
                 (version.Major == 1 && version.Minor >= 3));
     }
 
+    /// <summary>
+    /// 1.4+ 支持连接后的设备身份交换。旧端没有身份消息，必须回退到手动确认。
+    /// </summary>
+    public static bool SupportsDeviceIdentity(string? peerBuild)
+    {
+        return TryGetVersion(peerBuild, out var version) &&
+               (version.Major > 1 ||
+                (version.Major == 1 && version.Minor >= 4));
+    }
+
     private static bool TryGetVersion(
         string? build,
         out Version version)

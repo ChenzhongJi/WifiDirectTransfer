@@ -54,6 +54,8 @@ public sealed class MessageDispatcher
 
     public int MaxPayloadLength => _maxPayloadLength;
 
+    public bool IsDisconnected => Volatile.Read(ref _disconnected) != 0;
+
     /// <summary>
     /// 处理器按订阅顺序逐个 await。Payload 仅在处理器执行期间有效。
     /// </summary>

@@ -51,6 +51,10 @@ public static class WifiDirectErrorMapper
         WifiDirectErrorCode.InvalidState => "当前状态无法执行此操作，请稍后重试。",
         WifiDirectErrorCode.FileTooLarge => "文件超过允许的最大传输大小。",
         WifiDirectErrorCode.FileSkipped => "同名文件已跳过。",
+        WifiDirectErrorCode.IdentityVerificationFailed =>
+            "设备身份验证失败，连接已断开。请重新配对。",
+        WifiDirectErrorCode.DeviceIdentityUnavailable =>
+            "无法初始化本机设备身份，无法建立安全连接。请检查 Windows 用户密钥存储后重试。",
         _ => "发生未知错误，请重试或查看日志。"
     };
 
