@@ -2333,6 +2333,29 @@ public partial class MainWindow : Window
         }
     }
 
+    private DeviceIdentityExchange? TryCreateDeviceIdentityExchange(
+        MessageDispatcher dispatcher,
+        out string? failureMessage)
+    {
+        try
+        {
+            failureMessage = null;
+            return new DeviceIdentityExchange(
+                dispatcher,
+                GetOrCreateDeviceIdentity(),
+                isInitiator: _role == AppRole.Sender,
+                TimeSpan.FromSeconds(10));
+        }
+        catch (Exception exception)
+        {
+            failureMessage =
+                "无法初始化本机设备身份，无法建立安全连接。" +
+                "请检查 Windows 用户密钥存储后重试。";
+            Log($"ERROR: {failureMessage} type={exception.GetType().Name}");
+            return null;
+        }
+    }
+
     private async Task<string?> ConfirmPeerIdentityAsync(
         PeerDeviceIdentity identity,
         TrustedDevice? expectedTrustedDevice,
@@ -2511,6 +2534,12 @@ public partial class MainWindow : Window
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         _messageLoopCts = cts;
 
+        // 身份交换必须早于接收循环订阅，否则对端可能在握手完成后立刻发送
+        // IdentityHello，而本端尚未创建身份处理器，消息会被丢弃并导致超时。
+        using var identityExchange = TryCreateDeviceIdentityExchange(
+            dispatcher,
+            out var identityUnavailableMessage);
+
         // 先创建握手对象再启动接收循环，避免漏掉对端的 Hello。
         using var handshake = new ConnectionHandshake(
             dispatcher,
@@ -2575,16 +2604,28 @@ public partial class MainWindow : Window
             PeerDeviceIdentity peerIdentity;
             bool peerTrustsThisDevice;
 
+            if (identityExchange is null)
+            {
+                _auditLog.Append(
+                    AuditEventType.IdentityVerificationFailed,
+                    peer?.DisplayName,
+                    detail: identityUnavailableMessage);
+                Log($"ERROR: {identityUnavailableMessage}");
+                await ResetConnectionAsync();
+                UpdateStatus(identityUnavailableMessage!);
+                return false;
+            }
+
             try
             {
-                using var identityExchange = new DeviceIdentityExchange(
-                    dispatcher,
-                    GetOrCreateDeviceIdentity(),
-                    isInitiator: _role == AppRole.Sender,
-                    TimeSpan.FromSeconds(10));
+                Log("开始设备身份交换。");
 
                 peerIdentity = await identityExchange.ExchangeAsync(
                     _lifetimeCts.Token);
+
+                Log(
+                    $"身份交换完成：peer={peerIdentity.DisplayName}，" +
+                    $"指纹={DeviceIdentityCrypto.FormatFingerprint(peerIdentity.Fingerprint)}。");
 
                 var localTrusted = _trustedDeviceStore.FindByFingerprint(
                     peerIdentity.Fingerprint) is not null;
@@ -2593,6 +2634,10 @@ public partial class MainWindow : Window
                     await identityExchange.ExchangeTrustStateAsync(
                         localTrusted,
                         _lifetimeCts.Token);
+
+                Log(
+                    $"信任状态交换完成：localTrusted={localTrusted}，" +
+                    $"peerTrustsThisDevice={peerTrustsThisDevice}。");
             }
             catch (DeviceIdentityTimeoutException exception)
             {

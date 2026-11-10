@@ -229,6 +229,55 @@ public sealed class DeviceIdentityTests
     }
 
     [Fact]
+    public async Task Exchange_HelloArrivingBeforeStarted_IsBuffered()
+    {
+        await using var transport = new TestDuplexTransport();
+        var left = new MessageDispatcher(
+            transport.SenderInput,
+            transport.SenderOutput,
+            2_000_000);
+        var right = new MessageDispatcher(
+            transport.ReceiverInput,
+            transport.ReceiverOutput,
+            2_000_000);
+        using var leftIdentity = new TestIdentity("左端");
+        using var rightIdentity = new TestIdentity("右端");
+        using var leftExchange = new DeviceIdentityExchange(
+            left,
+            leftIdentity,
+            isInitiator: true);
+        using var rightExchange = new DeviceIdentityExchange(
+            right,
+            rightIdentity,
+            isInitiator: false);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var leftLoop = left.StartReceiveLoopAsync(cts.Token);
+        var rightLoop = right.StartReceiveLoopAsync(cts.Token);
+
+        try
+        {
+            // 右端先发送 IdentityHello；左端此时尚未调用 ExchangeAsync，
+            // 消息必须由已订阅的处理器缓存，不能丢失。
+            var rightTask = rightExchange.ExchangeAsync(cts.Token);
+            await Task.Delay(150, cts.Token);
+
+            var leftTask = leftExchange.ExchangeAsync(cts.Token);
+
+            var leftPeer = await leftTask;
+            var rightPeer = await rightTask;
+
+            Assert.Equal(leftPeer.PairingCode, rightPeer.PairingCode);
+            Assert.Equal("右端", leftPeer.DisplayName);
+            Assert.Equal("左端", rightPeer.DisplayName);
+        }
+        finally
+        {
+            await StopAsync(cts, transport, leftLoop, rightLoop);
+        }
+    }
+
+    [Fact]
     public void Hello_RoundTrips()
     {
         var nonce = RandomNumberGenerator.GetBytes(
