@@ -238,6 +238,92 @@ public sealed class QueueGroupTests
         });
     }
 
+    [Fact]
+    public Task EnqueuePlan_DuplicateFolderRoots_GetSuffixOnDisk()
+    {
+        return InTempDirectoryAsync(async root =>
+        {
+            var firstRoot = Path.Combine(root, "first", "docs");
+            var secondRoot = Path.Combine(root, "second", "docs");
+            var receiveRoot = Path.Combine(root, "receive");
+            Directory.CreateDirectory(firstRoot);
+            Directory.CreateDirectory(secondRoot);
+            Directory.CreateDirectory(receiveRoot);
+            await File.WriteAllTextAsync(
+                Path.Combine(firstRoot, "a.txt"),
+                "a");
+            await File.WriteAllTextAsync(
+                Path.Combine(secondRoot, "b.txt"),
+                "b");
+
+            var firstPlan = DroppedFileCollector.CollectPlan(
+                new[] { firstRoot });
+            var secondPlan = DroppedFileCollector.CollectPlan(
+                new[] { secondRoot });
+
+            await using var session = new TransferTestSession(receiveRoot);
+            var queue = new TransferQueueManager(session.SenderDispatcher);
+            queue.EnqueuePlan(firstPlan);
+            queue.EnqueuePlan(secondPlan);
+
+            Assert.Equal(2, queue.Groups.Count);
+            Assert.Equal("docs", queue.Groups[0].DestinationRoot);
+            Assert.Equal("docs (2)", queue.Groups[1].DestinationRoot);
+            Assert.Equal("docs (2)", queue.Groups[1].DisplayName);
+            Assert.All(
+                queue.Groups[1].Files,
+                file => Assert.StartsWith(
+                    "docs (2)",
+                    file.RelativeDirectory,
+                    StringComparison.OrdinalIgnoreCase));
+
+            var received = new List<FileReceiveResult>();
+
+            session.Receiver.FileReceived += (_, args) =>
+            {
+                lock (received)
+                {
+                    received.Add(args.Result);
+                }
+            };
+
+            using var cts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(20));
+            await queue.StartAsync(cts.Token);
+            await WaitForAsync(
+                () => received.Count == 2,
+                TimeSpan.FromSeconds(10));
+
+            Assert.Contains(
+                received,
+                item => item.FilePath.EndsWith(
+                    Path.Combine("docs", "a.txt"),
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                received,
+                item => item.FilePath.EndsWith(
+                    Path.Combine("docs (2)", "b.txt"),
+                    StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    private static async Task WaitForAsync(
+        Func<bool> condition,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException();
+            }
+
+            await Task.Delay(20);
+        }
+    }
+
     private static async Task InTempDirectoryAsync(
         Func<string, Task> test)
     {

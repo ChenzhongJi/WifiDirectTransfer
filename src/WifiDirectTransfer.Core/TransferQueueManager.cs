@@ -529,6 +529,13 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             foreach (var groupPlan in groupPlans)
             {
+                var requestedRoot = groupPlan.IsFolder
+                    ? GetRootRelativePath(groupPlan)
+                    : string.Empty;
+                var destinationRoot = groupPlan.IsFolder &&
+                                      requestedRoot.Length > 0
+                    ? GetAvailableDestinationRootLocked(requestedRoot)
+                    : null;
                 var groupFiles = new List<PendingFile>();
 
                 foreach (var source in groupPlan.Files)
@@ -539,10 +546,25 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                         continue;
                     }
 
-                    groupFiles.Add(CreatePendingFile(source));
+                    var adjustedSource = destinationRoot is null
+                        ? source
+                        : source with
+                        {
+                            RelativeDirectory = ReplaceRoot(
+                                source.RelativeDirectory,
+                                requestedRoot,
+                                destinationRoot)
+                        };
+                    groupFiles.Add(CreatePendingFile(adjustedSource));
                 }
 
                 var emptyDirectories = groupPlan.EmptyDirectories
+                    .Select(directory => destinationRoot is null
+                        ? directory
+                        : ReplaceRoot(
+                            directory,
+                            requestedRoot,
+                            destinationRoot))
                     .Where(directory => !string.IsNullOrWhiteSpace(directory))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
@@ -571,15 +593,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     continue;
                 }
 
-                var displayName = GetUniqueGroupNameLocked(
-                    groupPlan.DisplayName);
+                var displayBase = destinationRoot ?? groupPlan.DisplayName;
+                var displayName = GetUniqueGroupNameLocked(displayBase);
                 var group = new QueueGroup(
                     Guid.NewGuid(),
                     displayName,
                     groupPlan.IsFolder,
                     groupFiles,
                     groupEmptyDirectories,
-                    groupPlan.SourcePath);
+                    groupPlan.SourcePath,
+                    destinationRoot);
 
                 _groups.Add(group);
                 _groupsById.Add(group.Id, group);
@@ -659,6 +682,78 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
 
         return baseName;
+    }
+
+    private static string GetRootRelativePath(TransferGroupPlan group)
+    {
+        var relative = group.Files.FirstOrDefault()?.RelativeDirectory;
+
+        if (string.IsNullOrWhiteSpace(relative))
+        {
+            relative = group.EmptyDirectories.FirstOrDefault();
+        }
+
+        if (string.IsNullOrWhiteSpace(relative))
+        {
+            return string.Empty;
+        }
+
+        var normalized = relative.Replace('\\', '/');
+        var separator = normalized.IndexOf('/');
+        return separator < 0
+            ? normalized
+            : normalized[..separator];
+    }
+
+    private string GetAvailableDestinationRootLocked(string requestedRoot)
+    {
+        var usedRoots = new HashSet<string>(
+            _groups
+                .Where(group => group.IsFolder &&
+                                !string.IsNullOrWhiteSpace(group.DestinationRoot))
+                .Select(group => group.DestinationRoot!),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (!usedRoots.Contains(requestedRoot))
+        {
+            return requestedRoot;
+        }
+
+        for (var index = 2; index < int.MaxValue; index++)
+        {
+            var candidate = $"{requestedRoot} ({index})";
+
+            if (!usedRoots.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return requestedRoot;
+    }
+
+    private static string ReplaceRoot(
+        string relativePath,
+        string oldRoot,
+        string newRoot)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return relativePath;
+        }
+
+        var normalized = relativePath.Replace('\\', '/');
+
+        if (normalized.Equals(oldRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return newRoot;
+        }
+
+        var prefix = oldRoot + "/";
+
+        return normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? newRoot + normalized[oldRoot.Length..]
+            : normalized;
     }
 
     private void RaiseQueueStateChanged()

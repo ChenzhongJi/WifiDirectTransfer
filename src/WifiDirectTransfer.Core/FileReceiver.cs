@@ -631,6 +631,7 @@ public sealed class FileReceiver : IAsyncDisposable
     {
         var created = 0;
         var failed = 0;
+        var createdDirectories = new List<string>();
 
         foreach (var directory in directories)
         {
@@ -652,6 +653,7 @@ public sealed class FileReceiver : IAsyncDisposable
                     directory);
                 Directory.CreateDirectory(target);
                 created++;
+                createdDirectories.Add(directory);
             }
             catch (Exception exception)
             {
@@ -665,7 +667,10 @@ public sealed class FileReceiver : IAsyncDisposable
         if (created > 0 || failed > 0)
         {
             RaiseDirectoriesReceived(
-                new DirectoryManifestEventArgs(created, failed));
+                new DirectoryManifestEventArgs(
+                    created,
+                    failed,
+                    createdDirectories));
         }
     }
 
