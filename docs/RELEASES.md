@@ -12,6 +12,7 @@
 | 1.2.0 | 2026-11-09 | `3291134` | `85248d5db52cad6d0b566296f9408472e9b814f01c7756625eab3c560013fa59` |
 | 1.3.0 | 2026-11-10 | `8b61e96` | `d5f6080f666773ac00a77b1208d21f9782bb13a4576e27f40e0b6e9251768598` |
 | 1.3.1 | 2026-11-10 | `485f972` | `c26f5919fbc1c6ec060893b067af26bdd5859d953364d9089bcc69c6cf4af010` |
+| 1.4.0 | 2026-11-10 | `6606c78` | `5df366bafcfe5a511c374362ad4fbeeb4c28e36c4c1d12b624a1fcd3d0c164d6` |
 
 ## Release 页面
 
@@ -23,6 +24,7 @@
 - 1.2.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.2.0
 - 1.3.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.3.0
 - 1.3.1：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.3.1
+- 1.4.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.4.0
 
 ## 协议兼容性
 
@@ -32,4 +34,5 @@
 - 1.2.0：协议 v4，与 1.1.x 在 2 GiB 以内互通；超过 2 GiB 需要两端 1.2+。
 - 1.3.0：协议 v4，与 1.1.x / 1.2.x 在文件传输方面互通；空文件夹需要两端 1.3+。
 - 1.3.1：协议 v4，与 1.3.0 / 1.2.x 文件传输互通；空文件夹需要两端 1.3+。
-- 1.0.x 与 1.1.x / 1.2.0 / 1.3.0 / 1.3.1 不兼容。
+- 1.4.0：协议 v4，与 1.3.1 / 1.3.0 / 1.2.x 文件传输互通；设备身份和可信设备需要两端 1.4+，旧对端回退到接收确认。
+- 1.0.x 与 1.1.x / 1.2.0 / 1.3.0 / 1.3.1 / 1.4.0 不兼容。
