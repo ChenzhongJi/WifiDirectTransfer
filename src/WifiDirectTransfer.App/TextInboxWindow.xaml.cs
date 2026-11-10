@@ -62,25 +62,19 @@ public partial class TextInboxWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"复制失败：{exception.Message}",
                 "文本消息",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"复制失败：{exception.Message}");
         }
     }
 
     private void ClearButton_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(
-            this,
-            "确定清空所有文本消息吗？",
-            "文本消息",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (result != MessageBoxResult.Yes)
+        if (!MessageDialog.Confirm(
+                this,
+                "文本消息",
+                "确定清空所有文本消息吗？"))
         {
             return;
         }

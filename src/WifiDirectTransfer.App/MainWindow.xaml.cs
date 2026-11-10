@@ -1845,17 +1845,15 @@ public partial class MainWindow : Window
 
         if (hasActiveWork)
         {
-            var result = MessageBox.Show(
+            var confirmed = MessageDialog.Confirm(
                 this,
+                "断开连接",
                 "当前连接或传输尚未结束。断开连接会中断正在进行的传输；" +
                 "接收中的文件会保留断点，发送队列中尚未开始的文件会被移除。" +
                 "\n\n是否继续？",
-                "断开连接",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
+                defaultNo: true);
 
-            if (result != MessageBoxResult.Yes)
+            if (!confirmed)
             {
                 return;
             }
@@ -3189,12 +3187,10 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             Log($"打开接收项目失败：{exception.GetType().Name}");
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"无法打开文件夹：{exception.Message}",
                 "接收项目",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"无法打开文件夹：{exception.Message}");
         }
     }
 
@@ -3223,15 +3219,13 @@ public partial class MainWindow : Window
                     project.FolderPath ?? project.LatestFilePath)));
 
         UpdateStatus("接收项目已不存在，可能已被移动或删除");
-        MessageBox.Show(
+        MessageDialog.ShowInfo(
             this,
+            "接收项目",
             "以下接收项目已不存在，可能已被移动或删除：" +
             Environment.NewLine +
             Environment.NewLine +
-            names,
-            "接收项目",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+            names);
     }
 
     private void ReceivedFilesList_PreviewMouseLeftButtonUp(
@@ -3662,12 +3656,10 @@ public partial class MainWindow : Window
         Log(message);
         UpdateStatus(message);
 
-        MessageBox.Show(
+        MessageDialog.ShowInfo(
             this,
-            message,
             "拖入发送",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+            message);
     }
 
     private void OnQueueFileStarted(object? sender, QueueFileStartedEventArgs args)
@@ -5117,12 +5109,10 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"无法使用该目录：{exception.Message}",
                 "接收目录",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"无法使用该目录：{exception.Message}");
             return;
         }
 
@@ -5453,23 +5443,20 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             Log($"导出诊断失败：{exception.GetType().Name}");
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"导出失败：{exception.Message}",
                 "导出诊断",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"导出失败：{exception.Message}");
             return;
         }
 
-        var openFolder = MessageBox.Show(
+        var openFolder = MessageDialog.Confirm(
             this,
-            $"诊断信息已保存到：\n{zipPath}\n\n是否打开所在文件夹？",
             "导出诊断",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Information);
+            $"诊断信息已保存到：\n{zipPath}\n\n是否打开所在文件夹？",
+            kind: MessageDialogKind.Information);
 
-        if (openFolder != MessageBoxResult.Yes)
+        if (!openFolder)
         {
             return;
         }

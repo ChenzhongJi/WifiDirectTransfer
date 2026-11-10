@@ -23,12 +23,10 @@ public partial class AboutWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"复制失败：{exception.Message}",
                 "关于",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"复制失败：{exception.Message}");
         }
     }
 }
