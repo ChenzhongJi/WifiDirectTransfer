@@ -2778,7 +2778,7 @@ public partial class MainWindow : Window
 
             var wasRunning = _queueManager.IsRunning;
             var result = _queueManager.EnqueuePlan(plan);
-            SelectFirstQueueItemIfNeeded(result.Files);
+            SelectFirstGroupIfNeeded(result.AddedGroups);
             LogQueueEnqueueResult(result);
             UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
@@ -2913,7 +2913,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SelectFirstQueueItemIfNeeded(result.Files);
+            SelectFirstGroupIfNeeded(result.AddedGroups);
             SendTabButton.IsChecked = true;
 
             LogQueueEnqueueResult(result);
@@ -2974,6 +2974,7 @@ public partial class MainWindow : Window
     {
         Log(
             "队列添加：" +
+            $"groups={result.AddedGroups.Count}, " +
             $"files={result.Files.Count}, " +
             $"emptyDirectories={result.EmptyDirectoryCount}, " +
             $"skippedEmptyDirectories={result.SkippedEmptyDirectoryCount}。");
@@ -3054,7 +3055,13 @@ public partial class MainWindow : Window
             ? $"正在发送 {args.File.FileName}（从 {args.StartInfo.StartOffset} 字节继续）…"
             : $"正在发送 {args.File.FileName}…");
 
-        QueueList.SelectedItem = args.File;
+        var group = _queueManager?.FindGroup(args.File);
+
+        if (group is not null)
+        {
+            QueueList.SelectedItem = group;
+        }
+
         UpdateTransferTabHeaders();
     }
 
@@ -3064,7 +3071,8 @@ public partial class MainWindow : Window
     {
         if (_queueManager is { } queue)
         {
-            queue.SelectedFile = QueueList.SelectedItem as PendingFile;
+            queue.SelectedGroup = QueueList.SelectedItem as QueueGroup;
+            queue.SelectedFile = null;
         }
 
         UpdateUi();
@@ -3093,30 +3101,26 @@ public partial class MainWindow : Window
         object sender,
         ContextMenuEventArgs e)
     {
-        var file = QueueList.SelectedItem as PendingFile;
-        var waiting = _queueManager?.Files
-            .Where(item => item.Status == PendingFileStatus.Waiting)
-            .ToList() ?? new List<PendingFile>();
-        var waitingIndex = file is null ? -1 : waiting.IndexOf(file);
+        var group = QueueList.SelectedItem as QueueGroup;
+        var queue = _queueManager;
 
-        ViewQueueItemDetailsMenuItem.IsEnabled = file is not null;
+        ViewQueueItemDetailsMenuItem.IsEnabled = group is not null;
         MoveQueueUpMenuItem.IsEnabled =
-            file?.Status == PendingFileStatus.Waiting &&
-            waitingIndex > 0;
+            group is not null &&
+            queue?.CanMoveGroup(group, -1) == true;
         MoveQueueDownMenuItem.IsEnabled =
-            file?.Status == PendingFileStatus.Waiting &&
-            waitingIndex >= 0 &&
-            waitingIndex < waiting.Count - 1;
+            group is not null &&
+            queue?.CanMoveGroup(group, 1) == true;
         RemoveQueueItemMenuItem.IsEnabled =
-            file is not null &&
-            file.Status != PendingFileStatus.Transferring;
+            group is not null &&
+            queue?.CanRemoveGroup(group) == true;
     }
 
     private void ViewQueueItemDetailsMenuItem_Click(
         object sender,
         RoutedEventArgs e)
     {
-        if (QueueList.SelectedItem is not PendingFile)
+        if (QueueList.SelectedItem is not QueueGroup)
         {
             return;
         }
@@ -3126,8 +3130,8 @@ public partial class MainWindow : Window
         UpdateUi();
     }
 
-    private void SelectFirstQueueItemIfNeeded(
-        IReadOnlyList<PendingFile> added)
+    private void SelectFirstGroupIfNeeded(
+        IReadOnlyList<QueueGroup> added)
     {
         if (QueueList.SelectedItem is null && added.Count > 0)
         {
@@ -3703,22 +3707,21 @@ public partial class MainWindow : Window
 
         try
         {
+            var plan = DroppedFileCollector.CollectPlan(
+                dialog.FileNames,
+                Log);
             var wasRunning = queue.IsRunning;
-            var added = queue.EnqueueFiles(dialog.FileNames);
+            var result = queue.EnqueuePlan(plan);
 
-            if (added.Count == 0)
+            if (!result.HasWork &&
+                result.SkippedEmptyDirectoryCount == 0)
             {
                 return;
             }
 
-            SelectFirstQueueItemIfNeeded(added);
-
-            Log(wasRunning
-                ? $"队列运行中追加 {added.Count} 个文件。"
-                : $"已添加 {added.Count} 个文件到队列。");
-            UpdateStatus(wasRunning
-                ? $"已追加 {added.Count} 个文件，当前文件完成后继续"
-                : $"队列已添加 {added.Count} 个文件");
+            SelectFirstGroupIfNeeded(result.AddedGroups);
+            LogQueueEnqueueResult(result);
+            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
         }
         catch (Exception exception)
@@ -3770,7 +3773,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SelectFirstQueueItemIfNeeded(result.Files);
+            SelectFirstGroupIfNeeded(result.AddedGroups);
             LogQueueEnqueueResult(result);
             UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
@@ -3820,18 +3823,14 @@ public partial class MainWindow : Window
     private void RemoveQueueItemMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (_queueManager is not { } queue ||
-            QueueList.SelectedItem is not PendingFile file)
+            QueueList.SelectedItem is not QueueGroup group)
         {
             return;
         }
 
-        var removed = file.Status == PendingFileStatus.Waiting
-            ? queue.RemoveWaiting(file)
-            : queue.RemoveFinished(file);
-
-        if (removed)
+        if (queue.RemoveGroup(group))
         {
-            Log($"已从队列移除：{file.DisplayPath}");
+            Log($"已从队列移除：{group.DisplayName}");
             UpdateUi();
         }
     }
@@ -3839,12 +3838,12 @@ public partial class MainWindow : Window
     private void MoveQueueSelection(int offset)
     {
         if (_queueManager is not { } queue ||
-            QueueList.SelectedItem is not PendingFile file)
+            QueueList.SelectedItem is not QueueGroup group)
         {
             return;
         }
 
-        if (queue.MoveWaiting(file, offset))
+        if (queue.MoveGroup(group, offset))
         {
             UpdateUi();
         }
@@ -4953,9 +4952,9 @@ public partial class MainWindow : Window
             {
                 sendText = "发送 · 进行中";
             }
-            else if (queue.TotalCount > 0)
+            else if (queue.HasGroups)
             {
-                sendText = $"发送 · {queue.TotalCount}";
+                sendText = $"发送 · {queue.GroupCount}";
             }
         }
 
@@ -5096,31 +5095,13 @@ public partial class MainWindow : Window
         SendTextButton.IsEnabled = canTransfer;
         TextInboxButton.IsEnabled = true;
 
-        QueueEmptyPanel.Visibility = queue is { HasFiles: true }
+        QueueEmptyPanel.Visibility = queue is { HasGroups: true }
             ? Visibility.Collapsed
             : Visibility.Visible;
 
-        var emptyDirectoryCount = queue?.EmptyDirectoryCount ?? 0;
-
-        if (queue is { HasFiles: false } && emptyDirectoryCount > 0)
-        {
-            var created = !queue.IsRunning &&
-                          !queue.CanStart &&
-                          queue.OverallProgressPercent >= 100d;
-
-            QueueEmptyText.Text = created
-                ? $"已创建 {emptyDirectoryCount} 个空文件夹"
-                : $"将创建 {emptyDirectoryCount} 个空文件夹";
-            QueueEmptyHintText.Text = created
-                ? "可以继续添加文件或文件夹"
-                : "点击“开始传输”创建空文件夹";
-        }
-        else
-        {
-            QueueEmptyText.Text = "队列为空";
-            QueueEmptyHintText.Text =
-                "拖入文件或文件夹，或从资源管理器添加";
-        }
+        QueueEmptyText.Text = "队列为空";
+        QueueEmptyHintText.Text =
+            "拖入文件或文件夹，或从资源管理器添加";
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
@@ -5138,7 +5119,7 @@ public partial class MainWindow : Window
         ClearQueueButton.IsEnabled = canTransfer &&
                                      !_isSending &&
                                      !queueRunning &&
-                                     queue?.HasFiles == true;
+                                     queue?.HasGroups == true;
 
         ChangeReceiveDirectoryButton.IsEnabled = !connected && !busy;
 
