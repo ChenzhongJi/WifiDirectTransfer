@@ -135,14 +135,12 @@ public partial class HistoryWindow : Window
 
     private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(
+        var confirmed = MessageDialog.Confirm(
             this,
-            "确定清空所有传输历史吗？此操作不会删除已传输的文件。",
             "传输历史",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
+            "确定清空所有传输历史吗？此操作不会删除已传输的文件。");
 
-        if (result != MessageBoxResult.Yes)
+        if (!confirmed)
         {
             return;
         }
@@ -153,12 +151,10 @@ public partial class HistoryWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"清空历史失败：{exception.Message}",
                 "传输历史",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"清空历史失败：{exception.Message}");
             return;
         }
 
@@ -176,12 +172,10 @@ public partial class HistoryWindow : Window
         {
             if (!File.Exists(path))
             {
-                MessageBox.Show(
+                MessageDialog.ShowInfo(
                     this,
-                    "文件已不存在，可能已被移动或删除。",
                     "传输历史",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                    "文件已不存在，可能已被移动或删除。");
                 return;
             }
 
@@ -195,12 +189,10 @@ public partial class HistoryWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
+            MessageDialog.ShowError(
                 this,
-                $"无法打开文件夹：{exception.Message}",
                 "传输历史",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                $"无法打开文件夹：{exception.Message}");
         }
     }
 }

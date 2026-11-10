@@ -66,6 +66,7 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 顶部连接状态旁提供“断开”按钮；有未完成传输或等待发送的文件时先确认。
 - 设备身份与可信设备（1.4）：ECDSA P-256 设备密钥保存在 Windows 用户密钥存储中，私钥不可导出；首次配对显示两端一致的 6 位配对码，信任关系以公钥 SHA-256 指纹为准。可信设备自动接受默认开启，可随时关闭或取消信任。
 - 安全审计（1.4）：连接、身份验证、配对、信任变更和敏感功能开关写入本地 `audit.jsonl`，随诊断包导出，不记录文件内容、剪贴板内容或文本正文。
+- 主题化对话框（1.4.1）：确认、提示和错误窗口统一使用应用主题，支持深色、浅色、高对比度、`Enter` 默认按钮和 `Esc` 取消。
 
 ## 界面说明
 
@@ -101,7 +102,6 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 资源管理器多选时当前只发送第一个项目；需要发送多个文件时请逐个操作或拖入窗口。
 - W5 远程截图尚未实现，后续单独设计。
 - 深色模式：支持跟随系统、浅色、深色三种模式，切换会立即应用到主窗口和对话框；高对比度使用系统高对比度颜色，但个别自定义控件仍可能不完全遵循系统主题。
-- 清空历史、清空文本等系统确认框仍使用 Windows 原生 `MessageBox`。
 - 主窗口最小宽度 1000，详情面板宽度 220；低分辨率屏幕可收起详情。
 
 ## 常见问题
@@ -185,12 +185,12 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.4.0-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.4.1-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
 ```powershell
-.\publish.ps1 -Label 1.4.0          # 自定义 zip 标签
+.\publish.ps1 -Label 1.4.1          # 自定义 zip 标签
 .\publish.ps1 -IncludePdb           # 把 pdb 一并打包
 .\publish.ps1 -SkipTests            # 跳过测试（不建议用于发布）
 .\publish.ps1 -AllowDirty           # 允许未提交改动，zip 标签会带 -dirty
@@ -207,7 +207,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.4.0`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+当前版本 `1.4.1`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
 
 ## 反馈问题
 
