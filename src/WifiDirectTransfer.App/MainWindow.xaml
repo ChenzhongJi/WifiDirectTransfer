@@ -1188,7 +1188,7 @@
                             </Grid.RowDefinitions>
                             <Grid Margin="0,0,0,8">
                                 <TextBlock Style="{StaticResource SectionTitleText}"
-                                           Text="本次已接收文件"
+                                           Text="本次接收项目"
                                            VerticalAlignment="Center" />
                                 <StackPanel Orientation="Horizontal"
                                             HorizontalAlignment="Right"
@@ -1232,27 +1232,59 @@
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto" />
                                                             <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
                                                         <Border Width="26"
                                                                 Height="26"
                                                                 VerticalAlignment="Center"
                                                                 Background="{DynamicResource IconBackgroundBrush}"
                                                                 CornerRadius="4">
-                                                            <Path Data="{StaticResource FileIconGeometry}"
-                                                                  Style="{StaticResource SmallGlyphPath}"
-                                                                  Stroke="{DynamicResource IconStrokeBrush}" />
+                                                            <Grid>
+                                                                <Path Data="{StaticResource FolderIconGeometry}">
+                                                                    <Path.Style>
+                                                                        <Style TargetType="Path"
+                                                                               BasedOn="{StaticResource SmallGlyphPath}">
+                                                                            <Setter Property="Visibility"
+                                                                                    Value="Collapsed" />
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsFolder}"
+                                                                                             Value="True">
+                                                                                    <Setter Property="Visibility"
+                                                                                            Value="Visible" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Path.Style>
+                                                                </Path>
+                                                                <Path Data="{StaticResource FileIconGeometry}">
+                                                                    <Path.Style>
+                                                                        <Style TargetType="Path"
+                                                                               BasedOn="{StaticResource SmallGlyphPath}">
+                                                                            <Setter Property="Visibility"
+                                                                                    Value="Visible" />
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsFolder}"
+                                                                                             Value="True">
+                                                                                    <Setter Property="Visibility"
+                                                                                            Value="Collapsed" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Path.Style>
+                                                                </Path>
+                                                            </Grid>
                                                         </Border>
                                                         <StackPanel Grid.Column="1"
                                                                     Margin="9,0,0,0"
                                                                     VerticalAlignment="Center">
-                                                            <TextBlock Text="{Binding DisplayPath}"
+                                                            <TextBlock Text="{Binding DisplayName}"
                                                                        FontSize="12"
                                                                        FontWeight="SemiBold"
                                                                        TextTrimming="CharacterEllipsis"
-                                                                       ToolTip="{Binding FilePath}" />
+                                                                       ToolTip="{Binding SourcePath}" />
                                                             <TextBlock Margin="0,2,0,0"
                                                                        FontSize="10"
-                                                                       Text="{Binding DetailText}"
+                                                                       Text="{Binding Subtitle}"
                                                                        TextTrimming="CharacterEllipsis">
                                                                 <TextBlock.Style>
                                                                     <Style TargetType="TextBlock">
@@ -1265,6 +1297,37 @@
                                                                     </Style>
                                                                 </TextBlock.Style>
                                                             </TextBlock>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2"
+                                                                    Margin="10,0,0,0"
+                                                                    VerticalAlignment="Center"
+                                                                    HorizontalAlignment="Right">
+                                                            <TextBlock Text="{Binding StatusText}"
+                                                                       FontSize="10.5"
+                                                                       FontWeight="SemiBold"
+                                                                       TextAlignment="Right">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding StatusText}" Value="接收中">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding StatusText}" Value="已接收">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding StatusText}" Value="空文件夹已创建">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                            <TextBlock Margin="0,2,0,0"
+                                                                       FontSize="9.5"
+                                                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                       Text="{Binding LastActivityText}"
+                                                                       TextAlignment="Right" />
                                                         </StackPanel>
                                                     </Grid>
                                                 </Border>

@@ -27,7 +27,7 @@ public partial class MainWindow : Window
 
     private readonly WifiDirectConnectionService _service = new();
     private readonly ObservableCollection<PeerListItem> _peerItems = new();
-    private readonly ObservableCollection<ReceivedFileItem> _receivedFiles = new();
+    private readonly ReceivedProjectCollection _receivedProjects;
     private readonly KnownDeviceStore _knownDeviceStore = new();
     private readonly Dictionary<string, KnownDevice> _knownDevices =
         new(StringComparer.Ordinal);
@@ -57,7 +57,7 @@ public partial class MainWindow : Window
     private readonly List<string> _pendingExternalPaths = new();
     private HwndSource? _hwndSource;
     private Point _receivedDragStart;
-    private ReceivedFileItem? _receivedDragItem;
+    private ReceivedProject? _receivedDragItem;
     private CurrentReceiveItem? _currentReceiveItem;
     private bool _isDraggingReceivedFile;
     private CancellationTokenSource? _scanCts;
@@ -144,6 +144,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         _receiveDirectory = GetDefaultReceiveDirectory();
+        _receivedProjects = new ReceivedProjectCollection(
+            () => _receiveDirectory);
 
         InitializeComponent();
 
@@ -162,7 +164,7 @@ public partial class MainWindow : Window
             _lifetimeCts.Token);
 
         PeerList.ItemsSource = _peerItems;
-        ReceivedFilesList.ItemsSource = _receivedFiles;
+        ReceivedFilesList.ItemsSource = _receivedProjects.Projects;
         _service.ConnectionRequested += OnConnectionRequested;
         Application.Current.SessionEnding += OnSessionEnding;
     }
@@ -2326,6 +2328,8 @@ public partial class MainWindow : Window
         _currentReceiveItem = new CurrentReceiveItem(info);
         CurrentReceivePanel.DataContext = _currentReceiveItem;
         CurrentReceivePanel.Visibility = Visibility.Visible;
+        _receivedProjects.BeginFile(info, DateTimeOffset.Now);
+        UpdateReceivedFilesEmptyState();
         UpdateTransferTabHeaders();
     }
 
@@ -2353,10 +2357,8 @@ public partial class MainWindow : Window
             $"elapsed={args.Elapsed.TotalMilliseconds:F0}ms, " +
             $"path={result.FilePath}");
 
-        _receivedFiles.Insert(
-            0,
-            new ReceivedFileItem(result, DateTimeOffset.Now));
-        ReceivedFilesEmptyPanel.Visibility = Visibility.Collapsed;
+        _receivedProjects.CompleteFile(result, DateTimeOffset.Now);
+        UpdateReceivedFilesEmptyState();
         ClearCurrentReceive();
 
         UpdateStatus("已连接，可以继续传输");
@@ -2395,6 +2397,8 @@ public partial class MainWindow : Window
                 TransferOutcome.Failed,
                 null,
                 message);
+            _receivedProjects.FailActive(DateTimeOffset.Now);
+            UpdateReceivedFilesEmptyState();
             ClearCurrentReceive();
             return;
         }
@@ -2417,6 +2421,8 @@ public partial class MainWindow : Window
             TransferOutcome.Failed,
             null,
             errorMessage);
+        _receivedProjects.FailActive(DateTimeOffset.Now);
+        UpdateReceivedFilesEmptyState();
         ClearCurrentReceive();
     }
 
@@ -2437,6 +2443,8 @@ public partial class MainWindow : Window
             TransferOutcome.Skipped,
             null,
             "同名文件已跳过");
+        _receivedProjects.SkipActive(DateTimeOffset.Now);
+        UpdateReceivedFilesEmptyState();
         ClearCurrentReceive();
     }
 
@@ -2460,6 +2468,11 @@ public partial class MainWindow : Window
             $"接收空文件夹：created={args.CreatedCount}, " +
             $"failed={args.FailedCount}。");
 
+        _receivedProjects.AddEmptyDirectories(
+            args.CreatedDirectories,
+            DateTimeOffset.Now);
+        UpdateReceivedFilesEmptyState();
+
         UpdateStatus(args.FailedCount > 0
             ? $"已创建 {args.CreatedCount} 个空文件夹，" +
               $"{args.FailedCount} 个失败"
@@ -2471,7 +2484,7 @@ public partial class MainWindow : Window
         MouseButtonEventArgs e)
     {
         _receivedDragStart = e.GetPosition(ReceivedFilesList);
-        _receivedDragItem = GetReceivedFileItem(e.OriginalSource as DependencyObject);
+        _receivedDragItem = GetReceivedProject(e.OriginalSource as DependencyObject);
     }
 
     private void ReceivedFilesList_SelectionChanged(
@@ -2485,31 +2498,39 @@ public partial class MainWindow : Window
         object sender,
         MouseButtonEventArgs e)
     {
-        if (ReceivedFilesList.SelectedItem is not ReceivedFileItem item)
+        if (ReceivedFilesList.SelectedItem is not ReceivedProject item)
         {
             return;
         }
 
         e.Handled = true;
-        OpenReceivedFileInExplorer(item);
+        OpenReceivedProject(item);
     }
 
     private void OpenReceivedFolderButton_Click(
         object sender,
         RoutedEventArgs e)
     {
-        if (ReceivedFilesList.SelectedItem is not ReceivedFileItem item)
+        if (ReceivedFilesList.SelectedItem is not ReceivedProject item)
         {
             return;
         }
 
-        OpenReceivedFileInExplorer(item);
+        OpenReceivedProject(item);
+    }
+
+    private void UpdateReceivedFilesEmptyState()
+    {
+        ReceivedFilesEmptyPanel.Visibility =
+            _receivedProjects.Projects.Count > 0
+                ? Visibility.Collapsed
+                : Visibility.Visible;
     }
 
     private void UpdateReceivedFileActions()
     {
         var selected = ReceivedFilesList.SelectedItems
-            .OfType<ReceivedFileItem>()
+            .OfType<ReceivedProject>()
             .ToArray();
 
         foreach (var item in selected)
@@ -2524,13 +2545,13 @@ public partial class MainWindow : Window
 
     private void RefreshReceivedFilesAvailability()
     {
-        if (_isClosing || _receivedFiles.Count == 0)
+        if (_isClosing || _receivedProjects.Projects.Count == 0)
         {
             UpdateReceivedFileActions();
             return;
         }
 
-        foreach (var item in _receivedFiles)
+        foreach (var item in _receivedProjects.Projects)
         {
             item.RefreshAvailability();
         }
@@ -2538,65 +2559,88 @@ public partial class MainWindow : Window
         UpdateReceivedFileActions();
     }
 
-    private void OpenReceivedFileInExplorer(ReceivedFileItem item)
+    private void OpenReceivedProject(ReceivedProject project)
     {
-        if (!item.RefreshAvailability())
+        if (!project.RefreshAvailability())
         {
-            ShowMissingReceivedFiles(new[] { item });
+            ShowMissingReceivedProjects(new[] { project });
             UpdateReceivedFileActions();
             return;
         }
 
         try
         {
+            if (project.IsFolder)
+            {
+                Process.Start(
+                    new ProcessStartInfo(
+                        "explorer.exe",
+                        $"\"{project.FolderPath}\"")
+                    {
+                        UseShellExecute = true
+                    });
+                return;
+            }
+
+            var filePath = project.LatestFilePath;
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return;
+            }
+
             Process.Start(
                 new ProcessStartInfo(
                     "explorer.exe",
-                    $"/select,\"{item.FilePath}\"")
+                    $"/select,\"{filePath}\"")
                 {
                     UseShellExecute = true
                 });
         }
         catch (Exception exception)
         {
-            Log($"打开接收文件所在文件夹失败：{exception.GetType().Name}");
+            Log($"打开接收项目失败：{exception.GetType().Name}");
             MessageBox.Show(
                 this,
                 $"无法打开文件夹：{exception.Message}",
-                "接收文件",
+                "接收项目",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
     }
 
-    private void ShowMissingReceivedFiles(
-        IReadOnlyList<ReceivedFileItem> items)
+    private void ShowMissingReceivedProjects(
+        IReadOnlyList<ReceivedProject> projects)
     {
-        if (items.Count == 0)
+        if (projects.Count == 0)
         {
             return;
         }
 
         var names = string.Join(
             Environment.NewLine,
-            items.Take(8).Select(item => item.FileName));
+            projects.Take(8).Select(project => project.DisplayName));
 
-        if (items.Count > 8)
+        if (projects.Count > 8)
         {
-            names += $"{Environment.NewLine}… 等 {items.Count} 个文件";
+            names += $"{Environment.NewLine}… 等 {projects.Count} 个项目";
         }
 
         Log(
-            "接收文件已不存在：" +
-            string.Join(", ", items.Select(item => item.FilePath)));
-        UpdateStatus("接收文件已不存在，可能已被移动或删除");
+            "接收项目已不存在：" +
+            string.Join(
+                ", ",
+                projects.Select(project =>
+                    project.FolderPath ?? project.LatestFilePath)));
+
+        UpdateStatus("接收项目已不存在，可能已被移动或删除");
         MessageBox.Show(
             this,
-            "以下接收文件已不存在，可能已被移动或删除：" +
+            "以下接收项目已不存在，可能已被移动或删除：" +
             Environment.NewLine +
             Environment.NewLine +
             names,
-            "接收文件",
+            "接收项目",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }
@@ -2629,12 +2673,12 @@ public partial class MainWindow : Window
         _receivedDragItem = null;
 
         var items = ReceivedFilesList.SelectedItems
-            .OfType<ReceivedFileItem>()
+            .OfType<ReceivedProject>()
             .ToList();
 
         if (!items.Contains(dragItem))
         {
-            items = new List<ReceivedFileItem> { dragItem };
+            items = new List<ReceivedProject> { dragItem };
         }
 
         var missingItems = items
@@ -2643,7 +2687,7 @@ public partial class MainWindow : Window
 
         if (missingItems.Length > 0)
         {
-            ShowMissingReceivedFiles(missingItems);
+            ShowMissingReceivedProjects(missingItems);
             UpdateReceivedFileActions();
             return;
         }
@@ -2653,17 +2697,26 @@ public partial class MainWindow : Window
 
         foreach (var item in items)
         {
-            if (File.Exists(item.FilePath) &&
-                seenPaths.Add(item.FilePath))
+            var path = item.IsFolder
+                ? item.FolderPath
+                : item.LatestFilePath;
+
+            if (string.IsNullOrWhiteSpace(path) || !seenPaths.Add(path))
             {
-                paths.Add(item.FilePath);
+                continue;
+            }
+
+            if ((item.IsFolder && Directory.Exists(path)) ||
+                (!item.IsFolder && File.Exists(path)))
+            {
+                paths.Add(path);
             }
         }
 
         if (paths.Count == 0)
         {
-            Log("接收文件已不存在，无法拖出。");
-            UpdateStatus("接收文件已不存在");
+            Log("接收项目已不存在，无法拖出。");
+            UpdateStatus("接收项目已不存在");
             return;
         }
 
@@ -2687,7 +2740,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            Log($"拖出文件失败：{exception.GetType().Name}");
+            Log($"拖出接收项目失败：{exception.GetType().Name}");
         }
         finally
         {
@@ -2695,7 +2748,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private ReceivedFileItem? GetReceivedFileItem(DependencyObject? source)
+    private ReceivedProject? GetReceivedProject(DependencyObject? source)
     {
         if (source is null)
         {
@@ -2706,7 +2759,7 @@ public partial class MainWindow : Window
             ReceivedFilesList,
             source) as ListBoxItem;
 
-        return container?.DataContext as ReceivedFileItem;
+        return container?.DataContext as ReceivedProject;
     }
 
     private void Window_PreviewDragOver(object sender, DragEventArgs e)
@@ -4967,9 +5020,9 @@ public partial class MainWindow : Window
             receiveText =
                 $"接收 · {(int)Math.Round(_currentReceiveItem.ProgressPercent)}%";
         }
-        else if (_receivedFiles.Count > 0)
+        else if (_receivedProjects.Projects.Count > 0)
         {
-            receiveText = $"接收 · {_receivedFiles.Count}";
+            receiveText = $"接收 · {_receivedProjects.Projects.Count}";
         }
 
         ReceiveTabButton.Content = receiveText;
@@ -5008,6 +5061,7 @@ public partial class MainWindow : Window
         _currentReceiveItem = null;
         CurrentReceivePanel.DataContext = null;
         CurrentReceivePanel.Visibility = Visibility.Collapsed;
+        _receivedProjects.ClearReceiving(DateTimeOffset.Now);
         UpdateTransferTabHeaders();
     }
 

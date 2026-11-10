@@ -18,7 +18,8 @@ public sealed class QueueGroup : INotifyPropertyChanged
         bool isFolder,
         IEnumerable<PendingFile> files,
         IEnumerable<string> emptyDirectories,
-        string? sourcePath = null)
+        string? sourcePath = null,
+        string? destinationRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentNullException.ThrowIfNull(files);
@@ -27,6 +28,7 @@ public sealed class QueueGroup : INotifyPropertyChanged
         Id = id;
         DisplayName = displayName;
         IsFolder = isFolder;
+        DestinationRoot = destinationRoot;
         _files = files.ToList();
         EmptyDirectories = emptyDirectories.ToArray();
         SourcePath = isFolder && _files.Count == 0
@@ -48,6 +50,9 @@ public sealed class QueueGroup : INotifyPropertyChanged
     public string DisplayName { get; }
 
     public bool IsFolder { get; }
+
+    /// <summary>文件夹项目实际发送到的顶层相对目录；直接文件为 null。</summary>
+    public string? DestinationRoot { get; }
 
     public IReadOnlyList<PendingFile> Files => _files;
 
