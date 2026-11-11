@@ -1,7 +1,7 @@
-# 诊断用启动器：带 WDT_* 环境变量启动已发布的 exe。
-# 仅用于现场 A/B 测量，不修改任何系统设置或持久化配置。
+# Diagnostic launcher: starts the published exe with WDT_* environment variables.
+# For on-site A/B measurements only. Does not change system settings or persisted config.
 #
-# 用法：
+# Usage:
 #   .\tools\bench-run.ps1 -Window 32 -Ack 8
 #   .\tools\bench-run.ps1 -Window 16 -Ack 1
 #   .\tools\bench-run.ps1 -Window 64 -Ack 64 -SocketBufferKb 4096
@@ -28,7 +28,7 @@ if ([string]::IsNullOrWhiteSpace($AppPath)) {
 }
 
 if (-not (Test-Path -LiteralPath $AppPath)) {
-    throw "找不到 $AppPath。请先运行 publish.ps1。"
+    throw "Cannot find $AppPath. Run publish.ps1 first."
 }
 
 $env:WDT_DIAG = '1'
@@ -41,19 +41,19 @@ $logPath = Join-Path $env:LOCALAPPDATA 'WifiDirectTransfer\logs\app.log'
 $running = Get-Process WifiDirectTransfer.App -ErrorAction SilentlyContinue
 
 if ($running) {
-    Write-Warning '检测到 WifiDirectTransfer.App 正在运行。'
-    Write-Warning '请先退出应用（不要强制结束传输中的进程），再重新执行本脚本。'
+    Write-Warning 'WifiDirectTransfer.App is running.'
+    Write-Warning 'Close the app first (do not kill a transfer in progress), then run this script again.'
     exit 1
 }
 
-Write-Host '=== 诊断调参 ==='
+Write-Host '=== Diagnostic tuning ==='
 Write-Host "window=$Window, ackEvery=$Ack, socketBufferKb=$SocketBufferKb"
-Write-Host "日志：$logPath"
+Write-Host "log: $logPath"
 Write-Host ''
-Write-Host '两端都要使用同一个预览包；窗口和 ACK 间隔由发送端决定。'
-Write-Host '请在应用中传输 200 MB 文件，结束后从日志复制以下两行：'
-Write-Host '  窗口传输统计：window=..., ackEvery=..., chunks=..., ackRttMs=..., totalMs=...'
-Write-Host '  窗口接收统计：chunks=..., acks=..., readMs=..., writeMs=..., ackMs=...'
+Write-Host 'Use the same preview build on both machines. The sender decides window and ACK interval.'
+Write-Host 'Transfer a 200 MB file, then copy these two lines from the log:'
+Write-Host '  send stats: window=..., ackEvery=..., chunks=..., ackRttMs=..., totalMs=...'
+Write-Host '  recv stats: chunks=..., acks=..., readMs=..., writeMs=..., ackMs=...'
 Write-Host ''
 
 & $AppPath
