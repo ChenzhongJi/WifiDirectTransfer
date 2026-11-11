@@ -38,14 +38,22 @@ $env:WDT_SOCKET_BUFFER_KB = "$SocketBufferKb"
 
 $logPath = Join-Path $env:LOCALAPPDATA 'WifiDirectTransfer\logs\app.log'
 
+$running = Get-Process WifiDirectTransfer.App -ErrorAction SilentlyContinue
+
+if ($running) {
+    Write-Warning '检测到 WifiDirectTransfer.App 正在运行。'
+    Write-Warning '请先退出应用（不要强制结束传输中的进程），再重新执行本脚本。'
+    exit 1
+}
+
 Write-Host '=== 诊断调参 ==='
 Write-Host "window=$Window, ackEvery=$Ack, socketBufferKb=$SocketBufferKb"
 Write-Host "日志：$logPath"
 Write-Host ''
-
+Write-Host '两端都要使用同一个预览包；窗口和 ACK 间隔由发送端决定。'
 Write-Host '请在应用中传输 200 MB 文件，结束后从日志复制以下两行：'
-Write-Host '  发送端：窗口传输统计：window=..., ackEvery=..., ... ackRttMs=...'
-Write-Host '  接收端：窗口接收统计：chunks=..., readMs=..., ...'
+Write-Host '  窗口传输统计：window=..., ackEvery=..., chunks=..., ackRttMs=..., totalMs=...'
+Write-Host '  窗口接收统计：chunks=..., acks=..., readMs=..., writeMs=..., ackMs=...'
 Write-Host ''
 
 & $AppPath
