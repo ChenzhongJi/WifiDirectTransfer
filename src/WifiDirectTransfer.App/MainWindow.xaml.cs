@@ -172,6 +172,7 @@ public partial class MainWindow : Window
         PeerList.ItemsSource = _peerItems;
         ReceivedFilesList.ItemsSource = _receivedProjects.Projects;
         _service.ConnectionRequested += OnConnectionRequested;
+        _service.DiagnosticMessage += OnServiceDiagnosticMessage;
         Application.Current.SessionEnding += OnSessionEnding;
     }
 
@@ -5917,6 +5918,11 @@ public partial class MainWindow : Window
             }
         }));
     }
+
+    private void OnServiceDiagnosticMessage(
+        object? sender,
+        string message) =>
+        Log(message);
 
     private void Log(string message)
     {

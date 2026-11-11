@@ -78,4 +78,4 @@
 - 安全审计（1.4）：`%LOCALAPPDATA%\WifiDirectTransfer\audit.jsonl` 记录连接接受/拒绝/超时、身份验证成功/失败、配对接受/拒绝/超时、添加/移除可信设备、可信设备自动接受以及剪贴板和远程文本开关。日志使用 JSON Lines，按 1 MiB 轮转并保留 3 个文件，包含在诊断导出中；不记录文件内容、剪贴板内容或文本正文。
 - 拒绝清理（1.4）：接收端在用户拒绝或接收确认超时后，会完成 PeerFinder 传输握手并立即关闭 socket，但不创建文件接收器、不进入身份或配对流程；随后保持等待广播，不重启 PeerFinder。只有 `AcceptAsync` 之后的失败才重启广播，避免未完成的连接请求残留导致后续 `ConnectionRequested` 不再触发。发送端连接失败后会清除本次使用的 `PeerInformation` 缓存，下次重试重新发现对端。
 - 主题化对话框（1.4.1）：新增 `MessageDialogWindow`，替换 AboutWindow、HistoryWindow、TextInboxWindow 和 MainWindow 中全部原生 `MessageBox`。支持信息、警告、错误三种样式和确定、是/否两种按钮组合，`Enter` 触发默认按钮、`Esc` 取消，使用动态主题资源适配深色、浅色和高对比度。
-- 窗口传输（1.5）：两端构建号均为 1.5+ 时，发送端在每个文件开始后发送 `WindowModeStart`（窗口 16 块、每 4 块累计 ACK），不再逐块等待 ACK；窗口满时才等待累计 ACK。接收端在窗口模式下每 4 块 Flush `.part` 并发送一次累计 ACK，旧发送端仍逐块 Flush + ACK。断点续传继续使用 `.meta` 的持久化偏移。1.4 及更早对端自动回退到逐块停等模式，协议版本仍为 v4，文件头仍为 v2。
+- 窗口传输（1.5）：两端构建号均为 1.5+ 时，发送端在每个文件开始后发送 `WindowModeStart`（窗口 16 块、每 4 块累计 ACK），不再逐块等待 ACK；窗口满时才等待累计 ACK。接收端在窗口模式下每 4 块 Flush `.part` 并发送一次累计 ACK，旧发送端仍逐块 Flush + ACK。断点续传继续使用 `.meta` 的持久化偏移。1.4 及更早对端自动回退到逐块停等模式，协议版本仍为 v4，文件头仍为 v2。发送端遇到 `PeerFinder.ConnectAsync` 返回 E_INVALIDARG（过期 `PeerInformation`）时，自动清除缓存、重新发现并重试一次；重试失败按对端信息过期处理。
