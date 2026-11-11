@@ -67,7 +67,8 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 - 设备身份与可信设备（1.4）：ECDSA P-256 设备密钥保存在 Windows 用户密钥存储中，私钥不可导出；首次配对显示两端一致的 6 位配对码，信任关系以公钥 SHA-256 指纹为准。可信设备自动接受默认开启，可随时关闭或取消信任。
 - 安全审计（1.4）：连接、身份验证、配对、信任变更和敏感功能开关写入本地 `audit.jsonl`，随诊断包导出，不记录文件内容、剪贴板内容或文本正文。
 - 主题化对话框（1.4.1）：确认、提示和错误窗口统一使用应用主题，支持深色、浅色、高对比度、`Enter` 默认按钮和 `Esc` 取消。
-- 窗口传输（1.5）：两端都是 1.5+ 时启用 16 块滑动窗口和累计 ACK，不再每 64 KiB 等待一次确认；接收端每 4 块批量 Flush 并发送累计 ACK。旧对端自动回退到逐块停等模式。大文件传输日志会显示窗口大小、ACK 间隔、平均 ACK 等待和最大在途字节。
+- 窗口传输（1.5）：两端都是 1.5+ 时启用滑动窗口和累计 ACK，不再每 64 KiB 等待一次确认；旧对端自动回退到逐块停等模式。
+- 性能调优（1.5.1）：窗口提升到 32 块（约 2 MiB），每 8 块发送一次累计 ACK；接收端 Flush 与 ACK 解耦，每 16 块（约 1 MiB）Flush 一次，文件结束时完整 Flush。大文件日志增加窗口实际等待、发送耗时、接收端写入/Flush/ACK 耗时统计。
 
 ## 界面说明
 
@@ -186,12 +187,12 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.5.0-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.5.1-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
 ```powershell
-.\publish.ps1 -Label 1.5.0          # 自定义 zip 标签
+.\publish.ps1 -Label 1.5.1          # 自定义 zip 标签
 .\publish.ps1 -IncludePdb           # 把 pdb 一并打包
 .\publish.ps1 -SkipTests            # 跳过测试（不建议用于发布）
 .\publish.ps1 -AllowDirty           # 允许未提交改动，zip 标签会带 -dirty
@@ -208,7 +209,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.5.0`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+当前版本 `1.5.1`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
 
 ## 反馈问题
 

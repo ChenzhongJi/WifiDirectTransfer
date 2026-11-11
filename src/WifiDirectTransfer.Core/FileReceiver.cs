@@ -44,7 +44,14 @@ public sealed class FileReceiver : IAsyncDisposable
     private int _windowSize;
     private int _windowAckInterval;
     private int _windowBlocksSinceAck;
+    private int _windowBlocksSinceFlush;
     private long _windowTransferId;
+    private long _windowWriteTicks;
+    private long _windowFlushTicks;
+    private long _windowAckTicks;
+    private int _windowChunkCount;
+    private int _windowFlushCount;
+    private int _windowAckCount;
     private Stopwatch? _stopwatch;
     private int _manifestEntryCount;
     private int _disposed;
@@ -175,7 +182,14 @@ public sealed class FileReceiver : IAsyncDisposable
         _windowSize = 0;
         _windowAckInterval = 0;
         _windowBlocksSinceAck = 0;
+        _windowBlocksSinceFlush = 0;
         _windowTransferId = 0;
+        _windowWriteTicks = 0;
+        _windowFlushTicks = 0;
+        _windowAckTicks = 0;
+        _windowChunkCount = 0;
+        _windowFlushCount = 0;
+        _windowAckCount = 0;
 
         FileStartPayload start;
 
@@ -446,9 +460,20 @@ public sealed class FileReceiver : IAsyncDisposable
 
         try
         {
+            var writeStarted = _windowMode
+                ? Stopwatch.GetTimestamp()
+                : 0;
+
             await _part
                 .WriteAsync(payload, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (_windowMode)
+            {
+                _windowWriteTicks +=
+                    Stopwatch.GetTimestamp() - writeStarted;
+                _windowChunkCount++;
+            }
 
             _hash.AppendData(payload.Span);
             _received += payload.Length;
@@ -459,10 +484,8 @@ public sealed class FileReceiver : IAsyncDisposable
 
                 if (_windowBlocksSinceAck >= _windowAckInterval)
                 {
-                    await _part
-                        .FlushAsync(cancellationToken)
-                        .ConfigureAwait(false);
                     _windowBlocksSinceAck = 0;
+                    var ackStarted = Stopwatch.GetTimestamp();
 
                     await _dispatcher
                         .SendAsync(
@@ -472,6 +495,27 @@ public sealed class FileReceiver : IAsyncDisposable
                                 _received),
                             cancellationToken)
                         .ConfigureAwait(false);
+
+                    _windowAckTicks +=
+                        Stopwatch.GetTimestamp() - ackStarted;
+                    _windowAckCount++;
+                }
+
+                _windowBlocksSinceFlush++;
+
+                if (_windowBlocksSinceFlush >=
+                    FileTransferProtocol.DefaultWindowFlushIntervalBlocks)
+                {
+                    _windowBlocksSinceFlush = 0;
+                    var flushStarted = Stopwatch.GetTimestamp();
+
+                    await _part
+                        .FlushAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    _windowFlushTicks +=
+                        Stopwatch.GetTimestamp() - flushStarted;
+                    _windowFlushCount++;
                 }
             }
             else
@@ -556,7 +600,16 @@ public sealed class FileReceiver : IAsyncDisposable
 
         try
         {
+            var finalFlushStarted = Stopwatch.GetTimestamp();
             await part.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            if (_windowMode)
+            {
+                _windowFlushTicks +=
+                    Stopwatch.GetTimestamp() - finalFlushStarted;
+                _windowFlushCount++;
+            }
+
             await part.DisposeAsync().ConfigureAwait(false);
             _part = null;
 
@@ -595,6 +648,7 @@ public sealed class FileReceiver : IAsyncDisposable
             }
 
             var relativeDirectory = _relativeDirectory;
+            LogWindowReceiveStats(header.FileSize);
             ResetState();
 
             var result = new FileReceiveResult(
@@ -664,6 +718,7 @@ public sealed class FileReceiver : IAsyncDisposable
             _windowSize = message.WindowSize;
             _windowAckInterval = message.AckInterval;
             _windowBlocksSinceAck = 0;
+            _windowBlocksSinceFlush = 0;
             _windowTransferId = message.TransferId;
 
             if (_expectedSize >= 8L * 1024 * 1024)
@@ -1105,6 +1160,27 @@ public sealed class FileReceiver : IAsyncDisposable
         }
     }
 
+    private void LogWindowReceiveStats(long fileSize)
+    {
+        if (!_windowMode ||
+            fileSize < 8L * 1024 * 1024 ||
+            _windowChunkCount == 0)
+        {
+            return;
+        }
+
+        double ToMilliseconds(long ticks) =>
+            ticks * 1000.0 / Stopwatch.Frequency;
+
+        _log?.Invoke(
+            "窗口接收统计：" +
+            $"chunks={_windowChunkCount}, acks={_windowAckCount}, " +
+            $"flushes={_windowFlushCount}, " +
+            $"writeMs={ToMilliseconds(_windowWriteTicks):0.0}, " +
+            $"flushMs={ToMilliseconds(_windowFlushTicks):0.0}, " +
+            $"ackMs={ToMilliseconds(_windowAckTicks):0.0}");
+    }
+
     private void ResetState()
     {
         _part = null;
@@ -1126,7 +1202,14 @@ public sealed class FileReceiver : IAsyncDisposable
         _windowSize = 0;
         _windowAckInterval = 0;
         _windowBlocksSinceAck = 0;
+        _windowBlocksSinceFlush = 0;
         _windowTransferId = 0;
+        _windowWriteTicks = 0;
+        _windowFlushTicks = 0;
+        _windowAckTicks = 0;
+        _windowChunkCount = 0;
+        _windowFlushCount = 0;
+        _windowAckCount = 0;
         _stopwatch = null;
     }
 

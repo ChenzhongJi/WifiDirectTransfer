@@ -154,7 +154,10 @@ public static class FileSender
             long windowBytes = (long)windowSize * FileTransferProtocol.BlockSize;
             long maxInFlightBytes = 0;
             long windowWaitTicks = 0;
+            long windowSendTicks = 0;
             var windowWaitCount = 0;
+            var windowChunkCount = 0;
+            var windowTotalWatch = Stopwatch.StartNew();
 
             if (windowedTransfer)
             {
@@ -277,6 +280,8 @@ public static class FileSender
                             }
                         }
 
+                        var sendStarted = Stopwatch.GetTimestamp();
+
                         await dispatcher
                             .SendAsync(
                                 MessageType.FileChunk,
@@ -284,6 +289,9 @@ public static class FileSender
                                 cancellationToken)
                             .ConfigureAwait(false);
 
+                        windowSendTicks +=
+                            Stopwatch.GetTimestamp() - sendStarted;
+                        windowChunkCount++;
                         processed += read;
                         maxInFlightBytes = Math.Max(
                             maxInFlightBytes,
@@ -361,11 +369,19 @@ public static class FileSender
                             : windowWaitTicks * 1000.0 /
                               Stopwatch.Frequency /
                               windowWaitCount;
+                        var totalWaitMilliseconds =
+                            windowWaitTicks * 1000.0 / Stopwatch.Frequency;
+                        var totalSendMilliseconds =
+                            windowSendTicks * 1000.0 / Stopwatch.Frequency;
 
                         log?.Invoke(
                             "窗口传输统计：" +
+                            $"chunks={windowChunkCount}, " +
                             $"waits={windowWaitCount}, " +
+                            $"waitMs={totalWaitMilliseconds:0.0}, " +
                             $"avgAckWaitMs={averageWaitMilliseconds:0.0}, " +
+                            $"sendMs={totalSendMilliseconds:0.0}, " +
+                            $"totalMs={windowTotalWatch.Elapsed.TotalMilliseconds:0.0}, " +
                             $"maxInFlightBytes={maxInFlightBytes}");
                     }
                 }
