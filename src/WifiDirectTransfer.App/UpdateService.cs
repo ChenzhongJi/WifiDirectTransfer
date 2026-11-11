@@ -52,7 +52,7 @@ internal static class UpdateService
         "github-releases.githubusercontent.com"
     };
 
-    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(20);
 
     public static ReleaseVersion CurrentVersion { get; } =
         ResolveCurrentVersion();
@@ -94,24 +94,37 @@ internal static class UpdateService
         };
         using var client = new HttpClient(handler)
         {
-            Timeout = CheckTimeout
+            // 超时用 CTS 统一控制，覆盖全部重定向。
+            Timeout = Timeout.InfiniteTimeSpan
         };
-        using var response = await SendWithRedirectsAsync(
-                client,
-                FeedUri,
-                cancellationToken,
-                allowNotFound: true)
-            .ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(CheckTimeout);
 
-        if (response.StatusCode == HttpStatusCode.NotFound)
+        try
         {
-            return null;
-        }
+            using var response = await SendWithRedirectsAsync(
+                    client,
+                    FeedUri,
+                    timeout.Token,
+                    allowNotFound: true)
+                .ConfigureAwait(false);
 
-        var content = await response.Content
-            .ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-        return UpdateManifest.Parse(content);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            var content = await response.Content
+                .ReadAsStringAsync(timeout.Token)
+                .ConfigureAwait(false);
+            return UpdateManifest.Parse(content);
+        }
+        catch (OperationCanceledException)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("检查更新超时，请稍后再试。");
+        }
     }
 
     public static async Task<string> DownloadAsync(
