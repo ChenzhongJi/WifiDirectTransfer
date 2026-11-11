@@ -84,14 +84,27 @@ public partial class MainWindow : Window
     private static readonly TimeSpan NetworkChangeSuppression =
         TimeSpan.FromSeconds(5);
 
-    private static readonly TimeSpan FirstConnectAttemptTimeout =
-        TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan[] ConnectAttemptTimeouts =
+    {
+        TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(15),
+        TimeSpan.FromSeconds(15)
+    };
 
-    private static readonly TimeSpan RetryConnectAttemptTimeout =
-        TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan[] ConnectRetryDelays =
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(3)
+    };
 
     private static readonly TimeSpan OverallConnectTimeout =
-        TimeSpan.FromSeconds(50);
+        TimeSpan.FromSeconds(60);
+
+    private static readonly TimeSpan ReceiverRestartReleaseDelay =
+        TimeSpan.FromMilliseconds(800);
+
+    private static readonly TimeSpan ReceiverRestartStabilizationDelay =
+        TimeSpan.FromMilliseconds(700);
 
     private const string ReceivedFileDragFormat =
         "WifiDirectTransfer.ReceivedFileDrag";
@@ -1171,11 +1184,25 @@ public partial class MainWindow : Window
 
         if (_role == AppRole.Receiver)
         {
-            if (_serviceStarted)
+            if (!_serviceStarted)
             {
-                await RestartReceiverAdvertisementAsync(reason);
+                return;
             }
 
+            if (_service.State == WifiDirectState.Listening)
+            {
+                // 连接结束不影响现有 PeerFinder 广播。立即 Stop/Start 会让
+                // 对端在可发现但暂不接受连接的状态停留一段时间。
+                SuppressNetworkChangeRecovery();
+                StartAdvertisementWatchdog();
+                Log(
+                    "接收端连接结束，PeerFinder 仍在监听，" +
+                    "保持现有等待广播。");
+                UpdateStatus("已断开，继续等待连接…");
+                return;
+            }
+
+            await RestartReceiverAdvertisementAsync(reason);
             return;
         }
 
@@ -1463,9 +1490,23 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (_role == AppRole.Receiver)
+        {
+            Log("等待 Wi-Fi Direct 广播释放…");
+            await Task.Delay(ReceiverRestartReleaseDelay, cancellationToken);
+        }
+
         if (!await EnsureServiceStartedAsync())
         {
             return false;
+        }
+
+        if (_role == AppRole.Receiver)
+        {
+            await Task.Delay(
+                ReceiverRestartStabilizationDelay,
+                cancellationToken);
+            Log("接收端等待广播稳定完成。");
         }
 
         Log("PeerFinder 已重新启动。");
@@ -1741,11 +1782,12 @@ public partial class MainWindow : Window
         WifiDirectPeer peer,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 1; ; attempt++)
+        for (var attemptIndex = 0;
+             attemptIndex < ConnectAttemptTimeouts.Length;
+             attemptIndex++)
         {
-            var timeout = attempt == 1
-                ? FirstConnectAttemptTimeout
-                : RetryConnectAttemptTimeout;
+            var attempt = attemptIndex + 1;
+            var timeout = ConnectAttemptTimeouts[attemptIndex];
 
             using var attemptCts =
                 CancellationTokenSource.CreateLinkedTokenSource(
@@ -1767,32 +1809,41 @@ public partial class MainWindow : Window
                 return channel;
             }
             catch (Exception exception)
-                when (attempt < 2 &&
+                when (attemptIndex < ConnectAttemptTimeouts.Length - 1 &&
                       !cancellationToken.IsCancellationRequested &&
                       IsRetryableConnectFailure(exception))
             {
+                var retryDelay = ConnectRetryDelays[attemptIndex];
+
                 Log(
                     $"ConnectAsync 第 {attempt} 次失败：" +
                     $"type={exception.GetType().Name}，" +
-                    "正在重启发送端发现并重试。");
+                    $"{retryDelay.TotalSeconds:0} 秒后重试。");
                 UpdateStatus("连接未完成，正在重新发现并重试…");
 
-                await Task.Delay(
-                    TimeSpan.FromMilliseconds(500),
-                    cancellationToken);
+                await Task.Delay(retryDelay, cancellationToken);
 
-                if (!await RestartPeerFinderAsync(
-                        "连接失败自动重试",
-                        cancellationToken))
+                if (attemptIndex == 0)
                 {
-                    throw new WifiDirectConnectionFailedException(
-                        "自动重试前重新启动发现失败，请手动重新扫描。",
-                        exception);
-                }
+                    if (!await RestartPeerFinderAsync(
+                            "连接失败自动重试",
+                            cancellationToken))
+                    {
+                        throw new WifiDirectConnectionFailedException(
+                            "自动重试前重新启动发现失败，请手动重新扫描。",
+                            exception);
+                    }
 
-                UpdateStatus("正在重新发现对端并重试连接…");
+                    UpdateStatus("发送端发现已重启，等待重新发现对端…");
+                }
+                else
+                {
+                    UpdateStatus("正在重新扫描对端并重试连接…");
+                }
             }
         }
+
+        throw new InvalidOperationException("连接重试流程异常结束。");
     }
 
     private static bool IsRetryableConnectFailure(Exception exception) =>
@@ -2281,7 +2332,19 @@ public partial class MainWindow : Window
                 _channel is null &&
                 (acceptAttempted || rejectedCleanupFailed))
             {
-                await RestartReceiverAdvertisementAsync("连接请求处理结束");
+                if (_service.State == WifiDirectState.Listening)
+                {
+                    SuppressNetworkChangeRecovery();
+                    StartAdvertisementWatchdog();
+                    Log(
+                        "连接处理结束，PeerFinder 仍在监听，" +
+                        "保持现有等待广播。");
+                }
+                else
+                {
+                    await RestartReceiverAdvertisementAsync(
+                        "连接请求处理结束");
+                }
             }
         }
     }
