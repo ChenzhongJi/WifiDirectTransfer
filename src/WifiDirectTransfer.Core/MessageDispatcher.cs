@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics;
 
 namespace WifiDirectTransfer.Core;
 
@@ -13,6 +15,8 @@ public delegate Task AsyncMessageHandler(
 /// </summary>
 public sealed class MessageDispatcher
 {
+    private const int MaxCombinedWriteLength = 512 * 1024;
+
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly int _maxPayloadLength;
@@ -21,6 +25,8 @@ public sealed class MessageDispatcher
     private int _receiveStarted;
     private int _disconnected;
     private int _sendFaulted;
+    private long _readTicks;
+    private int _framesRead;
 
     public MessageDispatcher(
         Stream input,
@@ -55,6 +61,10 @@ public sealed class MessageDispatcher
     public int MaxPayloadLength => _maxPayloadLength;
 
     public bool IsDisconnected => Volatile.Read(ref _disconnected) != 0;
+
+    /// <summary>接收循环截至当前的网络读取耗时和成功帧数。</summary>
+    public (long Ticks, int Frames) GetReadStatistics() =>
+        (Interlocked.Read(ref _readTicks), Volatile.Read(ref _framesRead));
 
     /// <summary>
     /// 处理器按订阅顺序逐个 await。Payload 仅在处理器执行期间有效。
@@ -116,12 +126,38 @@ public sealed class MessageDispatcher
 
             try
             {
-                await _output
-                    .WriteAsync(header.AsMemory(), cancellationToken)
-                    .ConfigureAwait(false);
-                await _output
-                    .WriteAsync(payload, cancellationToken)
-                    .ConfigureAwait(false);
+                var totalLength = header.Length + payload.Length;
+
+                if (totalLength <= MaxCombinedWriteLength)
+                {
+                    var combined = ArrayPool<byte>.Shared.Rent(totalLength);
+
+                    try
+                    {
+                        header.CopyTo(combined, 0);
+                        payload.Span.CopyTo(
+                            combined.AsSpan(header.Length));
+                        await _output
+                            .WriteAsync(
+                                combined.AsMemory(0, totalLength),
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(combined);
+                    }
+                }
+                else
+                {
+                    await _output
+                        .WriteAsync(header.AsMemory(), cancellationToken)
+                        .ConfigureAwait(false);
+                    await _output
+                        .WriteAsync(payload, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 await _output
                     .FlushAsync(cancellationToken)
                     .ConfigureAwait(false);
@@ -153,6 +189,7 @@ public sealed class MessageDispatcher
         {
             while (true)
             {
+                var readStarted = Stopwatch.GetTimestamp();
                 var firstByteRead = await _input
                     .ReadAsync(typeBuffer.AsMemory(), cancellationToken)
                     .ConfigureAwait(false);
@@ -188,6 +225,11 @@ public sealed class MessageDispatcher
                 await _input
                     .ReadExactlyAsync(payload, cancellationToken)
                     .ConfigureAwait(false);
+
+                Interlocked.Add(
+                    ref _readTicks,
+                    Stopwatch.GetTimestamp() - readStarted);
+                Interlocked.Increment(ref _framesRead);
 
                 var args = new MessageReceivedEventArgs(type, payload);
 

@@ -52,6 +52,8 @@ public sealed class FileReceiver : IAsyncDisposable
     private int _windowChunkCount;
     private int _windowFlushCount;
     private int _windowAckCount;
+    private long _readTicksAtStart;
+    private int _readFramesAtStart;
     private Stopwatch? _stopwatch;
     private int _manifestEntryCount;
     private int _disposed;
@@ -190,6 +192,10 @@ public sealed class FileReceiver : IAsyncDisposable
         _windowChunkCount = 0;
         _windowFlushCount = 0;
         _windowAckCount = 0;
+
+        var readStatistics = _dispatcher.GetReadStatistics();
+        _readTicksAtStart = readStatistics.Ticks;
+        _readFramesAtStart = readStatistics.Frames;
 
         FileStartPayload start;
 
@@ -1172,13 +1178,23 @@ public sealed class FileReceiver : IAsyncDisposable
         double ToMilliseconds(long ticks) =>
             ticks * 1000.0 / Stopwatch.Frequency;
 
+        var readStatistics = _dispatcher.GetReadStatistics();
+        var readTicks = Math.Max(
+            0,
+            readStatistics.Ticks - _readTicksAtStart);
+        var readFrames = Math.Max(
+            0,
+            readStatistics.Frames - _readFramesAtStart);
+
         _log?.Invoke(
             "窗口接收统计：" +
             $"chunks={_windowChunkCount}, acks={_windowAckCount}, " +
             $"flushes={_windowFlushCount}, " +
             $"writeMs={ToMilliseconds(_windowWriteTicks):0.0}, " +
             $"flushMs={ToMilliseconds(_windowFlushTicks):0.0}, " +
-            $"ackMs={ToMilliseconds(_windowAckTicks):0.0}");
+            $"ackMs={ToMilliseconds(_windowAckTicks):0.0}, " +
+            $"readMs={ToMilliseconds(readTicks):0.0}, " +
+            $"readFrames={readFrames}");
     }
 
     private void ResetState()
@@ -1210,6 +1226,8 @@ public sealed class FileReceiver : IAsyncDisposable
         _windowChunkCount = 0;
         _windowFlushCount = 0;
         _windowAckCount = 0;
+        _readTicksAtStart = 0;
+        _readFramesAtStart = 0;
         _stopwatch = null;
     }
 

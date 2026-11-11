@@ -25,8 +25,9 @@ internal sealed class WifiDirectConnection : IDuplexChannel
         try
         {
             // .NET 8 的投影提供 AsStreamForRead，而不是 IInputStream.AsStream(InputStreamOptions)。
-            // 该适配器内部使用 InputStreamOptions.Partial；bufferSize: 0 关闭额外缓冲。
-            _input = socket.InputStream.AsStreamForRead(bufferSize: 0);
+            // 使用 256 KiB 内部缓冲，避免每个帧头和 payload 都触发独立的 WinRT 读取。
+            _input = socket.InputStream.AsStreamForRead(
+                bufferSize: 256 * 1024);
             _output = socket.OutputStream.AsStreamForWrite();
             EndpointInfo = ReadEndpointInfo(socket);
         }
