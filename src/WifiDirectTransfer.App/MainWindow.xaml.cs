@@ -146,6 +146,7 @@ public partial class MainWindow : Window
     private bool _isDisconnecting;
     private bool _isSending;
     private bool _isHandlingRequest;
+    private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
     private WifiDirectPeer? _connectedPeer;
     private bool _isAutoReconnecting;
@@ -2159,19 +2160,26 @@ public partial class MainWindow : Window
 
         if (_role != AppRole.Receiver)
         {
+            Interlocked.Exchange(ref _pendingConnectionRequest, null);
             Log($"忽略连接请求：当前不是等待连接端。DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
             return;
         }
 
         if (_channel is not null)
         {
+            Interlocked.Exchange(ref _pendingConnectionRequest, null);
             Log("已有活动连接，忽略新的连接请求。");
             return;
         }
 
         if (_isHandlingRequest)
         {
-            Log("正在处理其他连接请求，忽略新的请求。");
+            var replaced = Interlocked.Exchange(
+                ref _pendingConnectionRequest,
+                request);
+            Log(replaced is null
+                ? "已有连接请求处理中，记录最新连接请求待处理。"
+                : "已有连接请求处理中，更新为最新连接请求。");
             return;
         }
 
@@ -2264,9 +2272,10 @@ public partial class MainWindow : Window
             }
 
             using var acceptCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-            acceptCts.CancelAfter(TimeSpan.FromSeconds(30));
+            acceptCts.CancelAfter(TimeSpan.FromSeconds(12));
             acceptAttempted = true;
 
+            Log("开始 AcceptAsync，超时 12 秒。");
             var channel = await _service.AcceptAsync(request, acceptCts.Token);
             AttachChannel(channel);
             Log($"AcceptAsync 成功：state={_service.State}");
@@ -2344,6 +2353,34 @@ public partial class MainWindow : Window
                 {
                     await RestartReceiverAdvertisementAsync(
                         "连接请求处理结束");
+                }
+            }
+
+            var pending = Interlocked.Exchange(
+                ref _pendingConnectionRequest,
+                null);
+
+            if (pending is not null &&
+                connectionEstablished == false &&
+                !_isClosing &&
+                _serviceStarted &&
+                _channel is null)
+            {
+                var waitDeadline = DateTimeOffset.UtcNow.AddSeconds(5);
+
+                while (_isRestartingAdvertisement &&
+                       !_isClosing &&
+                       DateTimeOffset.UtcNow < waitDeadline)
+                {
+                    await Task.Delay(50);
+                }
+
+                if (!_isClosing && _channel is null)
+                {
+                    Log("当前连接请求处理结束，开始处理等待中的连接请求。");
+                    _ = Dispatcher.BeginInvoke(
+                        new Action(() =>
+                            _ = HandleConnectionRequestAsync(pending)));
                 }
             }
         }

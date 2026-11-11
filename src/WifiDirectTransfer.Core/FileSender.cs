@@ -654,6 +654,11 @@ public static class FileSender
             {
                 _verifyTcs = new TaskCompletionSource<byte[]>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
+
+                if (_lateStartError is not null)
+                {
+                    _verifyTcs.TrySetException(_lateStartError);
+                }
             }
         }
 
