@@ -71,14 +71,16 @@ internal sealed class TransferTestSession : IAsyncDisposable
         byte[] data,
         string fileName,
         long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
-        string relativeDirectory = "")
+        string relativeDirectory = "",
+        bool windowedTransfer = false)
     {
         using var source = new MemoryStream(data);
         return await SendAsync(
                 source,
                 fileName,
                 maxFileSize,
-                relativeDirectory)
+                relativeDirectory,
+                windowedTransfer)
             .ConfigureAwait(false);
     }
 
@@ -86,7 +88,8 @@ internal sealed class TransferTestSession : IAsyncDisposable
         Stream source,
         string fileName,
         long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
-        string relativeDirectory = "")
+        string relativeDirectory = "",
+        bool windowedTransfer = false)
     {
         var startProgress = new InlineProgress<FileTransferStartInfo>(
             SenderStarts.Add);
@@ -98,7 +101,8 @@ internal sealed class TransferTestSession : IAsyncDisposable
                 maxFileSize,
                 startProgress: startProgress,
                 cancellationToken: _senderCts.Token,
-                relativeDirectory: relativeDirectory)
+                relativeDirectory: relativeDirectory,
+                windowedTransfer: windowedTransfer)
             .ConfigureAwait(false);
     }
 

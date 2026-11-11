@@ -84,6 +84,28 @@ public partial class MainWindow : Window
     private static readonly TimeSpan NetworkChangeSuppression =
         TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan[] ConnectAttemptTimeouts =
+    {
+        TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(15),
+        TimeSpan.FromSeconds(15)
+    };
+
+    private static readonly TimeSpan[] ConnectRetryDelays =
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(3)
+    };
+
+    private static readonly TimeSpan OverallConnectTimeout =
+        TimeSpan.FromSeconds(60);
+
+    private static readonly TimeSpan ReceiverRestartReleaseDelay =
+        TimeSpan.FromMilliseconds(800);
+
+    private static readonly TimeSpan ReceiverRestartStabilizationDelay =
+        TimeSpan.FromMilliseconds(700);
+
     private const string ReceivedFileDragFormat =
         "WifiDirectTransfer.ReceivedFileDrag";
 
@@ -124,6 +146,7 @@ public partial class MainWindow : Window
     private bool _isDisconnecting;
     private bool _isSending;
     private bool _isHandlingRequest;
+    private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
     private WifiDirectPeer? _connectedPeer;
     private bool _isAutoReconnecting;
@@ -172,6 +195,7 @@ public partial class MainWindow : Window
         PeerList.ItemsSource = _peerItems;
         ReceivedFilesList.ItemsSource = _receivedProjects.Projects;
         _service.ConnectionRequested += OnConnectionRequested;
+        _service.DiagnosticMessage += OnServiceDiagnosticMessage;
         Application.Current.SessionEnding += OnSessionEnding;
     }
 
@@ -1161,11 +1185,25 @@ public partial class MainWindow : Window
 
         if (_role == AppRole.Receiver)
         {
-            if (_serviceStarted)
+            if (!_serviceStarted)
             {
-                await RestartReceiverAdvertisementAsync(reason);
+                return;
             }
 
+            if (_service.State == WifiDirectState.Listening)
+            {
+                // 连接结束不影响现有 PeerFinder 广播。立即 Stop/Start 会让
+                // 对端在可发现但暂不接受连接的状态停留一段时间。
+                SuppressNetworkChangeRecovery();
+                StartAdvertisementWatchdog();
+                Log(
+                    "接收端连接结束，PeerFinder 仍在监听，" +
+                    "保持现有等待广播。");
+                UpdateStatus("已断开，继续等待连接…");
+                return;
+            }
+
+            await RestartReceiverAdvertisementAsync(reason);
             return;
         }
 
@@ -1453,9 +1491,23 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (_role == AppRole.Receiver)
+        {
+            Log("等待 Wi-Fi Direct 广播释放…");
+            await Task.Delay(ReceiverRestartReleaseDelay, cancellationToken);
+        }
+
         if (!await EnsureServiceStartedAsync())
         {
             return false;
+        }
+
+        if (_role == AppRole.Receiver)
+        {
+            await Task.Delay(
+                ReceiverRestartStabilizationDelay,
+                cancellationToken);
+            Log("接收端等待广播稳定完成。");
         }
 
         Log("PeerFinder 已重新启动。");
@@ -1727,6 +1779,80 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<IDuplexChannel> ConnectWithRetryAsync(
+        WifiDirectPeer peer,
+        CancellationToken cancellationToken)
+    {
+        for (var attemptIndex = 0;
+             attemptIndex < ConnectAttemptTimeouts.Length;
+             attemptIndex++)
+        {
+            var attempt = attemptIndex + 1;
+            var timeout = ConnectAttemptTimeouts[attemptIndex];
+
+            using var attemptCts =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            attemptCts.CancelAfter(timeout);
+
+            try
+            {
+                Log(
+                    $"ConnectAsync 第 {attempt} 次开始：" +
+                    $"DisplayName={peer.DisplayName}, Id={peer.Id}, " +
+                    $"timeout={timeout.TotalSeconds:0}s");
+
+                var channel = await _service.ConnectAsync(
+                    peer,
+                    attemptCts.Token);
+
+                Log($"ConnectAsync 第 {attempt} 次成功。");
+                return channel;
+            }
+            catch (Exception exception)
+                when (attemptIndex < ConnectAttemptTimeouts.Length - 1 &&
+                      !cancellationToken.IsCancellationRequested &&
+                      IsRetryableConnectFailure(exception))
+            {
+                var retryDelay = ConnectRetryDelays[attemptIndex];
+
+                Log(
+                    $"ConnectAsync 第 {attempt} 次失败：" +
+                    $"type={exception.GetType().Name}，" +
+                    $"{retryDelay.TotalSeconds:0} 秒后重试。");
+                UpdateStatus("连接未完成，正在重新发现并重试…");
+
+                await Task.Delay(retryDelay, cancellationToken);
+
+                if (attemptIndex == 0)
+                {
+                    if (!await RestartPeerFinderAsync(
+                            "连接失败自动重试",
+                            cancellationToken))
+                    {
+                        throw new WifiDirectConnectionFailedException(
+                            "自动重试前重新启动发现失败，请手动重新扫描。",
+                            exception);
+                    }
+
+                    UpdateStatus("发送端发现已重启，等待重新发现对端…");
+                }
+                else
+                {
+                    UpdateStatus("正在重新扫描对端并重试连接…");
+                }
+            }
+        }
+
+        throw new InvalidOperationException("连接重试流程异常结束。");
+    }
+
+    private static bool IsRetryableConnectFailure(Exception exception) =>
+        exception is OperationCanceledException
+            or WifiDirectPeerNotFoundException
+            or WifiDirectConnectionFailedException
+            or ArgumentException;
+
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
         if (_role != AppRole.Sender ||
@@ -1749,16 +1875,16 @@ public partial class MainWindow : Window
         _isConnecting = true;
         UpdateUi();
         UpdateStatus($"正在连接 {peer.DisplayName}…");
-        Log($"ConnectAsync 开始：DisplayName={peer.DisplayName}, Id={peer.Id}");
+        Log($"连接流程开始：DisplayName={peer.DisplayName}, Id={peer.Id}");
 
         IDuplexChannel? channel = null;
         using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        connectCts.CancelAfter(TimeSpan.FromSeconds(30));
+        connectCts.CancelAfter(OverallConnectTimeout);
         _connectionAttemptCts = connectCts;
 
         try
         {
-            channel = await _service.ConnectAsync(peer, connectCts.Token);
+            channel = await ConnectWithRetryAsync(peer, connectCts.Token);
             AttachChannel(channel);
             Log($"ConnectAsync 成功：state={_service.State}");
 
@@ -2034,19 +2160,26 @@ public partial class MainWindow : Window
 
         if (_role != AppRole.Receiver)
         {
+            Interlocked.Exchange(ref _pendingConnectionRequest, null);
             Log($"忽略连接请求：当前不是等待连接端。DisplayName={request.Peer.DisplayName}, Id={request.Peer.Id}");
             return;
         }
 
         if (_channel is not null)
         {
+            Interlocked.Exchange(ref _pendingConnectionRequest, null);
             Log("已有活动连接，忽略新的连接请求。");
             return;
         }
 
         if (_isHandlingRequest)
         {
-            Log("正在处理其他连接请求，忽略新的请求。");
+            var replaced = Interlocked.Exchange(
+                ref _pendingConnectionRequest,
+                request);
+            Log(replaced is null
+                ? "已有连接请求处理中，记录最新连接请求待处理。"
+                : "已有连接请求处理中，更新为最新连接请求。");
             return;
         }
 
@@ -2139,9 +2272,10 @@ public partial class MainWindow : Window
             }
 
             using var acceptCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-            acceptCts.CancelAfter(TimeSpan.FromSeconds(30));
+            acceptCts.CancelAfter(TimeSpan.FromSeconds(12));
             acceptAttempted = true;
 
+            Log("开始 AcceptAsync，超时 12 秒。");
             var channel = await _service.AcceptAsync(request, acceptCts.Token);
             AttachChannel(channel);
             Log($"AcceptAsync 成功：state={_service.State}");
@@ -2207,7 +2341,47 @@ public partial class MainWindow : Window
                 _channel is null &&
                 (acceptAttempted || rejectedCleanupFailed))
             {
-                await RestartReceiverAdvertisementAsync("连接请求处理结束");
+                if (_service.State == WifiDirectState.Listening)
+                {
+                    SuppressNetworkChangeRecovery();
+                    StartAdvertisementWatchdog();
+                    Log(
+                        "连接处理结束，PeerFinder 仍在监听，" +
+                        "保持现有等待广播。");
+                }
+                else
+                {
+                    await RestartReceiverAdvertisementAsync(
+                        "连接请求处理结束");
+                }
+            }
+
+            var pending = Interlocked.Exchange(
+                ref _pendingConnectionRequest,
+                null);
+
+            if (pending is not null &&
+                connectionEstablished == false &&
+                !_isClosing &&
+                _serviceStarted &&
+                _channel is null)
+            {
+                var waitDeadline = DateTimeOffset.UtcNow.AddSeconds(5);
+
+                while (_isRestartingAdvertisement &&
+                       !_isClosing &&
+                       DateTimeOffset.UtcNow < waitDeadline)
+                {
+                    await Task.Delay(50);
+                }
+
+                if (!_isClosing && _channel is null)
+                {
+                    Log("当前连接请求处理结束，开始处理等待中的连接请求。");
+                    _ = Dispatcher.BeginInvoke(
+                        new Action(() =>
+                            _ = HandleConnectionRequestAsync(pending)));
+                }
             }
         }
     }
@@ -2856,7 +3030,9 @@ public partial class MainWindow : Window
             errorMessageFactory: CreateQueueErrorMessage,
             log: Log,
             supportsDirectoryManifest:
-                PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild));
+                PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild),
+            supportsWindowedTransfer:
+                PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild));
 
         queue.FileStarted += OnQueueFileStarted;
         queue.FileCompleted += OnQueueFileCompleted;
@@ -2882,6 +3058,7 @@ public partial class MainWindow : Window
             $"peerMaxPayload={peerHello.MaxPayloadLength}，" +
             $"peerMaxFileSize={FormatBytes(PeerBuildCompatibility.GetMaxFileSize(_peerBuild))}，" +
             $"directoryManifest={PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)}，" +
+            $"windowedTransfer={PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild)}，" +
             $"clipboardSync={_clipboardSyncEnabled}。");
 
         return true;
@@ -3986,7 +4163,9 @@ public partial class MainWindow : Window
                         UpdateStatus("对端未开启接收文本");
                     }
                     else if (control.Subtype != ControlMessageSubtype.Ack &&
-                             control.Subtype != ControlMessageSubtype.DirectoryManifest)
+                             control.Subtype != ControlMessageSubtype.WindowAck &&
+                             control.Subtype != ControlMessageSubtype.DirectoryManifest &&
+                             control.Subtype != ControlMessageSubtype.WindowModeStart)
                     {
                         // 每个 64 KiB 块都会产生 Ack，目录清单可能拆成多条；
                         // 逐条写 UI 日志会拖垮界面。
@@ -4324,6 +4503,10 @@ public partial class MainWindow : Window
         ControlMessageSubtype.FileSkipped => "FileSkipped",
         ControlMessageSubtype.DirectoryManifest =>
             $"DirectoryManifest, entries={message.Directories?.Count ?? 0}",
+        ControlMessageSubtype.WindowModeStart =>
+            $"WindowModeStart, window={message.WindowSize}, ackEvery={message.AckInterval}",
+        ControlMessageSubtype.WindowAck =>
+            $"WindowAck, transfer={message.TransferId}, offset={message.Offset}",
         _ => message.Subtype.ToString()
     };
 
@@ -5497,6 +5680,11 @@ public partial class MainWindow : Window
             : PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)
                 ? "支持"
                 : "不支持";
+        var windowedTransfer = _peerBuild is null
+            ? "未连接"
+            : PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild)
+                ? "支持"
+                : "不支持";
         var queue = _queueManager;
         var queueText = queue is null
             ? "未连接"
@@ -5529,6 +5717,7 @@ public partial class MainWindow : Window
             $"可信设备：{trustedDeviceCount} 台{Environment.NewLine}" +
             $"对端单文件上限：{peerMaxFileSize}{Environment.NewLine}" +
             $"空文件夹清单：{directoryManifest}{Environment.NewLine}" +
+            $"窗口传输：{windowedTransfer}{Environment.NewLine}" +
             $"当前传输速率：{currentRate}{Environment.NewLine}" +
             $"发送队列：{queueText}{Environment.NewLine}" +
             $"本次接收：{receiveText}{Environment.NewLine}" +
@@ -5902,6 +6091,11 @@ public partial class MainWindow : Window
             }
         }));
     }
+
+    private void OnServiceDiagnosticMessage(
+        object? sender,
+        string message) =>
+        Log(message);
 
     private void Log(string message)
     {

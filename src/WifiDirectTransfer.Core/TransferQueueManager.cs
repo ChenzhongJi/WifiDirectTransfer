@@ -15,6 +15,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
     private readonly MessageDispatcher _dispatcher;
     private readonly long _maxFileSize;
     private readonly bool _supportsDirectoryManifest;
+    private readonly bool _supportsWindowedTransfer;
     private readonly Func<Exception, string>? _errorMessageFactory;
     private readonly Action<string>? _log;
     private readonly Queue<PendingFile> _pending = new();
@@ -46,7 +47,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         long maxFileSize = FileTransferProtocol.DefaultMaxFileSize,
         Func<Exception, string>? errorMessageFactory = null,
         Action<string>? log = null,
-        bool supportsDirectoryManifest = true)
+        bool supportsDirectoryManifest = true,
+        bool supportsWindowedTransfer = false)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
 
@@ -60,6 +62,7 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         _dispatcher = dispatcher;
         _maxFileSize = maxFileSize;
         _supportsDirectoryManifest = supportsDirectoryManifest;
+        _supportsWindowedTransfer = supportsWindowedTransfer;
         _errorMessageFactory = errorMessageFactory;
         _log = log;
         _readOnlyFiles = new ReadOnlyObservableCollection<PendingFile>(_files);
@@ -254,6 +257,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             : $"将创建 {EmptyDirectoryCount} 个空文件夹";
 
     public bool SupportsDirectoryManifest => _supportsDirectoryManifest;
+
+    public bool SupportsWindowedTransfer => _supportsWindowedTransfer;
 
     /// <summary>尚未发送的空文件夹清单，用于自动重连。</summary>
     public IReadOnlyList<string> PendingEmptyDirectories
@@ -1737,7 +1742,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                     cancellationToken,
                     _log,
                     relativeDirectory: file.RelativeDirectory,
-                    pauseAsync: WaitIfPausedAsync)
+                    pauseAsync: WaitIfPausedAsync,
+                    windowedTransfer: _supportsWindowedTransfer)
                 .ConfigureAwait(true);
 
             file.BytesTransferred = result.FileSize;

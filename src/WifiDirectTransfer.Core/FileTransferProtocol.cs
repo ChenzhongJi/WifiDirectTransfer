@@ -32,4 +32,13 @@ public static class FileTransferProtocol
     public const long DefaultMaxFileSize = 16L * 1024 * 1024 * 1024;
 
     public const int BlockSize = 64 * 1024;
+
+    /// <summary>1.5+ 窗口模式的默认在途块数。</summary>
+    public const int DefaultWindowSize = 16;
+
+    /// <summary>1.5+ 窗口模式下每多少个块发送一次累计 ACK。</summary>
+    public const int DefaultWindowAckInterval = 4;
+
+    /// <summary>窗口模式和累计 ACK 的最大可协商值。</summary>
+    public const int MaxWindowSize = 64;
 }

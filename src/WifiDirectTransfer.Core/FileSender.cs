@@ -28,7 +28,8 @@ public static class FileSender
         Action<string>? log = null,
         TimeSpan? verificationTimeout = null,
         string relativeDirectory = "",
-        Func<CancellationToken, Task>? pauseAsync = null)
+        Func<CancellationToken, Task>? pauseAsync = null,
+        bool windowedTransfer = false)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(source);
@@ -147,6 +148,40 @@ public static class FileSender
             startProgress?.Report(
                 new FileTransferStartInfo(fileName, initialLength, resumeOffset));
 
+            var windowSize = FileTransferProtocol.DefaultWindowSize;
+            var windowAckInterval =
+                FileTransferProtocol.DefaultWindowAckInterval;
+            long windowBytes = (long)windowSize * FileTransferProtocol.BlockSize;
+            long maxInFlightBytes = 0;
+            long windowWaitTicks = 0;
+            var windowWaitCount = 0;
+
+            if (windowedTransfer)
+            {
+                var transferId = BitConverter.ToInt64(
+                    RandomNumberGenerator.GetBytes(8));
+
+                await dispatcher
+                    .SendAsync(
+                        MessageType.ControlMessage,
+                        ControlMessageCodec.SerializeWindowModeStart(
+                            windowSize,
+                            windowAckInterval,
+                            transferId),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                controlState.BeginWindowMode(resumeOffset, transferId);
+
+                if (initialLength >= 8L * 1024 * 1024)
+                {
+                    log?.Invoke(
+                        "启用窗口传输：" +
+                        $"window={windowSize}, ackEvery={windowAckInterval}, " +
+                        $"resumeOffset={resumeOffset}");
+                }
+            }
+
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             var buffer = ArrayPool<byte>.Shared.Rent(FileTransferProtocol.BlockSize);
             var congestionMonitor = new AckCongestionMonitor();
@@ -209,10 +244,39 @@ public static class FileSender
                     hash.AppendData(buffer, 0, read);
 
                     controlState.ThrowIfLateStart();
-                    controlState.BeginAckWait();
+                    controlState.ThrowIfLateResume();
 
-                    try
+                    if (windowedTransfer)
                     {
+                        var requiredAckedOffset =
+                            processed + read - windowBytes;
+
+                        if (requiredAckedOffset > 0)
+                        {
+                            var waitWatch = Stopwatch.StartNew();
+
+                            try
+                            {
+                                await controlState
+                                    .WaitForAckedOffsetAsync(
+                                        requiredAckedOffset,
+                                        AckTimeout,
+                                        cancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+                            catch (TimeoutException)
+                            {
+                                throw new TransferTimeoutException(
+                                    "等待接收端累计 ACK 超时（30 秒）。");
+                            }
+                            finally
+                            {
+                                waitWatch.Stop();
+                                windowWaitTicks += waitWatch.ElapsedTicks;
+                                windowWaitCount++;
+                            }
+                        }
+
                         await dispatcher
                             .SendAsync(
                                 MessageType.FileChunk,
@@ -221,40 +285,59 @@ public static class FileSender
                             .ConfigureAwait(false);
 
                         processed += read;
-
-                        long acknowledgedOffset;
-                        var ackWatch = Stopwatch.StartNew();
+                        maxInFlightBytes = Math.Max(
+                            maxInFlightBytes,
+                            processed - controlState.AckedOffset);
+                    }
+                    else
+                    {
+                        controlState.BeginAckWait();
 
                         try
                         {
-                            acknowledgedOffset = await controlState.AckTask
-                                .WaitAsync(AckTimeout, cancellationToken)
+                            await dispatcher
+                                .SendAsync(
+                                    MessageType.FileChunk,
+                                    buffer.AsMemory(0, read),
+                                    cancellationToken)
                                 .ConfigureAwait(false);
-                        }
-                        catch (TimeoutException)
-                        {
-                            throw new TransferTimeoutException(
-                                "等待接收端 ACK 超时（30 秒）。");
+
+                            processed += read;
+
+                            long acknowledgedOffset;
+                            var ackWatch = Stopwatch.StartNew();
+
+                            try
+                            {
+                                acknowledgedOffset = await controlState.AckTask
+                                    .WaitAsync(AckTimeout, cancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+                            catch (TimeoutException)
+                            {
+                                throw new TransferTimeoutException(
+                                    "等待接收端 ACK 超时（30 秒）。");
+                            }
+                            finally
+                            {
+                                ackWatch.Stop();
+                            }
+
+                            if (congestionMonitor.Report(ackWatch.Elapsed))
+                            {
+                                log?.Invoke(AckCongestionMonitor.WarningMessage);
+                            }
+
+                            if (acknowledgedOffset != processed)
+                            {
+                                throw new MessageProtocolException(
+                                    $"ACK 偏移不匹配：预期 {processed} 字节，实际 {acknowledgedOffset} 字节。");
+                            }
                         }
                         finally
                         {
-                            ackWatch.Stop();
+                            controlState.EndAckWait();
                         }
-
-                        if (congestionMonitor.Report(ackWatch.Elapsed))
-                        {
-                            log?.Invoke(AckCongestionMonitor.WarningMessage);
-                        }
-
-                        if (acknowledgedOffset != processed)
-                        {
-                            throw new MessageProtocolException(
-                                $"ACK 偏移不匹配：预期 {processed} 字节，实际 {acknowledgedOffset} 字节。");
-                        }
-                    }
-                    finally
-                    {
-                        controlState.EndAckWait();
                     }
 
                     controlState.ThrowIfLateStart();
@@ -267,6 +350,26 @@ public static class FileSender
             }
             finally
             {
+                if (windowedTransfer)
+                {
+                    controlState.EndWindowMode();
+
+                    if (initialLength >= 8L * 1024 * 1024)
+                    {
+                        var averageWaitMilliseconds = windowWaitCount == 0
+                            ? 0
+                            : windowWaitTicks * 1000.0 /
+                              Stopwatch.Frequency /
+                              windowWaitCount;
+
+                        log?.Invoke(
+                            "窗口传输统计：" +
+                            $"waits={windowWaitCount}, " +
+                            $"avgAckWaitMs={averageWaitMilliseconds:0.0}, " +
+                            $"maxInFlightBytes={maxInFlightBytes}");
+                    }
+                }
+
                 ArrayPool<byte>.Shared.Return(buffer);
             }
 
@@ -340,7 +443,8 @@ public static class FileSender
         Action<string>? log = null,
         TimeSpan? verificationTimeout = null,
         string relativeDirectory = "",
-        Func<CancellationToken, Task>? pauseAsync = null)
+        Func<CancellationToken, Task>? pauseAsync = null,
+        bool windowedTransfer = false)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -366,7 +470,8 @@ public static class FileSender
                 log,
                 verificationTimeout,
                 relativeDirectory,
-                pauseAsync)
+                pauseAsync,
+                windowedTransfer)
             .ConfigureAwait(false);
     }
 
@@ -384,6 +489,11 @@ public static class FileSender
         private TaskCompletionSource<StartResponse>? _startTcs;
         private TaskCompletionSource<long>? _ackTcs;
         private TaskCompletionSource<byte[]>? _verifyTcs;
+        private TaskCompletionSource? _windowAckPulse;
+        private long _ackedOffset;
+        private long _transferId;
+        private Exception? _windowError;
+        private bool _windowMode;
         private bool _startWaitFinished;
         private bool _lateResume;
         private Exception? _lateStartError;
@@ -469,12 +579,86 @@ public static class FileSender
             }
         }
 
+        public long AckedOffset
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _ackedOffset;
+                }
+            }
+        }
+
+        public void BeginWindowMode(
+            long initialAckedOffset,
+            long transferId)
+        {
+            lock (_gate)
+            {
+                _windowMode = true;
+                _ackedOffset = initialAckedOffset;
+                _transferId = transferId;
+                _windowError = null;
+                _windowAckPulse = CreateSignalTcs();
+            }
+        }
+
+        public void EndWindowMode()
+        {
+            lock (_gate)
+            {
+                _windowMode = false;
+                _windowAckPulse = null;
+                _windowError = null;
+            }
+        }
+
+        public async Task WaitForAckedOffsetAsync(
+            long requiredOffset,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                Task waitTask;
+                Exception? error;
+
+                lock (_gate)
+                {
+                    if (_ackedOffset >= requiredOffset)
+                    {
+                        return;
+                    }
+
+                    error = _windowError;
+                    waitTask = _windowAckPulse?.Task
+                        ?? throw new InvalidOperationException(
+                            "窗口 ACK 等待尚未开始。");
+                }
+
+                if (error is not null)
+                {
+                    throw error;
+                }
+
+                await waitTask
+                    .WaitAsync(timeout, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
         public void BeginVerifyWait()
         {
             lock (_gate)
             {
                 _verifyTcs = new TaskCompletionSource<byte[]>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
+
+                if (_lateStartError is not null)
+                {
+                    _verifyTcs.TrySetException(_lateStartError);
+                }
             }
         }
 
@@ -578,10 +762,33 @@ public static class FileSender
 
                     _ackTcs?.TrySetException(startError);
                     _verifyTcs?.TrySetException(startError);
+
+                    if (_windowMode)
+                    {
+                        _windowError ??= startError;
+                        var pulse = _windowAckPulse;
+                        _windowAckPulse = CreateSignalTcs();
+                        pulse?.TrySetResult();
+                    }
+                }
+                else if (message.Subtype == ControlMessageSubtype.WindowAck)
+                {
+                    if (_windowMode &&
+                        message.TransferId == _transferId &&
+                        message.Offset > _ackedOffset)
+                    {
+                        _ackedOffset = message.Offset;
+                        var pulse = _windowAckPulse;
+                        _windowAckPulse = CreateSignalTcs();
+                        pulse?.TrySetResult();
+                    }
                 }
                 else if (message.Subtype == ControlMessageSubtype.Ack)
                 {
-                    _ackTcs?.TrySetResult(message.Offset);
+                    if (!_windowMode)
+                    {
+                        _ackTcs?.TrySetResult(message.Offset);
+                    }
                 }
             }
 
@@ -592,6 +799,9 @@ public static class FileSender
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private static TaskCompletionSource<long> CreateAckTcs() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private static TaskCompletionSource CreateSignalTcs() =>
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

@@ -1,3 +1,4 @@
+using System.Reflection;
 using WifiDirectTransfer.Core;
 using WifiDirectTransfer.Windows;
 using Xunit;
@@ -71,6 +72,19 @@ public sealed class WifiDirectErrorMapperTests
         Assert.Equal(
             "发生未知错误，请重试或查看日志。",
             WifiDirectErrorMapper.GetUserMessage(WifiDirectErrorCode.Unknown));
+    }
+
+    [Fact]
+    public void Map_InvalidPeerInformation_UsesPeerNotFound()
+    {
+        var exception = new ArgumentException("invalid peer information");
+        typeof(Exception)
+            .GetField("_HResult", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(exception, unchecked((int)0x80070057));
+
+        Assert.Equal(
+            WifiDirectErrorCode.PeerNotFound,
+            WifiDirectErrorMapper.Map(exception));
     }
 
     [Fact]

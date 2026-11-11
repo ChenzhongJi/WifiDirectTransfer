@@ -40,6 +40,11 @@ public sealed class FileReceiver : IAsyncDisposable
     private long _metadataIntervalBytes;
     private long _lastMetadataAttemptReceived;
     private bool _metadataWarningLogged;
+    private bool _windowMode;
+    private int _windowSize;
+    private int _windowAckInterval;
+    private int _windowBlocksSinceAck;
+    private long _windowTransferId;
     private Stopwatch? _stopwatch;
     private int _manifestEntryCount;
     private int _disposed;
@@ -165,6 +170,12 @@ public sealed class FileReceiver : IAsyncDisposable
                 new MessageProtocolException("收到新的 FileStart，已暂停上一个文件。"),
                 _safeFileName);
         }
+
+        _windowMode = false;
+        _windowSize = 0;
+        _windowAckInterval = 0;
+        _windowBlocksSinceAck = 0;
+        _windowTransferId = 0;
 
         FileStartPayload start;
 
@@ -439,21 +450,44 @@ public sealed class FileReceiver : IAsyncDisposable
                 .WriteAsync(payload, cancellationToken)
                 .ConfigureAwait(false);
 
-            // 先把数据 Flush 到 .part，再更新 meta，最后才发送 Ack。
-            await _part
-                .FlushAsync(cancellationToken)
-                .ConfigureAwait(false);
-
             _hash.AppendData(payload.Span);
             _received += payload.Length;
 
-            // ACK 只表示 .part 已经持久化；不要让它等待 .meta 文件操作。
-            await _dispatcher
-                .SendAsync(
-                    MessageType.ControlMessage,
-                    ControlMessageCodec.SerializeAck(_received),
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (_windowMode)
+            {
+                _windowBlocksSinceAck++;
+
+                if (_windowBlocksSinceAck >= _windowAckInterval)
+                {
+                    await _part
+                        .FlushAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    _windowBlocksSinceAck = 0;
+
+                    await _dispatcher
+                        .SendAsync(
+                            MessageType.ControlMessage,
+                            ControlMessageCodec.SerializeWindowAck(
+                                _windowTransferId,
+                                _received),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                // 旧端保持逐块 Flush + ACK 语义。
+                await _part
+                    .FlushAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                await _dispatcher
+                    .SendAsync(
+                        MessageType.ControlMessage,
+                        ControlMessageCodec.SerializeAck(_received),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             _progress?.Report(new FileTransferProgress(_received, _expectedSize));
 
@@ -616,6 +650,29 @@ public sealed class FileReceiver : IAsyncDisposable
         if (message.Subtype == ControlMessageSubtype.QueueInfo)
         {
             _pendingQueueBytes = message.Offset;
+            return;
+        }
+
+        if (message.Subtype == ControlMessageSubtype.WindowModeStart)
+        {
+            if (_part is null || _header is null)
+            {
+                return;
+            }
+
+            _windowMode = true;
+            _windowSize = message.WindowSize;
+            _windowAckInterval = message.AckInterval;
+            _windowBlocksSinceAck = 0;
+            _windowTransferId = message.TransferId;
+
+            if (_expectedSize >= 8L * 1024 * 1024)
+            {
+                _log?.Invoke(
+                    "接收端启用窗口模式：" +
+                    $"window={_windowSize}, ackEvery={_windowAckInterval}");
+            }
+
             return;
         }
 
@@ -1065,6 +1122,11 @@ public sealed class FileReceiver : IAsyncDisposable
         _metadataIntervalBytes = 0;
         _lastMetadataAttemptReceived = 0;
         _metadataWarningLogged = false;
+        _windowMode = false;
+        _windowSize = 0;
+        _windowAckInterval = 0;
+        _windowBlocksSinceAck = 0;
+        _windowTransferId = 0;
         _stopwatch = null;
     }
 

@@ -12,6 +12,11 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
     private static readonly TimeSpan KnownPeerDiscoveryTimeout =
         TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan ConnectionRetryDelay =
+        TimeSpan.FromMilliseconds(300);
+
+    private const int InvalidArgumentHResult = unchecked((int)0x80070057);
+
     private readonly object _gate = new();
     private readonly Dictionary<string, PeerInformation> _peers = new(StringComparer.Ordinal);
     private WifiDirectConnection? _activeConnection;
@@ -23,6 +28,8 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
     public WifiDirectState State => (WifiDirectState)Volatile.Read(ref _state);
 
     public event EventHandler<WifiDirectConnectionRequestEventArgs>? ConnectionRequested;
+
+    public event EventHandler<string>? DiagnosticMessage;
 
     public Task StartAsync(string displayName, CancellationToken cancellationToken = default)
     {
@@ -152,6 +159,59 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
                 cancellationToken)
             .ConfigureAwait(false);
 
+        try
+        {
+            return await ConnectOnceAsync(
+                    peerInformation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+            when (IsInvalidPeerInformationException(exception) &&
+                  !cancellationToken.IsCancellationRequested)
+        {
+            InvalidateCachedPeer(peerInformation);
+            LogDiagnostic(
+                "PeerFinder.ConnectAsync 返回 E_INVALIDARG：" +
+                $"DisplayName={peer.DisplayName}, Id={peer.Id}。" +
+                "已清除缓存并重新发现对端。");
+
+            await Task.Delay(ConnectionRetryDelay, cancellationToken)
+                .ConfigureAwait(false);
+
+            var refreshed = await ResolvePeerInformationAsync(
+                    peer,
+                    cancellationToken,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+
+            try
+            {
+                var channel = await ConnectOnceAsync(
+                        refreshed,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                LogDiagnostic(
+                    "重新发现后连接成功：" +
+                    $"DisplayName={peer.DisplayName}, Id={peer.Id}。");
+                return channel;
+            }
+            catch (Exception retryException)
+                when (IsInvalidPeerInformationException(retryException))
+            {
+                InvalidateCachedPeer(refreshed);
+                throw new WifiDirectPeerNotFoundException(
+                    peer,
+                    retryException);
+            }
+        }
+    }
+
+    private async Task<IDuplexChannel> ConnectOnceAsync(
+        PeerInformation peerInformation,
+        CancellationToken cancellationToken)
+    {
         SetState(WifiDirectState.Connecting);
         var connected = false;
 
@@ -180,6 +240,23 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         }
     }
 
+    private void LogDiagnostic(string message)
+    {
+        try
+        {
+            DiagnosticMessage?.Invoke(this, message);
+        }
+        catch (Exception)
+        {
+            // 诊断日志订阅方异常不应影响连接。
+        }
+    }
+
+    private static bool IsInvalidPeerInformationException(
+        Exception exception) =>
+        exception is ArgumentException &&
+        exception.HResult == InvalidArgumentHResult;
+
     private void InvalidateCachedPeer(PeerInformation peerInformation)
     {
         lock (_gate)
@@ -202,20 +279,24 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
     /// </summary>
     private async Task<PeerInformation> ResolvePeerInformationAsync(
         WifiDirectPeer peer,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool forceRefresh = false)
     {
-        lock (_gate)
+        if (!forceRefresh)
         {
-            if (_peers.TryGetValue(peer.Id, out var cached))
+            lock (_gate)
             {
-                return cached;
-            }
+                if (_peers.TryGetValue(peer.Id, out var cached))
+                {
+                    return cached;
+                }
 
-            var cachedByName = FindCachedPeerByName(peer.DisplayName);
+                var cachedByName = FindCachedPeerByName(peer.DisplayName);
 
-            if (cachedByName is not null)
-            {
-                return cachedByName;
+                if (cachedByName is not null)
+                {
+                    return cachedByName;
+                }
             }
         }
 

@@ -101,6 +101,14 @@ public static class WifiDirectErrorMapper
                 : WifiDirectErrorCode.AccessDenied;
         }
 
+        // WinRT PeerFinder.ConnectAsync 对过期 PeerInformation 返回 E_INVALIDARG。
+        // 这是对端连接信息失效，不是未知错误。
+        if (exception is ArgumentException &&
+            exception.HResult == unchecked((int)0x80070057))
+        {
+            return WifiDirectErrorCode.PeerNotFound;
+        }
+
         switch (exception.HResult & 0xFFFF)
         {
             case 5:
