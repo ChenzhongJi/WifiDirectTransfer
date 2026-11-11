@@ -1,0 +1,74 @@
+<Window x:Class="WifiDirectTransfer.App.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="发现新版本"
+        Icon="pack://application:,,,/Assets/app.ico"
+        Width="560"
+        Height="400"
+        MinWidth="480"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Style="{StaticResource DialogWindowStyle}">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock x:Name="TitleText"
+                       Style="{StaticResource DialogProductTitleText}" />
+            <TextBlock x:Name="SubtitleText"
+                       Margin="0,4,0,0"
+                       Style="{StaticResource DialogSubtitleText}" />
+        </StackPanel>
+
+        <TextBlock x:Name="BodyText"
+                   Grid.Row="1"
+                   Margin="0,16,0,0"
+                   Style="{StaticResource DialogBodyText}"
+                   TextWrapping="Wrap" />
+
+        <TextBlock x:Name="NotesPanel" Grid.Row="2" Margin="0,10,0,0">
+            <Hyperlink x:Name="NotesLink"
+                       Click="NotesLink_Click">查看更新说明</Hyperlink>
+        </TextBlock>
+
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <ProgressBar x:Name="DownloadProgressBar"
+                         Height="6"
+                         Minimum="0"
+                         Maximum="1"
+                         Visibility="Collapsed" />
+            <TextBlock x:Name="StatusText"
+                       Margin="0,8,0,0"
+                       Style="{StaticResource DialogHintText}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Grid Grid.Row="4" Margin="0,14,0,0">
+            <Button x:Name="PrimaryButton"
+                    HorizontalAlignment="Left"
+                    MinWidth="120"
+                    Content="下载并安装"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Click="PrimaryButton_Click" />
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button x:Name="SkipButton"
+                        MinWidth="96"
+                        Margin="0,0,8,0"
+                        Content="跳过此版本"
+                        Click="SkipButton_Click" />
+                <Button x:Name="LaterButton"
+                        MinWidth="80"
+                        Content="稍后"
+                        IsCancel="True"
+                        Click="LaterButton_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

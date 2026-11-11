@@ -58,6 +58,9 @@ public partial class MainWindow : Window
     private bool _notificationsEnabled = true;
     private bool _isApplyingNotificationsPreference;
     private AppThemeMode _themeMode = AppThemeMode.System;
+    private bool _autoUpdateCheckEnabled = true;
+    private bool _isApplyingAutoUpdatePreference;
+    private DispatcherTimer? _updateCheckTimer;
     private bool _isApplyingThemePreference;
     private bool _isApplyingExplorerContextMenuPreference;
     private readonly List<string> _pendingExternalPaths = new();
@@ -348,6 +351,43 @@ public partial class MainWindow : Window
         _ = Dispatcher.BeginInvoke(
             new Action(ShowIncompleteTransfersIfAny),
             DispatcherPriority.Background);
+
+        ScheduleUpdateCheck();
+    }
+
+    /// <summary>启动 20 秒后静默检查一次更新，只在安装版且开关启用时生效。</summary>
+    private void ScheduleUpdateCheck()
+    {
+        if (!_autoUpdateCheckEnabled ||
+            _updateCheckTimer is not null ||
+            !UpdateService.IsInstalledCopy)
+        {
+            return;
+        }
+
+        _updateCheckTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(20)
+        };
+
+        _updateCheckTimer.Tick += async (_, _) =>
+        {
+            _updateCheckTimer?.Stop();
+            _updateCheckTimer = null;
+
+            try
+            {
+                await UpdateCoordinator.CheckAsync(this, manual: false);
+            }
+            catch (Exception exception)
+            {
+                AppLog.Write(
+                    "自动检查更新失败：" +
+                    $"{exception.GetType().Name}: {exception.Message}");
+            }
+        };
+
+        _updateCheckTimer.Start();
     }
 
     private void CheckCapability()
@@ -431,6 +471,7 @@ public partial class MainWindow : Window
             _textConsentAcknowledged;
         _notificationsEnabled = preferences.NotificationsEnabled;
         _trustedAutoAcceptEnabled = preferences.TrustedAutoAcceptEnabled;
+        _autoUpdateCheckEnabled = preferences.AutoUpdateCheckEnabled;
         _themeMode = preferences.ThemeMode;
 
         _isApplyingReceiverPreferences = true;
@@ -480,6 +521,17 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingNotificationsPreference = false;
+        }
+
+        _isApplyingAutoUpdatePreference = true;
+
+        try
+        {
+            AutoUpdateCheckBox.IsChecked = _autoUpdateCheckEnabled;
+        }
+        finally
+        {
+            _isApplyingAutoUpdatePreference = false;
         }
 
         _isApplyingTrustedPreference = true;
@@ -568,20 +620,22 @@ public partial class MainWindow : Window
             (saved ? string.Empty : "（保存失败）"));
     }
 
-    private bool SaveReceiverPreferences() =>
-        _receiverPreferencesStore.Save(
-            new ReceiverPreferences
-            {
-                SameNamePolicy = _sameNamePolicy,
-                ClipboardSyncEnabled = _clipboardSyncEnabled,
-                ClipboardConsentAcknowledged = _clipboardConsentAcknowledged,
-                TextReceiveEnabled = _textReceiveEnabled,
-                TextConsentAcknowledged = _textConsentAcknowledged,
-                NotificationsEnabled = _notificationsEnabled,
-                TrustedAutoAcceptEnabled = _trustedAutoAcceptEnabled,
-                ThemeMode = _themeMode,
-                ReceiveDirectory = _receiveDirectory
-            });
+    private bool SaveReceiverPreferences()
+    {
+        // 保留未在本方法内维护的字段（例如“跳过此版本”）。
+        var preferences = _receiverPreferencesStore.Load();
+        preferences.SameNamePolicy = _sameNamePolicy;
+        preferences.ClipboardSyncEnabled = _clipboardSyncEnabled;
+        preferences.ClipboardConsentAcknowledged = _clipboardConsentAcknowledged;
+        preferences.TextReceiveEnabled = _textReceiveEnabled;
+        preferences.TextConsentAcknowledged = _textConsentAcknowledged;
+        preferences.NotificationsEnabled = _notificationsEnabled;
+        preferences.TrustedAutoAcceptEnabled = _trustedAutoAcceptEnabled;
+        preferences.AutoUpdateCheckEnabled = _autoUpdateCheckEnabled;
+        preferences.ThemeMode = _themeMode;
+        preferences.ReceiveDirectory = _receiveDirectory;
+        return _receiverPreferencesStore.Save(preferences);
+    }
 
     private void ClipboardSyncCheckBox_Checked(
         object sender,
@@ -769,6 +823,40 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("系统通知已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void AutoUpdateCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingAutoUpdatePreference || _isClosing)
+        {
+            return;
+        }
+
+        _autoUpdateCheckEnabled = true;
+
+        var saved = SaveReceiverPreferences();
+        Log("启动时检查更新已启用。" + (saved ? string.Empty : "（保存失败）"));
+
+        ScheduleUpdateCheck();
+    }
+
+    private void AutoUpdateCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingAutoUpdatePreference || _isClosing)
+        {
+            return;
+        }
+
+        _autoUpdateCheckEnabled = false;
+        _updateCheckTimer?.Stop();
+        _updateCheckTimer = null;
+
+        var saved = SaveReceiverPreferences();
+        Log("启动时检查更新已关闭。" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private void TrustedAutoAcceptCheckBox_Checked(
@@ -5126,6 +5214,18 @@ public partial class MainWindow : Window
         _queueManager is { IsRunning: true } ||
         _channel is not null ||
         (_serviceStarted && _role == AppRole.Receiver);
+
+    /// <summary>更新安装需要无条件退出，跳过“后台继续”确认。</summary>
+    internal void AllowCloseForUpdate()
+    {
+        _allowClose = true;
+
+        if (_updateCheckTimer is not null)
+        {
+            _updateCheckTimer.Stop();
+            _updateCheckTimer = null;
+        }
+    }
 
     private async void OnClosing(object? sender, CancelEventArgs e)
     {

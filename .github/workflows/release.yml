@@ -36,6 +36,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
       - name: Resolve tag and label
         id: tag
         shell: pwsh
@@ -69,6 +73,9 @@ jobs:
           path: |
             publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-win-x64.zip
             publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-win-x64.zip.sha256
+            publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-setup.exe
+            publish/artifacts/WifiDirectTransfer-${{ steps.tag.outputs.label }}-setup.exe.sha256
+            publish/artifacts/latest.json
 
       - name: Publish GitHub Release
         if: github.event_name == 'push' || inputs.publish_release == true
@@ -80,15 +87,19 @@ jobs:
           $label = '${{ steps.tag.outputs.label }}'
           $zip = "publish/artifacts/WifiDirectTransfer-$label-win-x64.zip"
           $hash = "$zip.sha256"
+          $setup = "publish/artifacts/WifiDirectTransfer-$label-setup.exe"
+          $setupHash = "$setup.sha256"
+          $latest = "publish/artifacts/latest.json"
+          $assets = @($zip, $hash, $setup, $setupHash, $latest)
           $notes = "docs/releases/$label.md"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
             if (Test-Path $notes) {
               gh release edit $tag --notes-file $notes
             }
-            gh release upload $tag $zip $hash --clobber
+            gh release upload $tag $assets --clobber
           } elseif (Test-Path $notes) {
-            gh release create $tag $zip $hash --title "WifiDirectTransfer $tag" --notes-file $notes
+            gh release create $tag $assets --title "WifiDirectTransfer $tag" --notes-file $notes
           } else {
-            gh release create $tag $zip $hash --title "WifiDirectTransfer $tag" --generate-notes
+            gh release create $tag $assets --title "WifiDirectTransfer $tag" --generate-notes
           }

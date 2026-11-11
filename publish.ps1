@@ -2,14 +2,37 @@
 param(
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
-    [string]$Version = '1.5.0',
+    [string]$Version = '1.6.0',
     [string]$Label,
     [switch]$IncludePdb,
     [switch]$SkipTests,
+    [switch]$SkipInstaller,
     [switch]$AllowDirty
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Resolve-InnoCompiler {
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+
+    $command = Get-Command iscc.exe -ErrorAction SilentlyContinue
+
+    if ($command) {
+        return $command.Source
+    }
+
+    return $null
+}
 $repoRoot = $PSScriptRoot
 
 if ([string]::IsNullOrWhiteSpace($repoRoot)) {
@@ -81,6 +104,9 @@ try {
     $stageDir = Join-Path $artifactsDir "stage-$Label"
     $zipPath = Join-Path $artifactsDir "WifiDirectTransfer-$Label-$Runtime.zip"
     $hashPath = "$zipPath.sha256"
+    $setupPath = Join-Path $artifactsDir "WifiDirectTransfer-$Label-setup.exe"
+    $setupHashPath = "$setupPath.sha256"
+    $latestJsonPath = Join-Path $artifactsDir 'latest.json'
 
     foreach ($requiredFile in @($solution, $project, $readme, $changelog)) {
         if (-not (Test-Path -LiteralPath $requiredFile)) {
@@ -89,7 +115,7 @@ try {
     }
 
     Write-Host '==> Clean previous output'
-    foreach ($path in @($publishDir, $stageDir, $zipPath, $hashPath)) {
+    foreach ($path in @($publishDir, $stageDir, $zipPath, $hashPath, $setupPath, $setupHashPath, $latestJsonPath)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force
         }
@@ -172,6 +198,53 @@ try {
 
     $zipSizeMb = [math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)
 
+    $setupPath = Join-Path $artifactsDir "WifiDirectTransfer-$Label-setup.exe"
+    $setupHashPath = "$setupPath.sha256"
+    $latestJsonPath = Join-Path $artifactsDir 'latest.json'
+    $hasInstaller = $false
+
+    if ($SkipInstaller) {
+        Write-Host '==> Skip installer (-SkipInstaller)'
+    }
+    else {
+        Write-Host '==> Build installer'
+
+        $iscc = Resolve-InnoCompiler
+
+        if (-not $iscc) {
+            throw 'Inno Setup 6 (ISCC.exe) was not found. Install it or pass -SkipInstaller.'
+        }
+
+        & $iscc "/DAppVersion=$Version" "/DAppLabel=$Label" (Join-Path $repoRoot 'installer\WifiDirectTransfer.iss')
+
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Inno Setup compilation failed.'
+        }
+
+        if (-not (Test-Path -LiteralPath $setupPath)) {
+            throw "Installer output not found: $setupPath"
+        }
+
+        $setupHash = Get-FileHash -LiteralPath $setupPath -Algorithm SHA256
+        $setupHashLine = "$($setupHash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($setupPath))"
+        Set-Content -LiteralPath $setupHashPath -Value $setupHashLine -Encoding ASCII
+
+        if ($Label -eq $Version) {
+            # latest.json 只对正式版本生成，预览包不写更新清单。
+            $releaseBase = "https://github.com/ChenzhongJi/WifiDirectTransfer/releases/download/v$Version"
+            $manifest = [ordered]@{
+                version = $Version
+                setup   = "$releaseBase/$([IO.Path]::GetFileName($setupPath))"
+                sha256  = $setupHash.Hash.ToLowerInvariant()
+                size    = (Get-Item -LiteralPath $setupPath).Length
+                notes   = "https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v$Version"
+            }
+            $manifest | ConvertTo-Json | Set-Content -LiteralPath $latestJsonPath -Encoding UTF8
+        }
+
+        $hasInstaller = $true
+    }
+
     Write-Host ''
     Write-Host 'Package complete.'
     Write-Host "  Version:  $Version+$commit"
@@ -180,6 +253,18 @@ try {
     Write-Host "  Size:     $zipSizeMb MB"
     Write-Host "  SHA256:   $($hash.Hash.ToLowerInvariant())"
     Write-Host "  Hash:     $hashPath"
+
+    if ($hasInstaller) {
+        $setupSizeMb = [math]::Round((Get-Item -LiteralPath $setupPath).Length / 1MB, 1)
+
+        Write-Host "  Setup:    $setupPath"
+        Write-Host "  Setup MB: $setupSizeMb MB"
+        Write-Host "  SetupSHA: $((Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant())"
+
+        if (Test-Path -LiteralPath $latestJsonPath) {
+            Write-Host "  Manifest: $latestJsonPath"
+        }
+    }
 
     Remove-Item -LiteralPath $stageDir -Recurse -Force
 }
