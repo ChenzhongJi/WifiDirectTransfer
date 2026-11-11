@@ -84,6 +84,15 @@ public partial class MainWindow : Window
     private static readonly TimeSpan NetworkChangeSuppression =
         TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan FirstConnectAttemptTimeout =
+        TimeSpan.FromSeconds(20);
+
+    private static readonly TimeSpan RetryConnectAttemptTimeout =
+        TimeSpan.FromSeconds(25);
+
+    private static readonly TimeSpan OverallConnectTimeout =
+        TimeSpan.FromSeconds(50);
+
     private const string ReceivedFileDragFormat =
         "WifiDirectTransfer.ReceivedFileDrag";
 
@@ -1728,6 +1737,70 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<IDuplexChannel> ConnectWithRetryAsync(
+        WifiDirectPeer peer,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var timeout = attempt == 1
+                ? FirstConnectAttemptTimeout
+                : RetryConnectAttemptTimeout;
+
+            using var attemptCts =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            attemptCts.CancelAfter(timeout);
+
+            try
+            {
+                Log(
+                    $"ConnectAsync 第 {attempt} 次开始：" +
+                    $"DisplayName={peer.DisplayName}, Id={peer.Id}, " +
+                    $"timeout={timeout.TotalSeconds:0}s");
+
+                var channel = await _service.ConnectAsync(
+                    peer,
+                    attemptCts.Token);
+
+                Log($"ConnectAsync 第 {attempt} 次成功。");
+                return channel;
+            }
+            catch (Exception exception)
+                when (attempt < 2 &&
+                      !cancellationToken.IsCancellationRequested &&
+                      IsRetryableConnectFailure(exception))
+            {
+                Log(
+                    $"ConnectAsync 第 {attempt} 次失败：" +
+                    $"type={exception.GetType().Name}，" +
+                    "正在重启发送端发现并重试。");
+                UpdateStatus("连接未完成，正在重新发现并重试…");
+
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(500),
+                    cancellationToken);
+
+                if (!await RestartPeerFinderAsync(
+                        "连接失败自动重试",
+                        cancellationToken))
+                {
+                    throw new WifiDirectConnectionFailedException(
+                        "自动重试前重新启动发现失败，请手动重新扫描。",
+                        exception);
+                }
+
+                UpdateStatus("正在重新发现对端并重试连接…");
+            }
+        }
+    }
+
+    private static bool IsRetryableConnectFailure(Exception exception) =>
+        exception is OperationCanceledException
+            or WifiDirectPeerNotFoundException
+            or WifiDirectConnectionFailedException
+            or ArgumentException;
+
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
         if (_role != AppRole.Sender ||
@@ -1750,16 +1823,16 @@ public partial class MainWindow : Window
         _isConnecting = true;
         UpdateUi();
         UpdateStatus($"正在连接 {peer.DisplayName}…");
-        Log($"ConnectAsync 开始：DisplayName={peer.DisplayName}, Id={peer.Id}");
+        Log($"连接流程开始：DisplayName={peer.DisplayName}, Id={peer.Id}");
 
         IDuplexChannel? channel = null;
         using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        connectCts.CancelAfter(TimeSpan.FromSeconds(30));
+        connectCts.CancelAfter(OverallConnectTimeout);
         _connectionAttemptCts = connectCts;
 
         try
         {
-            channel = await _service.ConnectAsync(peer, connectCts.Token);
+            channel = await ConnectWithRetryAsync(peer, connectCts.Token);
             AttachChannel(channel);
             Log($"ConnectAsync 成功：state={_service.State}");
 
