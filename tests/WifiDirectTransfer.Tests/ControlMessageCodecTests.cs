@@ -225,6 +225,56 @@ public sealed class ControlMessageCodecTests
     }
 
     [Fact]
+    public void WindowModeStart_RoundTripsParameters()
+    {
+        var payload = ControlMessageCodec.SerializeWindowModeStart(
+            16,
+            4,
+            0x0102030405060708);
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Equal(
+            (byte)ControlMessageSubtype.WindowModeStart,
+            payload[0]);
+        Assert.Equal(ControlMessageSubtype.WindowModeStart, message.Subtype);
+        Assert.Equal(16, message.WindowSize);
+        Assert.Equal(4, message.AckInterval);
+        Assert.Equal(0x0102030405060708, message.TransferId);
+    }
+
+    [Fact]
+    public void WindowAck_RoundTripsTransferAndOffset()
+    {
+        var payload = ControlMessageCodec.SerializeWindowAck(
+            0x0102030405060708,
+            123456789);
+        var message = ControlMessageCodec.Deserialize(payload);
+
+        Assert.Equal((byte)ControlMessageSubtype.WindowAck, payload[0]);
+        Assert.Equal(ControlMessageSubtype.WindowAck, message.Subtype);
+        Assert.Equal(0x0102030405060708, message.TransferId);
+        Assert.Equal(123456789, message.Offset);
+    }
+
+    [Fact]
+    public void WindowModeStart_RejectsInvalidParameters()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ControlMessageCodec.SerializeWindowModeStart(0, 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ControlMessageCodec.SerializeWindowModeStart(8, 9, 1));
+
+        var payload = ControlMessageCodec.SerializeWindowModeStart(
+            16,
+            4,
+            1);
+        payload[5] = 0xFF;
+
+        Assert.Throws<MessageProtocolException>(
+            () => ControlMessageCodec.Deserialize(payload));
+    }
+
+    [Fact]
     public void TextMessage_RoundTripsUtf8()
     {
         const string text = "文本消息 / hello";

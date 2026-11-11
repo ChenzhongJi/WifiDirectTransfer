@@ -25,7 +25,9 @@ public enum ControlMessageSubtype : byte
     DirectoryManifest = 0x09,
     IdentityHello = 0x0A,
     IdentityProof = 0x0B,
-    IdentityTrust = 0x0C
+    IdentityTrust = 0x0C,
+    WindowModeStart = 0x0D,
+    WindowAck = 0x0E
 }
 
 public enum SameNamePolicy

@@ -11,7 +11,10 @@ public sealed record ControlMessage(
     byte[]? Digest = null,
     int ProtocolVersion = 0,
     int MaxPayloadLength = 0,
-    IReadOnlyList<string>? Directories = null);
+    IReadOnlyList<string>? Directories = null,
+    int WindowSize = 0,
+    int AckInterval = 0,
+    long TransferId = 0);
 
 /// <summary>
 /// ControlMessage payload 编解码：subtype(1) + data。多字节字段使用大端。
@@ -27,6 +30,8 @@ public static class ControlMessageCodec
     public const int FileVerifiedPayloadLength =
         1 + MessageProtocol.FileEndDigestLength;
     public const int HelloHeaderLength = 1 + 4 + 4;
+    public const int WindowModePayloadLength = 1 + 1 + 2 + 2 + 8;
+    public const int WindowAckPayloadLength = 1 + 1 + 8 + 8;
 
     public static byte[] SerializeAck(long persistedOffset)
     {
@@ -70,6 +75,65 @@ public static class ControlMessageCodec
     public static byte[] SerializeDirectoryManifest(
         IReadOnlyList<string> directories) =>
         DirectoryManifestCodec.Serialize(directories);
+
+    /// <summary>
+    /// 1.5+ 发送端在 FileStart 响应后启用窗口模式。接收端据此切换
+    /// 累计 ACK 节奏；未收到该消息的对端保持逐块 ACK。
+    /// </summary>
+    public static byte[] SerializeWindowModeStart(
+        int windowSize,
+        int ackInterval,
+        long transferId)
+    {
+        if (windowSize is <= 0 or > FileTransferProtocol.MaxWindowSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(windowSize),
+                $"窗口大小必须在 1..{FileTransferProtocol.MaxWindowSize} 之间。");
+        }
+
+        if (ackInterval is <= 0 || ackInterval > windowSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(ackInterval),
+                "ACK 间隔必须大于零且不超过窗口大小。");
+        }
+
+        var payload = new byte[WindowModePayloadLength];
+        payload[0] = (byte)ControlMessageSubtype.WindowModeStart;
+        payload[1] = 1;
+        BinaryPrimitives.WriteUInt16BigEndian(
+            payload.AsSpan(2, 2),
+            (ushort)windowSize);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            payload.AsSpan(4, 2),
+            (ushort)ackInterval);
+        BinaryPrimitives.WriteInt64BigEndian(
+            payload.AsSpan(6, 8),
+            transferId);
+        return payload;
+    }
+
+    /// <summary>
+    /// 窗口模式的累计 ACK。携带传输 ID，避免双向同时传输时 Ack 串线。
+    /// </summary>
+    public static byte[] SerializeWindowAck(
+        long transferId,
+        long acknowledgedOffset)
+    {
+        ValidateOffset(acknowledgedOffset);
+
+        var payload = new byte[WindowAckPayloadLength];
+        payload[0] = (byte)ControlMessageSubtype.WindowAck;
+        payload[1] = 1;
+        BinaryPrimitives.WriteInt64BigEndian(
+            payload.AsSpan(2, 8),
+            transferId);
+        BinaryPrimitives.WriteInt64BigEndian(
+            payload.AsSpan(10, 8),
+            acknowledgedOffset);
+        return payload;
+    }
 
     public static byte[] SerializeTextRejected()
     {
@@ -185,6 +249,10 @@ public static class ControlMessageCodec
             ControlMessageSubtype.TextRejected => DeserializeTextRejected(payload),
             ControlMessageSubtype.DirectoryManifest =>
                 DeserializeDirectoryManifest(payload),
+            ControlMessageSubtype.WindowModeStart =>
+                DeserializeWindowModeStart(payload),
+            ControlMessageSubtype.WindowAck =>
+                DeserializeWindowAck(payload),
             _ => throw new MessageProtocolException(
                 $"未知的 ControlMessage 子类型：0x{payload[0]:X2}。")
         };
@@ -251,6 +319,72 @@ public static class ControlMessageCodec
             0,
             0,
             directories);
+    }
+
+    private static ControlMessage DeserializeWindowModeStart(
+        ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length != WindowModePayloadLength ||
+            payload[0] != (byte)ControlMessageSubtype.WindowModeStart ||
+            payload[1] != 1)
+        {
+            throw new MessageProtocolException(
+                "WindowModeStart payload 无效。");
+        }
+
+        var windowSize = BinaryPrimitives.ReadUInt16BigEndian(
+            payload.Slice(2, 2));
+        var ackInterval = BinaryPrimitives.ReadUInt16BigEndian(
+            payload.Slice(4, 2));
+        var transferId = BinaryPrimitives.ReadInt64BigEndian(
+            payload.Slice(6, 8));
+
+        if (windowSize is < 1 or > FileTransferProtocol.MaxWindowSize ||
+            ackInterval < 1 ||
+            ackInterval > windowSize)
+        {
+            throw new MessageProtocolException(
+                "WindowModeStart 窗口参数无效。");
+        }
+
+        return new ControlMessage(
+            ControlMessageSubtype.WindowModeStart,
+            0,
+            default,
+            string.Empty,
+            WindowSize: windowSize,
+            AckInterval: ackInterval,
+            TransferId: transferId);
+    }
+
+    private static ControlMessage DeserializeWindowAck(
+        ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length != WindowAckPayloadLength ||
+            payload[0] != (byte)ControlMessageSubtype.WindowAck ||
+            payload[1] != 1)
+        {
+            throw new MessageProtocolException(
+                "WindowAck payload 无效。");
+        }
+
+        var transferId = BinaryPrimitives.ReadInt64BigEndian(
+            payload.Slice(2, 8));
+        var offset = BinaryPrimitives.ReadInt64BigEndian(
+            payload.Slice(10, 8));
+
+        if (offset < 0)
+        {
+            throw new MessageProtocolException(
+                "WindowAck 偏移无效。");
+        }
+
+        return new ControlMessage(
+            ControlMessageSubtype.WindowAck,
+            offset,
+            default,
+            string.Empty,
+            TransferId: transferId);
     }
 
     private static ControlMessage DeserializeFileVerified(ReadOnlySpan<byte> payload)

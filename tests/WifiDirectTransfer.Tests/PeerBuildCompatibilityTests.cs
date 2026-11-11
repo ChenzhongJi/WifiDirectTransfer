@@ -54,4 +54,22 @@ public sealed class PeerBuildCompatibilityTests
             expected,
             PeerBuildCompatibility.SupportsDeviceIdentity(build));
     }
+
+    [Theory]
+    [InlineData("1.4.1", false)]
+    [InlineData("1.4.9+abc", false)]
+    [InlineData("1.5.0", true)]
+    [InlineData("1.5.0-preview", true)]
+    [InlineData("1.6.0", true)]
+    [InlineData("2.0.0", true)]
+    [InlineData("unknown", false)]
+    [InlineData(null, false)]
+    public void SupportsWindowedTransfer_UsesPeerVersion(
+        string? build,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PeerBuildCompatibility.SupportsWindowedTransfer(build));
+    }
 }

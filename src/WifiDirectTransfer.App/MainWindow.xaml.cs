@@ -2856,7 +2856,9 @@ public partial class MainWindow : Window
             errorMessageFactory: CreateQueueErrorMessage,
             log: Log,
             supportsDirectoryManifest:
-                PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild));
+                PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild),
+            supportsWindowedTransfer:
+                PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild));
 
         queue.FileStarted += OnQueueFileStarted;
         queue.FileCompleted += OnQueueFileCompleted;
@@ -2882,6 +2884,7 @@ public partial class MainWindow : Window
             $"peerMaxPayload={peerHello.MaxPayloadLength}，" +
             $"peerMaxFileSize={FormatBytes(PeerBuildCompatibility.GetMaxFileSize(_peerBuild))}，" +
             $"directoryManifest={PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)}，" +
+            $"windowedTransfer={PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild)}，" +
             $"clipboardSync={_clipboardSyncEnabled}。");
 
         return true;
@@ -3986,7 +3989,9 @@ public partial class MainWindow : Window
                         UpdateStatus("对端未开启接收文本");
                     }
                     else if (control.Subtype != ControlMessageSubtype.Ack &&
-                             control.Subtype != ControlMessageSubtype.DirectoryManifest)
+                             control.Subtype != ControlMessageSubtype.WindowAck &&
+                             control.Subtype != ControlMessageSubtype.DirectoryManifest &&
+                             control.Subtype != ControlMessageSubtype.WindowModeStart)
                     {
                         // 每个 64 KiB 块都会产生 Ack，目录清单可能拆成多条；
                         // 逐条写 UI 日志会拖垮界面。
@@ -4324,6 +4329,10 @@ public partial class MainWindow : Window
         ControlMessageSubtype.FileSkipped => "FileSkipped",
         ControlMessageSubtype.DirectoryManifest =>
             $"DirectoryManifest, entries={message.Directories?.Count ?? 0}",
+        ControlMessageSubtype.WindowModeStart =>
+            $"WindowModeStart, window={message.WindowSize}, ackEvery={message.AckInterval}",
+        ControlMessageSubtype.WindowAck =>
+            $"WindowAck, transfer={message.TransferId}, offset={message.Offset}",
         _ => message.Subtype.ToString()
     };
 
@@ -5497,6 +5506,11 @@ public partial class MainWindow : Window
             : PeerBuildCompatibility.SupportsDirectoryManifest(_peerBuild)
                 ? "支持"
                 : "不支持";
+        var windowedTransfer = _peerBuild is null
+            ? "未连接"
+            : PeerBuildCompatibility.SupportsWindowedTransfer(_peerBuild)
+                ? "支持"
+                : "不支持";
         var queue = _queueManager;
         var queueText = queue is null
             ? "未连接"
@@ -5529,6 +5543,7 @@ public partial class MainWindow : Window
             $"可信设备：{trustedDeviceCount} 台{Environment.NewLine}" +
             $"对端单文件上限：{peerMaxFileSize}{Environment.NewLine}" +
             $"空文件夹清单：{directoryManifest}{Environment.NewLine}" +
+            $"窗口传输：{windowedTransfer}{Environment.NewLine}" +
             $"当前传输速率：{currentRate}{Environment.NewLine}" +
             $"发送队列：{queueText}{Environment.NewLine}" +
             $"本次接收：{receiveText}{Environment.NewLine}" +

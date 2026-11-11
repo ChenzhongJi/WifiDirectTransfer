@@ -39,6 +39,16 @@ public static class PeerBuildCompatibility
                 (version.Major == 1 && version.Minor >= 4));
     }
 
+    /// <summary>
+    /// 1.5+ 支持窗口模式和累计 ACK。旧端继续使用逐块停等 ACK。
+    /// </summary>
+    public static bool SupportsWindowedTransfer(string? peerBuild)
+    {
+        return TryGetVersion(peerBuild, out var version) &&
+               (version.Major > 1 ||
+                (version.Major == 1 && version.Minor >= 5));
+    }
+
     private static bool TryGetVersion(
         string? build,
         out Version version)
