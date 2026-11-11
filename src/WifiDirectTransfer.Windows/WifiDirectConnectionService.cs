@@ -484,6 +484,16 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
                 WifiDirectErrorContext.WinRt);
         }
 
+        if (TransferTuning.SocketBufferBytes > 0)
+        {
+            ApplySocketBuffer(socket, TransferTuning.SocketBufferBytes);
+        }
+
+        if (TransferTuning.IsDiagnostic)
+        {
+            LogDiagnostic("诊断调参：" + TransferTuning.Describe());
+        }
+
         var connection = new WifiDirectConnection(socket, OnConnectionDisposed);
 
         lock (_gate)
@@ -493,6 +503,24 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
         SetState(WifiDirectState.Connected);
         return connection;
+    }
+
+    private void ApplySocketBuffer(StreamSocket socket, int bufferBytes)
+    {
+        try
+        {
+            // 这个 SDK 的 StreamSocketControl 只暴露发送缓冲。
+            socket.Control.OutboundBufferSizeInBytes = (uint)bufferBytes;
+        }
+        catch (Exception exception)
+        {
+            WifiDirectErrorLog.WriteUnknown(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt);
+            LogDiagnostic(
+                $"socket 发送缓冲设置失败（{bufferBytes} 字节），继续使用系统默认值。");
+        }
     }
 
     private void OnConnectionDisposed(WifiDirectConnection connection)

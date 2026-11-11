@@ -148,9 +148,8 @@ public static class FileSender
             startProgress?.Report(
                 new FileTransferStartInfo(fileName, initialLength, resumeOffset));
 
-            var windowSize = FileTransferProtocol.DefaultWindowSize;
-            var windowAckInterval =
-                FileTransferProtocol.DefaultWindowAckInterval;
+            var windowSize = TransferTuning.WindowBlocks;
+            var windowAckInterval = TransferTuning.AckBlocks;
             long windowBytes = (long)windowSize * FileTransferProtocol.BlockSize;
             long maxInFlightBytes = 0;
             long windowWaitTicks = 0;
@@ -175,6 +174,14 @@ public static class FileSender
                     .ConfigureAwait(false);
 
                 controlState.BeginWindowMode(resumeOffset, transferId);
+
+                if (TransferTuning.IsDiagnostic)
+                {
+                    var clamped = TransferTuning.DescribeClampedRequest();
+                    log?.Invoke(
+                        "诊断调参：" + TransferTuning.Describe() +
+                        (clamped is null ? string.Empty : $"；已夹紧 {clamped}"));
+                }
 
                 if (initialLength >= 8L * 1024 * 1024)
                 {
@@ -293,6 +300,9 @@ public static class FileSender
                             Stopwatch.GetTimestamp() - sendStarted;
                         windowChunkCount++;
                         processed += read;
+                        controlState.RecordBlockSent(
+                            processed,
+                            Stopwatch.GetTimestamp());
                         maxInFlightBytes = Math.Max(
                             maxInFlightBytes,
                             processed - controlState.AckedOffset);
@@ -373,13 +383,24 @@ public static class FileSender
                             windowWaitTicks * 1000.0 / Stopwatch.Frequency;
                         var totalSendMilliseconds =
                             windowSendTicks * 1000.0 / Stopwatch.Frequency;
+                        var (ackRttTicks, ackRttCount) =
+                            controlState.GetWindowAckRttStatistics();
+                        var averageAckRttMilliseconds = ackRttCount == 0
+                            ? 0
+                            : ackRttTicks * 1000.0 /
+                              Stopwatch.Frequency /
+                              ackRttCount;
 
                         log?.Invoke(
                             "窗口传输统计：" +
+                            $"window={windowSize}, " +
+                            $"ackEvery={windowAckInterval}, " +
                             $"chunks={windowChunkCount}, " +
                             $"waits={windowWaitCount}, " +
                             $"waitMs={totalWaitMilliseconds:0.0}, " +
                             $"avgAckWaitMs={averageWaitMilliseconds:0.0}, " +
+                            $"ackRttMs={averageAckRttMilliseconds:0.0}, " +
+                            $"ackRttCount={ackRttCount}, " +
                             $"sendMs={totalSendMilliseconds:0.0}, " +
                             $"totalMs={windowTotalWatch.Elapsed.TotalMilliseconds:0.0}, " +
                             $"maxInFlightBytes={maxInFlightBytes}");
@@ -501,6 +522,7 @@ public static class FileSender
     private sealed class ControlWaitState
     {
         private readonly object _gate = new();
+        private readonly Dictionary<long, long> _blockSendTicks = new();
 
         private TaskCompletionSource<StartResponse>? _startTcs;
         private TaskCompletionSource<long>? _ackTcs;
@@ -508,6 +530,8 @@ public static class FileSender
         private TaskCompletionSource? _windowAckPulse;
         private long _ackedOffset;
         private long _transferId;
+        private long _ackRttTicks;
+        private int _ackRttCount;
         private Exception? _windowError;
         private bool _windowMode;
         private bool _startWaitFinished;
@@ -617,6 +641,9 @@ public static class FileSender
                 _transferId = transferId;
                 _windowError = null;
                 _windowAckPulse = CreateSignalTcs();
+                _blockSendTicks.Clear();
+                _ackRttTicks = 0;
+                _ackRttCount = 0;
             }
         }
 
@@ -627,6 +654,63 @@ public static class FileSender
                 _windowMode = false;
                 _windowAckPulse = null;
                 _windowError = null;
+                _blockSendTicks.Clear();
+            }
+        }
+
+        /// <summary>记录一块写入完成的时间，用于计算真实 ACK 往返。</summary>
+        public void RecordBlockSent(long endOffset, long timestamp)
+        {
+            lock (_gate)
+            {
+                if (endOffset <= _ackedOffset)
+                {
+                    return;
+                }
+
+                _blockSendTicks[endOffset] = timestamp;
+
+                if (_blockSendTicks.Count > 128)
+                {
+                    PruneSendTicks_NoLock();
+                }
+            }
+        }
+
+        /// <summary>累计 ACK 往返的耗时与样本数。</summary>
+        public (long Ticks, int Count) GetWindowAckRttStatistics()
+        {
+            lock (_gate)
+            {
+                return (_ackRttTicks, _ackRttCount);
+            }
+        }
+
+        private void PruneSendTicks_NoLock()
+        {
+            if (_blockSendTicks.Count == 0)
+            {
+                return;
+            }
+
+            List<long>? stale = null;
+
+            foreach (var offset in _blockSendTicks.Keys)
+            {
+                if (offset <= _ackedOffset)
+                {
+                    (stale ??= new List<long>()).Add(offset);
+                }
+            }
+
+            if (stale is null)
+            {
+                return;
+            }
+
+            foreach (var offset in stale)
+            {
+                _blockSendTicks.Remove(offset);
             }
         }
 
@@ -794,6 +878,19 @@ public static class FileSender
                         message.Offset > _ackedOffset)
                     {
                         _ackedOffset = message.Offset;
+
+                        if (_blockSendTicks.TryGetValue(
+                                message.Offset,
+                                out var sentAt))
+                        {
+                            _ackRttTicks +=
+                                Stopwatch.GetTimestamp() - sentAt;
+                            _ackRttCount++;
+                            _blockSendTicks.Remove(message.Offset);
+                        }
+
+                        PruneSendTicks_NoLock();
+
                         var pulse = _windowAckPulse;
                         _windowAckPulse = CreateSignalTcs();
                         pulse?.TrySetResult();
