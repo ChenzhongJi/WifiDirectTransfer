@@ -29,6 +29,12 @@ public sealed class ReceiverPreferences
     public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
     public string? ReceiveDirectory { get; set; }
+
+    /// <summary>启动后自动检查更新，默认开启。</summary>
+    public bool AutoUpdateCheckEnabled { get; set; } = true;
+
+    /// <summary>用户选择“跳过此版本”的版本号。</summary>
+    public string? SkippedUpdateVersion { get; set; }
 }
 
 /// <summary>

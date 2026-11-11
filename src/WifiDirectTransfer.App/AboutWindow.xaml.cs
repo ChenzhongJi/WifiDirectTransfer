@@ -29,4 +29,27 @@ public partial class AboutWindow : Window
                 $"复制失败：{exception.Message}");
         }
     }
+
+    private async void CheckUpdateButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+
+        try
+        {
+            await UpdateCoordinator.CheckAsync(this, manual: true);
+        }
+        catch (Exception exception)
+        {
+            MessageDialog.ShowError(
+                this,
+                "检查更新",
+                $"检查更新失败：{exception.Message}");
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
 }
