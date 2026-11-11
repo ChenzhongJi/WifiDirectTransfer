@@ -34,13 +34,13 @@ public static class FileTransferProtocol
     public const int BlockSize = 64 * 1024;
 
     /// <summary>1.5+ 窗口模式的默认在途块数。</summary>
-    public const int DefaultWindowSize = 32;
+    public const int DefaultWindowSize = 64;
 
     /// <summary>1.5+ 窗口模式下每多少个块发送一次累计 ACK。</summary>
     public const int DefaultWindowAckInterval = 8;
 
     /// <summary>窗口模式下每多少个块 Flush 一次接收文件。</summary>
-    public const int DefaultWindowFlushIntervalBlocks = 16;
+    public const int DefaultWindowFlushIntervalBlocks = 32;
 
     /// <summary>窗口模式和累计 ACK 的最大可协商值。</summary>
     public const int MaxWindowSize = 64;

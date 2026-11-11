@@ -471,6 +471,19 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             throw new WifiDirectInvalidStateException("Wi-Fi Direct 连接服务已停止。");
         }
 
+        try
+        {
+            // 高 RTT 链路上关闭 Nagle，避免小控制帧和 ACK 额外等待。
+            socket.Control.NoDelay = true;
+        }
+        catch (Exception exception)
+        {
+            WifiDirectErrorLog.WriteUnknown(
+                exception,
+                WifiDirectOperation.Connection,
+                WifiDirectErrorContext.WinRt);
+        }
+
         var connection = new WifiDirectConnection(socket, OnConnectionDisposed);
 
         lock (_gate)
