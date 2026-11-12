@@ -25,6 +25,11 @@ public partial class MainWindow : Window
         Sender
     }
 
+    /// <summary>由 Program 在创建窗口前设置，表示从开机自启启动。</summary>
+    internal static bool StartHidden { get; private set; }
+
+    internal static void RequestStartHidden() => StartHidden = true;
+
     private readonly WifiDirectConnectionService _service = new();
     private readonly ObservableCollection<PeerListItem> _peerItems = new();
     private readonly ReceivedProjectCollection _receivedProjects;
@@ -60,6 +65,7 @@ public partial class MainWindow : Window
     private AppThemeMode _themeMode = AppThemeMode.System;
     private bool _autoUpdateCheckEnabled = true;
     private bool _isApplyingAutoUpdatePreference;
+    private bool _isApplyingStartupPreference;
     private DispatcherTimer? _updateCheckTimer;
     private bool _isApplyingThemePreference;
     private bool _isApplyingExplorerContextMenuPreference;
@@ -180,6 +186,14 @@ public partial class MainWindow : Window
             () => _receiveDirectory);
 
         InitializeComponent();
+
+        if (StartHidden)
+        {
+            // 开机自启：先最小化且不占任务栏，OnLoaded 结束时再隐藏到托盘，
+            // 避免窗口在启动瞬间闪现。
+            ShowInTaskbar = false;
+            WindowState = WindowState.Minimized;
+        }
 
         ProtocolVersionText.Text =
             $"双向传输 · 协议 v{MessageProtocol.ProtocolVersion}";
@@ -353,6 +367,27 @@ public partial class MainWindow : Window
             DispatcherPriority.Background);
 
         ScheduleUpdateCheck();
+
+        if (StartHidden)
+        {
+            StartHidden = false;
+            HideToTrayForAutostart();
+        }
+    }
+
+    private void HideToTrayForAutostart()
+    {
+        Hide();
+        ShowInTaskbar = false;
+        _isHiddenToTray = true;
+        Log("开机自启：窗口已隐藏到托盘，未启动等待连接。");
+
+        if (_notificationsEnabled)
+        {
+            _trayIcon?.ShowBalloon(
+                "已在后台运行",
+                "打开窗口后点击“等待连接”即可接收文件。双击托盘图标可恢复窗口。");
+        }
     }
 
     /// <summary>启动 20 秒后静默检查一次更新，只在安装版且开关启用时生效。</summary>
@@ -360,7 +395,7 @@ public partial class MainWindow : Window
     {
         if (!_autoUpdateCheckEnabled ||
             _updateCheckTimer is not null ||
-            !UpdateService.IsInstalledCopy)
+            !InstallationInfo.IsInstalledCopy)
         {
             return;
         }
@@ -532,6 +567,20 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingAutoUpdatePreference = false;
+        }
+
+        _isApplyingStartupPreference = true;
+
+        try
+        {
+            var startupSupported = InstallationInfo.IsInstalledCopy;
+            StartWithWindowsCheckBox.IsEnabled = startupSupported;
+            StartWithWindowsCheckBox.IsChecked =
+                startupSupported && StartupRegistration.IsEnabled;
+        }
+        finally
+        {
+            _isApplyingStartupPreference = false;
         }
 
         _isApplyingTrustedPreference = true;
@@ -857,6 +906,68 @@ public partial class MainWindow : Window
 
         var saved = SaveReceiverPreferences();
         Log("启动时检查更新已关闭。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void StartWithWindowsCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingStartupPreference || _isClosing)
+        {
+            return;
+        }
+
+        var executablePath = Environment.ProcessPath;
+
+        if (!InstallationInfo.IsInstalledCopy ||
+            string.IsNullOrWhiteSpace(executablePath) ||
+            !StartupRegistration.Enable(executablePath))
+        {
+            MessageDialog.ShowError(
+                this,
+                "开机自动启动",
+                "写入启动项失败，请稍后重试。");
+            RevertStartWithWindowsCheckBox(enabled: false);
+            return;
+        }
+
+        Log("已启用开机自动启动。");
+    }
+
+    private void StartWithWindowsCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingStartupPreference || _isClosing)
+        {
+            return;
+        }
+
+        if (!StartupRegistration.Disable())
+        {
+            MessageDialog.ShowError(
+                this,
+                "开机自动启动",
+                "删除启动项失败，请稍后重试。");
+            RevertStartWithWindowsCheckBox(enabled: true);
+            return;
+        }
+
+        Log("已关闭开机自动启动。");
+    }
+
+    private void RevertStartWithWindowsCheckBox(bool enabled)
+    {
+        _isApplyingStartupPreference = true;
+
+        try
+        {
+            StartWithWindowsCheckBox.IsChecked = enabled;
+        }
+        finally
+        {
+            _isApplyingStartupPreference = false;
+        }
     }
 
     private void TrustedAutoAcceptCheckBox_Checked(

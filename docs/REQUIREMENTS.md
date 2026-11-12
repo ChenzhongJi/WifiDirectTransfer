@@ -44,6 +44,7 @@
 - R5 零字节/超长文件名/非法字符
 - R6 磁盘满/权限不足提示
 - D1 安装器与自动更新
+- D2 开机自启（托盘模式）
 
 ## 实现备注
 
@@ -81,3 +82,4 @@
 - 主题化对话框（1.4.1）：新增 `MessageDialogWindow`，替换 AboutWindow、HistoryWindow、TextInboxWindow 和 MainWindow 中全部原生 `MessageBox`。支持信息、警告、错误三种样式和确定、是/否两种按钮组合，`Enter` 触发默认按钮、`Esc` 取消，使用动态主题资源适配深色、浅色和高对比度。
 - 窗口传输（1.5）：两端构建号均为 1.5+ 时，发送端在每个文件开始后发送 `WindowModeStart`（窗口 16 块、每 4 块累计 ACK），不再逐块等待 ACK；窗口满时才等待累计 ACK。接收端在窗口模式下每 4 块 Flush `.part` 并发送一次累计 ACK，旧发送端仍逐块 Flush + ACK。断点续传继续使用 `.meta` 的持久化偏移。1.4 及更早对端自动回退到逐块停等模式，协议版本仍为 v4，文件头仍为 v2。发送端遇到 `PeerFinder.ConnectAsync` 返回 E_INVALIDARG（过期 `PeerInformation`）时，自动清除缓存、重新发现并重试一次；重试失败按对端信息过期处理。普通连接首次尝试 20 秒，失败后重启发送端发现并等待 2 秒，再试 15 秒；仍失败则等待 3 秒、重新扫描后再试 15 秒，整体上限 60 秒。接收端正常连接结束后若 PeerFinder 仍处于 Listening，不再立即重启广播；显式“重新等待”时 Stop/Start 之间增加 800ms 释放延迟，Start 后等待 700ms 稳定。接收端在当前请求处理期间收到新请求时保留最新请求，当前请求结束后自动继续处理；`AcceptAsync` 超时缩短为 12 秒。
 - 安装与自动更新（1.6）：提供 Inno Setup 安装包，按用户安装到 `%LOCALAPPDATA%\Programs\WifiDirectTransfer`，使用固定 AppId 支持覆盖升级，不需要管理员权限；卸载时可选择是否删除 `%LOCALAPPDATA%\WifiDirectTransfer` 数据，默认保留。安装版启动 20 秒后检查 `releases/latest/download/latest.json`（整体超时 20 秒），只接受 HTTPS + GitHub 域名，本地测试可用 `WDT_UPDATE_FEED` 指向 `file://` 清单；发现新版本后提示下载，校验大小和 SHA-256，再以 `/SILENT /SUPPRESSMSGBOXES /NORESTART` 启动安装器并退出，安装结束后由 Inno `[Run]` 重新启动应用。支持“跳过此版本”和关闭启动检查，设置持久化在 `settings.json` 的 `AutoUpdateCheckEnabled` 与 `SkippedUpdateVersion`；便携版不自我更新，只提供下载页入口。安装包暂未代码签名，首次运行会触发 SmartScreen 提示。
+- 开机自启（1.6.2）：安装版可在“更多设置”启用，默认关闭。写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `WifiDirectTransfer` 值，命令行为 `"<安装目录>\WifiDirectTransfer.App.exe" --tray`；注册表值是唯一事实来源，不写入 settings.json。带 `--tray` 启动时窗口最小化并隐藏到托盘，**不调用 `PeerFinder.Start`、不广播、不扫描、不自动等待连接**；用户打开窗口点击“等待连接”后才进入接收状态。便携版选项禁用；卸载时由安装器删除该 Run 项，不删除用户数据。 “关于”窗口和托盘提示显示版本号与构建提交短号。

@@ -13,6 +13,7 @@ public partial class AboutWindow : Window
         _details = details;
         InitializeComponent();
         DetailsTextBox.Text = details;
+        VersionLine.Text = $"版本 {BuildInfo.DisplayText}";
     }
 
     private void CopyButton_Click(object sender, RoutedEventArgs e)

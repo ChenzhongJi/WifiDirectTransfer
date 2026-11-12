@@ -61,6 +61,10 @@ Filename: "{app}\WifiDirectTransfer.App.exe"; Description: "{cm:LaunchProgram,Wi
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
+[Registry]
+; 开机自启由应用写入 Run 项；卸载时删除，避免残留指向已删除的 exe。
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "WifiDirectTransfer"; Flags: dontcreatekey uninsdeletevalue
+
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var

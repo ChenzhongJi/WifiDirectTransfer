@@ -32,7 +32,7 @@ internal sealed class TrayIconService : IDisposable
         _notifyIcon = new Forms.NotifyIcon
         {
             Icon = _icon,
-            Text = "Wi-Fi Direct 文件传输",
+            Text = $"Wi-Fi Direct 文件传输 {BuildInfo.VersionText}",
             Visible = true,
             ContextMenuStrip = _menu
         };
