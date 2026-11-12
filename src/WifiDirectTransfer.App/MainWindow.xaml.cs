@@ -66,6 +66,8 @@ public partial class MainWindow : Window
     private bool _autoUpdateCheckEnabled = true;
     private bool _isApplyingAutoUpdatePreference;
     private bool _isApplyingStartupPreference;
+    private bool _closeToTray = true;
+    private bool _isApplyingCloseToTrayPreference;
     private DispatcherTimer? _updateCheckTimer;
     private bool _isApplyingThemePreference;
     private bool _isApplyingExplorerContextMenuPreference;
@@ -507,6 +509,7 @@ public partial class MainWindow : Window
         _notificationsEnabled = preferences.NotificationsEnabled;
         _trustedAutoAcceptEnabled = preferences.TrustedAutoAcceptEnabled;
         _autoUpdateCheckEnabled = preferences.AutoUpdateCheckEnabled;
+        _closeToTray = preferences.CloseToTray;
         _themeMode = preferences.ThemeMode;
 
         _isApplyingReceiverPreferences = true;
@@ -581,6 +584,17 @@ public partial class MainWindow : Window
         finally
         {
             _isApplyingStartupPreference = false;
+        }
+
+        _isApplyingCloseToTrayPreference = true;
+
+        try
+        {
+            CloseToTrayCheckBox.IsChecked = _closeToTray;
+        }
+        finally
+        {
+            _isApplyingCloseToTrayPreference = false;
         }
 
         _isApplyingTrustedPreference = true;
@@ -681,6 +695,7 @@ public partial class MainWindow : Window
         preferences.NotificationsEnabled = _notificationsEnabled;
         preferences.TrustedAutoAcceptEnabled = _trustedAutoAcceptEnabled;
         preferences.AutoUpdateCheckEnabled = _autoUpdateCheckEnabled;
+        preferences.CloseToTray = _closeToTray;
         preferences.ThemeMode = _themeMode;
         preferences.ReceiveDirectory = _receiveDirectory;
         return _receiverPreferencesStore.Save(preferences);
@@ -968,6 +983,34 @@ public partial class MainWindow : Window
         {
             _isApplyingStartupPreference = false;
         }
+    }
+
+    private void CloseToTrayCheckBox_Checked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingCloseToTrayPreference || _isClosing)
+        {
+            return;
+        }
+
+        _closeToTray = true;
+        var saved = SaveReceiverPreferences();
+        Log("关闭窗口将最小化到托盘。" + (saved ? string.Empty : "（保存失败）"));
+    }
+
+    private void CloseToTrayCheckBox_Unchecked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (!_initialized || _isApplyingCloseToTrayPreference || _isClosing)
+        {
+            return;
+        }
+
+        _closeToTray = false;
+        var saved = SaveReceiverPreferences();
+        Log("关闭窗口将退出应用。" + (saved ? string.Empty : "（保存失败）"));
     }
 
     private void TrustedAutoAcceptCheckBox_Checked(
@@ -5320,6 +5363,24 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>用户点击关闭按钮，按设置隐藏到托盘而不是退出。</summary>
+    private void HideToTrayForCloseButton()
+    {
+        _textInboxWindow?.Close();
+        _textInboxWindow = null;
+        Hide();
+        ShowInTaskbar = false;
+        _isHiddenToTray = true;
+        Log("关闭窗口：已最小化到托盘。");
+
+        if (_notificationsEnabled)
+        {
+            _trayIcon?.ShowBalloon(
+                "仍在后台运行",
+                "双击托盘图标恢复窗口，右键托盘图标可选择“退出”。");
+        }
+    }
+
     private bool HasBackgroundWork =>
         _isAutoReconnecting ||
         _queueManager is { IsRunning: true } ||
@@ -5342,6 +5403,13 @@ public partial class MainWindow : Window
     {
         if (_allowClose)
         {
+            return;
+        }
+
+        if (_closeToTray)
+        {
+            e.Cancel = true;
+            HideToTrayForCloseButton();
             return;
         }
 

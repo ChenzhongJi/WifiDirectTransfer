@@ -493,6 +493,17 @@
                                        Text="登录后在托盘运行，不会自动开始等待连接；仅安装版可用。"
                                        TextWrapping="Wrap" />
 
+                            <CheckBox x:Name="CloseToTrayCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="关闭窗口时最小化到托盘"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="CloseToTrayCheckBox_Checked"
+                                      Unchecked="CloseToTrayCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="关闭后应用仍在托盘运行。双击图标恢复窗口，右键图标选择“退出”可完全退出。"
+                                       TextWrapping="Wrap" />
+
                             <StackPanel x:Name="SameNamePolicyPanel"
                                         Margin="0,12,0,0">
                                 <TextBlock Style="{StaticResource MetaText}"
