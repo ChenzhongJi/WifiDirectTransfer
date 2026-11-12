@@ -26,6 +26,8 @@ internal static class Program
         StartupLog.Write("Program.Main executed.");
 
         var launchPaths = LaunchArguments.ParsePaths(args);
+        var startHidden = args.Any(argument =>
+            string.Equals(argument, "--tray", StringComparison.OrdinalIgnoreCase));
 
         if (args.Length > 0)
         {
@@ -88,6 +90,12 @@ internal static class Program
             Name = "SingleInstancePathActivation"
         };
         pipeThread.Start();
+
+        if (startHidden)
+        {
+            MainWindow.RequestStartHidden();
+            StartupLog.Write("开机自启：以托盘模式启动，不显示主窗口。");
+        }
 
         app.Run();
     }

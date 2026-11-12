@@ -34,7 +34,7 @@ internal static class UpdateCoordinator
     {
         var preferences = new ReceiverPreferencesStore().Load();
 
-        if (!UpdateService.IsInstalledCopy)
+        if (!InstallationInfo.IsInstalledCopy)
         {
             if (manual)
             {

@@ -1,9 +1,7 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Reflection;
 using System.Security.Cryptography;
-using Microsoft.Win32;
 using WifiDirectTransfer.Core;
 
 namespace WifiDirectTransfer.App;
@@ -32,9 +30,6 @@ internal sealed class UpdateDownloadProgress
 internal static class UpdateService
 {
     /// <summary>必须与 installer\WifiDirectTransfer.iss 中的 AppId 保持一致。</summary>
-    public const string InstallerAppId =
-        "{8F3C2A1E-5B7D-4E9A-9C41-2D6B8F0A7E13}";
-
     public const string ReleasesPageUrl =
         "https://github.com/ChenzhongJi/WifiDirectTransfer/releases";
 
@@ -54,18 +49,11 @@ internal static class UpdateService
 
     private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(20);
 
-    public static ReleaseVersion CurrentVersion { get; } =
-        ResolveCurrentVersion();
+    public static ReleaseVersion CurrentVersion => BuildInfo.Version;
 
-    public static string CurrentVersionText => CurrentVersion.ToString();
+    public static string CurrentVersionText => BuildInfo.VersionText;
 
     public static Uri FeedUri { get; } = ResolveFeedUri();
-
-    /// <summary>
-    /// 只有从安装器安装、且当前目录就是安装目录时才允许自我更新；
-    /// 便携版和开发目录只提示下载页。
-    /// </summary>
-    public static bool IsInstalledCopy => CheckInstalledCopy();
 
     public static string UpdateDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -393,62 +381,6 @@ internal static class UpdateService
         {
             throw new InvalidDataException("更新包 SHA-256 校验失败。");
         }
-    }
-
-    private static bool CheckInstalledCopy()
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
-                InstallerAppId + "_is1");
-
-            if (key?.GetValue("InstallLocation") is not string location ||
-                string.IsNullOrWhiteSpace(location))
-            {
-                return false;
-            }
-
-            var expected = Path
-                .GetFullPath(location)
-                .TrimEnd(Path.DirectorySeparatorChar);
-            var actual = Path
-                .GetFullPath(AppContext.BaseDirectory)
-                .TrimEnd(Path.DirectorySeparatorChar);
-
-            return string.Equals(
-                       expected,
-                       actual,
-                       StringComparison.OrdinalIgnoreCase) &&
-                   File.Exists(
-                       Path.Combine(expected, "WifiDirectTransfer.App.exe"));
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    private static ReleaseVersion ResolveCurrentVersion()
-    {
-        var assembly = typeof(UpdateService).Assembly;
-        var informational = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-
-        if (ReleaseVersion.TryParse(informational, out var version))
-        {
-            return version;
-        }
-
-        var fileVersion = assembly.GetName().Version;
-
-        return fileVersion is null
-            ? new ReleaseVersion(0, 0, 0)
-            : new ReleaseVersion(
-                fileVersion.Major,
-                fileVersion.Minor,
-                Math.Max(fileVersion.Build, 0));
     }
 
     private static Uri ResolveFeedUri()

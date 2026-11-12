@@ -482,6 +482,17 @@
                                        Text="仅安装版可用；便携版请在“关于”中手动打开下载页。"
                                        TextWrapping="Wrap" />
 
+                            <CheckBox x:Name="StartWithWindowsCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="开机自动启动"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="StartWithWindowsCheckBox_Checked"
+                                      Unchecked="StartWithWindowsCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="登录后在托盘运行，不会自动开始等待连接；仅安装版可用。"
+                                       TextWrapping="Wrap" />
+
                             <StackPanel x:Name="SameNamePolicyPanel"
                                         Margin="0,12,0,0">
                                 <TextBlock Style="{StaticResource MetaText}"
