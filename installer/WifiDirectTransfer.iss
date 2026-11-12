@@ -1,6 +1,6 @@
-; Wi-Fi Direct Transfer installer (Inno Setup 6).
+﻿; Wi-Fi Direct Transfer installer (Inno Setup 6).
 ; Per-user install, no admin rights. Keep AppId in sync with
-; UpdateService.InstallerAppId in the application.
+; InstallationInfo.InstallerAppId in the application.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -30,10 +30,11 @@ OutputDir=..\publish\artifacts
 OutputBaseFilename=WifiDirectTransfer-{#AppLabel}-setup
 SetupIconFile=..\src\WifiDirectTransfer.App\Assets\app.ico
 UninstallDisplayIcon={app}\WifiDirectTransfer.App.exe
-UninstallDisplayName=Wi-Fi Direct Transfer
+UninstallDisplayName={cm:ProductDisplayName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+ShowLanguageDialog=auto
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
@@ -43,7 +44,16 @@ VersionInfoCompany=ChenzhongJi
 VersionInfoDescription=Wi-Fi Direct Transfer Setup
 
 [Languages]
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[CustomMessages]
+chinesesimplified.ProductDisplayName=Wi-Fi Direct 文件传输
+english.ProductDisplayName=Wi-Fi Direct Transfer
+chinesesimplified.LaunchApp=启动 Wi-Fi Direct 文件传输
+english.LaunchApp=Launch Wi-Fi Direct Transfer
+chinesesimplified.UninstallDataPrompt=是否同时删除设置、历史记录和未完成的传输文件？
+english.UninstallDataPrompt=Delete settings, history and unfinished transfers?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -52,11 +62,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\publish\artifacts\stage-{#AppLabel}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Wi-Fi Direct Transfer"; Filename: "{app}\WifiDirectTransfer.App.exe"
-Name: "{autodesktop}\Wi-Fi Direct Transfer"; Filename: "{app}\WifiDirectTransfer.App.exe"; Tasks: desktopicon
+Name: "{autoprograms}\{cm:ProductDisplayName}"; Filename: "{app}\WifiDirectTransfer.App.exe"
+Name: "{autodesktop}\{cm:ProductDisplayName}"; Filename: "{app}\WifiDirectTransfer.App.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\WifiDirectTransfer.App.exe"; Description: "{cm:LaunchProgram,Wi-Fi Direct Transfer}"; Flags: nowait postinstall
+Filename: "{app}\WifiDirectTransfer.App.exe"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
@@ -76,7 +86,7 @@ begin
 
     if DirExists(DataDir) and not UninstallSilent then
     begin
-      if MsgBox('Delete settings, history and unfinished transfers?' + #13#10 + DataDir,
+      if MsgBox(ExpandConstant('{cm:UninstallDataPrompt}') + #13#10 + DataDir,
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       begin
         DelTree(DataDir, True, True, True);

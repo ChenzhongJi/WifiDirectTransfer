@@ -35,6 +35,9 @@ public sealed class ReceiverPreferences
 
     /// <summary>用户选择“跳过此版本”的版本号。</summary>
     public string? SkippedUpdateVersion { get; set; }
+
+    /// <summary>点击关闭按钮时隐藏到托盘，默认开启。</summary>
+    public bool CloseToTray { get; set; } = true;
 }
 
 /// <summary>
