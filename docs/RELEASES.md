@@ -18,6 +18,7 @@
 | 1.6.0 | 2026-11-11 | `bb6bf72` | `9f41223a0ca1a94aef38946934df644a7840f1cf083d77b0134ba60e493fb564` |
 | 1.6.1 | 2026-11-11 | `cfdc626` | `3fd51913ec8a035e5a7969ad9d408e948eeda91ffce0828cb81bad496487c7e5` |
 | 1.6.2 | 2026-11-12 | `a1a39c6` | `76bd29e2135d1cf66ba22001deb58f4f772594bed7fc6791ee7e03f23c4e56dd` |
+| 1.6.3 | 2026-11-12 | `c6d8ee8` | `3f2ee69cb45de6a2cf5ddee9b3bd798e10e49f1b8ca6692a62cabaf19c9d164f` |
 
 ## Release 页面
 
@@ -35,6 +36,7 @@
 - 1.6.0：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.6.0
 - 1.6.1：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.6.1
 - 1.6.2：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.6.2
+- 1.6.3：https://github.com/ChenzhongJi/WifiDirectTransfer/releases/tag/v1.6.3
 
 ## 协议兼容性
 
@@ -49,4 +51,5 @@
 - 1.5.0：协议 v4，文件传输与 1.4.1 / 1.4.0 / 1.3.x / 1.2.x 互通；窗口传输需要两端 1.5+，旧对端自动回退到逐块停等 ACK。
 - 1.6.0 / 1.6.1：协议 v4，文件传输与 1.5.0 及更早版本互通；新增每用户安装包和自动更新，只影响分发方式，不改变传输协议。
 - 1.6.2：协议 v4，与 1.6.1 / 1.6.0 / 1.5.0 及更早版本文件传输互通；新增版本显示和托盘模式开机自启，不改变传输协议。
+- 1.6.3：协议 v4，与 1.6.2 及更早版本文件传输互通；中文安装器和关闭到托盘只影响分发与窗口行为，不改变传输协议。
 - 1.0.x 与 1.1.x / 1.2.0 / 1.3.0 / 1.3.1 / 1.4.0 / 1.4.1 / 1.5.0 不兼容。
