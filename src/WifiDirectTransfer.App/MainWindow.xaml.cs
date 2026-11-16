@@ -156,6 +156,7 @@ public partial class MainWindow : Window
     private bool _isConnecting;
     private bool _isDisconnecting;
     private bool _isSending;
+    private bool _isCollectingPaths;
     private bool _isHandlingRequest;
     private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
@@ -3782,7 +3783,7 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void Window_PreviewDrop(object sender, DragEventArgs e)
+    private async void Window_PreviewDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
 
@@ -3820,38 +3821,10 @@ public partial class MainWindow : Window
 
         e.Effects = DragDropEffects.Copy;
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(droppedPaths, Log);
-
-            if (!plan.HasWork)
-            {
-                Log("拖入内容中没有可发送的文件。");
-                UpdateStatus("拖入内容中没有可发送的文件");
-                return;
-            }
-
-            var wasRunning = _queueManager.IsRunning;
-            var result = _queueManager.EnqueuePlan(plan);
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (InvalidOperationException exception)
-        {
-            Log($"拖入失败：{exception.Message}");
-            ShowDropPrompt($"添加文件失败：{exception.Message}");
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+        await EnqueueCollectedPathsAsync(
+                droppedPaths,
+                "拖入内容中没有可发送的文件。")
+            .ConfigureAwait(true);
     }
 
     /// <summary>
@@ -3891,7 +3864,7 @@ public partial class MainWindow : Window
             _queueManager is not null &&
             _step0Passed)
         {
-            EnqueueExternalPaths(paths);
+            _ = EnqueueExternalPathsAsync(paths);
             return;
         }
 
@@ -3930,10 +3903,10 @@ public partial class MainWindow : Window
 
         var paths = _pendingExternalPaths.ToArray();
         _pendingExternalPaths.Clear();
-        EnqueueExternalPaths(paths);
+        _ = EnqueueExternalPathsAsync(paths);
     }
 
-    private void EnqueueExternalPaths(IReadOnlyList<string> paths)
+    private async Task EnqueueExternalPathsAsync(IReadOnlyList<string> paths)
     {
         if (_isClosing || paths.Count == 0)
         {
@@ -3948,14 +3921,64 @@ public partial class MainWindow : Window
             return;
         }
 
+        await EnqueueCollectedPathsAsync(
+                paths,
+                "右键发送内容中没有可发送的文件。",
+                switchToSendTab: true)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 在后台线程展开拖入/选择的文件和文件夹，避免大目录阻塞 UI。
+    /// 展开完成后回到 UI 线程把结果加入发送队列。
+    /// </summary>
+    private async Task EnqueueCollectedPathsAsync(
+        IReadOnlyList<string> paths,
+        string emptyMessage,
+        bool switchToSendTab = false)
+    {
+        if (_isClosing || paths.Count == 0)
+        {
+            return;
+        }
+
+        if (_isCollectingPaths)
+        {
+            Log("正在展开上一个路径，请稍候再试。");
+            return;
+        }
+
+        if (_queueManager is not { } queue ||
+            _channel is null ||
+            !_step0Passed)
+        {
+            AddPendingExternalPaths(paths);
+            return;
+        }
+
+        _isCollectingPaths = true;
+        UpdateStatus(paths.Count == 1
+            ? "正在扫描要发送的内容…"
+            : $"正在扫描 {paths.Count} 个路径…");
+        Log($"开始扫描要发送的路径：{paths.Count} 个。");
+
         try
         {
-            var plan = DroppedFileCollector.CollectPlan(paths, Log);
+            var token = _lifetimeCts.Token;
+            var plan = await Task.Run(
+                    () => DroppedFileCollector.CollectPlan(paths, Log, token),
+                    token)
+                .ConfigureAwait(true);
+
+            if (_isClosing || !ReferenceEquals(_queueManager, queue))
+            {
+                return;
+            }
 
             if (!plan.HasWork)
             {
-                Log("右键发送内容中没有可发送的文件。");
-                UpdateStatus("右键发送内容中没有可发送的文件");
+                Log(emptyMessage);
+                UpdateStatus(emptyMessage);
                 return;
             }
 
@@ -3968,12 +3991,19 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            SendTabButton.IsChecked = true;
+            if (switchToSendTab)
+            {
+                SendTabButton.IsChecked = true;
+            }
 
+            SelectFirstGroupIfNeeded(result.AddedGroups);
             LogQueueEnqueueResult(result);
             UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            // 窗口关闭时取消展开。
         }
         catch (Exception exception)
         {
@@ -3983,6 +4013,15 @@ public partial class MainWindow : Window
                 WifiDirectErrorContext.FileIo,
                 _lifetimeCts.Token);
             UpdateStatus(message);
+        }
+        finally
+        {
+            _isCollectingPaths = false;
+
+            if (!_isClosing)
+            {
+                UpdateUi();
+            }
         }
     }
 
@@ -4752,9 +4791,9 @@ public partial class MainWindow : Window
         _ => message.Subtype.ToString()
     };
 
-    private void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
+    private async void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isSending || _queueManager is not { } queue)
+        if (_isSending || _queueManager is null)
         {
             return;
         }
@@ -4771,39 +4810,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(
+        await EnqueueCollectedPathsAsync(
                 dialog.FileNames,
-                Log);
-            var wasRunning = queue.IsRunning;
-            var result = queue.EnqueuePlan(plan);
-
-            if (!result.HasWork &&
-                result.SkippedEmptyDirectoryCount == 0)
-            {
-                return;
-            }
-
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+                "所选文件中没有可发送的内容。")
+            .ConfigureAwait(true);
     }
 
-    private void AddQueueFolderButton_Click(object sender, RoutedEventArgs e)
+    private async void AddQueueFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isSending || _queueManager is not { } queue)
+        if (_isSending || _queueManager is null)
         {
             return;
         }
@@ -4818,41 +4833,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(
+        await EnqueueCollectedPathsAsync(
                 new[] { dialog.FolderName },
-                Log);
-
-            if (!plan.HasWork)
-            {
-                UpdateStatus("所选文件夹中没有可发送的内容");
-                return;
-            }
-
-            var wasRunning = queue.IsRunning;
-            var result = queue.EnqueuePlan(plan);
-
-            if (!result.HasWork &&
-                result.SkippedEmptyDirectoryCount == 0)
-            {
-                return;
-            }
-
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+                "所选文件夹中没有可发送的内容")
+            .ConfigureAwait(true);
     }
 
     private void PauseQueueButton_Click(object sender, RoutedEventArgs e)
