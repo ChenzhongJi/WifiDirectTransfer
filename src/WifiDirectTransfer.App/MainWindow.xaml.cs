@@ -232,7 +232,7 @@ public partial class MainWindow : Window
     private bool _isHiddenToTray;
     private TrayIconService? _trayIcon;
     private int _uiLogLineCount;
-    private bool _isLogCollapsed;
+    private bool _isLogCollapsed = true;
 
     private const int MaxUiLogLines = 2000;
     private const int UiLogTrimBatch = 500;
@@ -471,6 +471,50 @@ public partial class MainWindow : Window
         ScanButton_Click(sender, e);
     }
 
+    private void CommandScanButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _showOnboarding = false;
+        RoleSenderRadio.IsChecked = true;
+        UpdateUi();
+        ScanButton_Click(sender, e);
+    }
+
+    private void CommandSendFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _showOnboarding = false;
+        UpdateUi();
+
+        if (_channel is null || _queueManager is null || !_step0Passed)
+        {
+            UpdateStatus("请先连接对端设备后再发送文件");
+            return;
+        }
+
+        AddQueueFilesButton_Click(sender, e);
+    }
+
+    private void CommandSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _showOnboarding = false;
+        UpdateUi();
+        AdvancedSettingsToggle.IsChecked = true;
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _advertisementWatchdog?.Stop();
@@ -544,6 +588,7 @@ public partial class MainWindow : Window
 
         UpdateUi();
         UpdateTextInboxButton();
+        SetLogCollapsed(true);
 
         var launchPaths = Program.TakePendingPaths();
 
@@ -6011,11 +6056,15 @@ public partial class MainWindow : Window
     private void SetLogCollapsed(bool collapsed)
     {
         _isLogCollapsed = collapsed;
+        LogPanel.Visibility = collapsed
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        StatusLogButton.Content = collapsed ? "日志" : "收起日志";
 
         if (collapsed)
         {
             LogRow.MinHeight = 0;
-            LogRow.Height = GridLength.Auto;
+            LogRow.Height = new GridLength(0);
             LogTextBox.Visibility = Visibility.Collapsed;
             LogToggleButton.Content = "展开";
         }
@@ -6027,6 +6076,11 @@ public partial class MainWindow : Window
             LogToggleButton.Content = "折叠";
             LogTextBox.ScrollToEnd();
         }
+    }
+
+    private void StatusLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetLogCollapsed(!_isLogCollapsed);
     }
 
     private void HistoryButton_Click(object sender, RoutedEventArgs e)
@@ -6438,6 +6492,10 @@ public partial class MainWindow : Window
                                !_isConnecting &&
                                !_isRestartingDiscovery &&
                                !_isAutoReconnecting;
+        CommandScanButton.IsEnabled = supported &&
+                                      !connected &&
+                                      !busy;
+        CommandSettingsButton.IsEnabled = !_isClosing;
 
         // 不禁用整个列表：禁用 ListBox 时 WPF 会用系统浅色绘制禁用项，
         // 深色主题下会出现浅色卡片。连接按钮仍会按角色/状态单独禁用。
@@ -6480,21 +6538,19 @@ public partial class MainWindow : Window
         QueueEmptyPanel.Visibility = queue is { HasGroups: true }
             ? Visibility.Collapsed
             : Visibility.Visible;
-        QueueProgressCard.Visibility = queue is { HasGroups: true }
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
         QueueEmptyText.Text = canTransfer
-            ? "拖入文件或文件夹开始发送"
+            ? "队列为空"
             : "连接设备后开始发送";
         QueueEmptyHintText.Text = canTransfer
-            ? "支持整组发送，文件夹会保留目录结构；也可以继续往队列里追加"
+            ? "拖入文件或文件夹，或使用上方按钮添加"
             : "先连接对端设备，再拖入或选择要发送的文件";
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
                                         queue is not null;
         AddQueueFolderButton.IsEnabled = AddQueueFilesButton.IsEnabled;
+        CommandSendFileButton.IsEnabled = AddQueueFilesButton.IsEnabled;
 
         PauseQueueButton.Content = queue?.IsPaused == true ? "继续" : "暂停";
         PauseQueueButton.IsEnabled = queue is { IsRunning: true };

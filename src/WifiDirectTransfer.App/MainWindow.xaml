@@ -300,13 +300,32 @@
                     <StackPanel Grid.Column="2"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
+                        <Button x:Name="CommandScanButton"
+                                Content="扫描设备"
+                                Style="{StaticResource SmallButtonStyle}"
+                                Click="CommandScanButton_Click" />
+                        <Button x:Name="CommandSendFileButton"
+                                Margin="8,0,0,0"
+                                Content="发送文件"
+                                Style="{StaticResource SmallPrimaryButtonStyle}"
+                                Click="CommandSendFileButton_Click" />
+                        <Button x:Name="CommandSettingsButton"
+                                Margin="6,0,0,0"
+                                Content="设置"
+                                Style="{StaticResource SmallSubtleButtonStyle}"
+                                Click="CommandSettingsButton_Click" />
+                        <Border Width="1"
+                                Height="16"
+                                Margin="12,0"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource BorderBrush}" />
                         <Ellipse x:Name="CapabilityDot"
                                  Width="8"
                                  Height="8"
                                  VerticalAlignment="Center"
                                  Fill="{DynamicResource TextTertiaryBrush}" />
                         <TextBlock x:Name="CapabilityText"
-                                   MaxWidth="360"
+                                   MaxWidth="220"
                                    Margin="7,0,0,0"
                                    VerticalAlignment="Center"
                                    FontSize="11"
@@ -762,12 +781,27 @@
                                          Checked="TransferTab_Checked" />
                         </StackPanel>
                     </Border>
-                    <TextBlock x:Name="WorkspaceHintText"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
-                               FontSize="11.5"
-                               Foreground="{DynamicResource TextTertiaryBrush}"
-                               Text="拖入文件即可加入发送队列" />
+                    <StackPanel HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal">
+                        <TextBlock x:Name="WorkspaceHintText"
+                                   Margin="0,0,12,0"
+                                   VerticalAlignment="Center"
+                                   FontSize="11.5"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   Text="拖入文件即可加入发送队列" />
+                        <Button x:Name="HistoryButton"
+                                Content="传输历史"
+                                Style="{StaticResource SmallSubtleButtonStyle}"
+                                ToolTip="查看传输历史"
+                                Click="HistoryButton_Click" />
+                        <Button x:Name="ExportDiagnosticsButton"
+                                Margin="2,0,0,0"
+                                Content="诊断"
+                                Style="{StaticResource SmallSubtleButtonStyle}"
+                                ToolTip="导出日志、设置和构建信息"
+                                Click="ExportDiagnosticsButton_Click" />
+                    </StackPanel>
                 </Grid>
 
                 <Grid Grid.Row="1" Margin="0,14,0,0">
@@ -779,7 +813,68 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <Grid Margin="0,0,0,10">
+                        <Border Grid.Row="0"
+                                Margin="0,0,0,12"
+                                Padding="18,16"
+                                Background="{DynamicResource AccentSoftBrush}"
+                                BorderBrush="{DynamicResource AccentLineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="14">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Border Width="48"
+                                        Height="48"
+                                        Background="{DynamicResource SurfaceBrush}"
+                                        BorderBrush="{DynamicResource AccentLineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="14">
+                                    <Path Width="24"
+                                          Height="24"
+                                          Data="{StaticResource FolderAddGlyph}"
+                                          Fill="Transparent"
+                                          Stretch="Uniform"
+                                          Stroke="{DynamicResource AccentBrush}"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round"
+                                          StrokeStartLineCap="Round"
+                                          StrokeThickness="1.5" />
+                                </Border>
+
+                                <StackPanel Grid.Column="1"
+                                            Margin="16,0,16,0"
+                                            VerticalAlignment="Center">
+                                    <TextBlock FontSize="14.5"
+                                               FontWeight="SemiBold"
+                                               Text="拖入文件或文件夹开始发送" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               FontSize="11.5"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Text="支持整组发送；文件夹会保留目录结构，也可以继续往队列里追加"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal">
+                                    <Button x:Name="AddQueueFolderButton"
+                                            Content="添加文件夹…"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="AddQueueFolderButton_Click" />
+                                    <Button x:Name="AddQueueFilesButton"
+                                            Margin="8,0,0,0"
+                                            Content="添加文件…"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Click="AddQueueFilesButton_Click" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="1" Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal"
                                         VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource SectionTitleText}"
@@ -806,17 +901,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="Right">
-                                <Button x:Name="AddQueueFilesButton"
-                                        Content="添加文件…"
-                                        Style="{StaticResource SmallButtonStyle}"
-                                        Click="AddQueueFilesButton_Click" />
-                                <Button x:Name="AddQueueFolderButton"
-                                        Margin="6,0,0,0"
-                                        Content="添加文件夹…"
-                                        Style="{StaticResource SmallButtonStyle}"
-                                        Click="AddQueueFolderButton_Click" />
                                 <Button x:Name="StartQueueButton"
-                                        Margin="6,0,0,0"
                                         Content="开始传输"
                                         Style="{StaticResource SmallPrimaryButtonStyle}"
                                         Click="StartQueueButton_Click" />
@@ -839,121 +924,6 @@
                             </StackPanel>
                         </Grid>
 
-                        <Border x:Name="QueueProgressCard"
-                                Grid.Row="1"
-                                Margin="0,0,0,10"
-                                Padding="14"
-                                Background="{DynamicResource SurfaceBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="12">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-
-                                <Grid>
-                                    <StackPanel Orientation="Horizontal"
-                                                VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding CurrentPositionText}">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="FontSize" Value="11.5" />
-                                                    <Setter Property="FontWeight" Value="SemiBold" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
-                                                                     Value="{x:Null}">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        <TextBlock Margin="6,0"
-                                                   FontSize="11"
-                                                   Foreground="{DynamicResource TextTertiaryBrush}"
-                                                   Text="·">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
-                                                                     Value="{x:Null}">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                        <TextBlock MaxWidth="420"
-                                                   FontSize="11.5"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                                   Text="{Binding CurrentFile.DisplayPath, TargetNullValue=尚未开始, FallbackValue=尚未开始}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding CurrentFile.SourcePath}" />
-                                    </StackPanel>
-                                    <TextBlock HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               Style="{StaticResource CurrentStatusTextStyle}"
-                                               Text="{Binding CurrentFile.StatusText, TargetNullValue=等待添加文件, FallbackValue=等待添加文件}" />
-                                </Grid>
-
-                                <Grid Grid.Row="1" Margin="0,8,0,0">
-                                    <Grid.Style>
-                                        <Style TargetType="Grid">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding CurrentFile, FallbackValue={x:Null}}"
-                                                             Value="{x:Null}">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Grid.Style>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="18" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <Grid>
-                                            <TextBlock Style="{StaticResource TinyText}"
-                                                       Text="当前文件" />
-                                            <TextBlock HorizontalAlignment="Right"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="{Binding CurrentFile.ProgressPercent, StringFormat={}{0:0}%}" />
-                                        </Grid>
-                                        <ProgressBar Height="6"
-                                                     Margin="0,4,0,0"
-                                                     Minimum="0"
-                                                     Maximum="100"
-                                                     Value="{Binding CurrentFile.ProgressPercent, Mode=OneWay, FallbackValue=0}" />
-                                        <TextBlock Margin="0,3,0,0"
-                                                   Style="{StaticResource TinyText}"
-                                                   Text="{Binding CurrentFile.TransferRateText, TargetNullValue=—, FallbackValue=—}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2">
-                                        <Grid>
-                                            <TextBlock Style="{StaticResource TinyText}"
-                                                       Text="总体进度" />
-                                            <TextBlock HorizontalAlignment="Right"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="{Binding OverallProgressText}" />
-                                        </Grid>
-                                        <ProgressBar Height="6"
-                                                     Margin="0,4,0,0"
-                                                     Minimum="0"
-                                                     Maximum="100"
-                                                     Value="{Binding OverallProgressPercent, Mode=OneWay}" />
-                                        <TextBlock Margin="0,3,0,0"
-                                                   Style="{StaticResource TinyText}"
-                                                   Text="{Binding OverallTransferText, TargetNullValue=—, FallbackValue=—}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                </Grid>
-                            </Grid>
-                        </Border>
-
                         <Grid Grid.Row="2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -965,43 +935,6 @@
                                     BorderThickness="1"
                                     CornerRadius="12">
                                 <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="31" />
-                                        <RowDefinition Height="*" />
-                                    </Grid.RowDefinitions>
-
-                                    <Grid Grid.Row="0"
-                                          Background="{DynamicResource SurfaceAltBrush}">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid Grid.Column="1" Margin="12,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="64" />
-                                                <ColumnDefinition Width="72" />
-                                                <ColumnDefinition Width="116" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock VerticalAlignment="Center"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="项目" />
-                                            <TextBlock Grid.Column="1"
-                                                       VerticalAlignment="Center"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="大小" />
-                                            <TextBlock Grid.Column="2"
-                                                       VerticalAlignment="Center"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="状态" />
-                                            <TextBlock Grid.Column="3"
-                                                       VerticalAlignment="Center"
-                                                       Style="{StaticResource TinyText}"
-                                                       Text="进度" />
-                                        </Grid>
-                                    </Grid>
-
-                                    <Grid Grid.Row="1">
                                         <ListBox x:Name="QueueList"
                                                  Background="Transparent"
                                                  BorderThickness="0"
@@ -1033,116 +966,142 @@
                                                 <DataTemplate>
                                                     <Border BorderBrush="{DynamicResource RowSeparatorBrush}"
                                                             BorderThickness="0,0,0,1">
-                                                        <Grid Height="48" Margin="12,0">
+                                                        <Grid Margin="14,12">
                                                             <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="64" />
-                                                                <ColumnDefinition Width="72" />
-                                                                <ColumnDefinition Width="116" />
+                                                                <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
-                                                            <Grid VerticalAlignment="Center">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="*" />
-                                                                </Grid.ColumnDefinitions>
-                                                                <Border Width="24"
-                                                                        Height="24"
-                                                                        Background="{DynamicResource IconBackgroundBrush}"
-                                                                        CornerRadius="7">
-                                                                    <Grid>
-                                                                        <Path Data="{StaticResource FolderIconGeometry}">
-                                                                            <Path.Style>
-                                                                                <Style TargetType="Path"
-                                                                                       BasedOn="{StaticResource SmallGlyphPath}">
-                                                                                    <Setter Property="Visibility"
-                                                                                            Value="Collapsed" />
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding IsFolder}"
-                                                                                                     Value="True">
-                                                                                            <Setter Property="Visibility"
-                                                                                                    Value="Visible" />
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </Path.Style>
-                                                                        </Path>
-                                                                        <Path Data="{StaticResource FileIconGeometry}">
-                                                                            <Path.Style>
-                                                                                <Style TargetType="Path"
-                                                                                       BasedOn="{StaticResource SmallGlyphPath}">
-                                                                                    <Setter Property="Visibility"
-                                                                                            Value="Visible" />
-                                                                                    <Style.Triggers>
-                                                                                        <DataTrigger Binding="{Binding IsFolder}"
-                                                                                                     Value="True">
-                                                                                            <Setter Property="Visibility"
-                                                                                                    Value="Collapsed" />
-                                                                                        </DataTrigger>
-                                                                                    </Style.Triggers>
-                                                                                </Style>
-                                                                            </Path.Style>
-                                                                        </Path>
-                                                                    </Grid>
-                                                                </Border>
-                                                                <StackPanel Grid.Column="1"
-                                                                            Margin="8,0,0,0"
-                                                                            VerticalAlignment="Center">
+
+                                                            <Border Width="40"
+                                                                    Height="40"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="{DynamicResource IconBackgroundBrush}"
+                                                                    CornerRadius="11">
+                                                                <Grid>
+                                                                    <Path Data="{StaticResource FolderIconGeometry}">
+                                                                        <Path.Style>
+                                                                            <Style TargetType="Path"
+                                                                                   BasedOn="{StaticResource SmallGlyphPath}">
+                                                                                <Setter Property="Width" Value="20" />
+                                                                                <Setter Property="Height" Value="20" />
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </Path.Style>
+                                                                    </Path>
+                                                                    <Path Data="{StaticResource FileIconGeometry}">
+                                                                        <Path.Style>
+                                                                            <Style TargetType="Path"
+                                                                                   BasedOn="{StaticResource SmallGlyphPath}">
+                                                                                <Setter Property="Width" Value="20" />
+                                                                                <Setter Property="Height" Value="20" />
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </Path.Style>
+                                                                    </Path>
+                                                                </Grid>
+                                                            </Border>
+
+                                                            <StackPanel Grid.Column="1"
+                                                                        Margin="12,0,12,0"
+                                                                        VerticalAlignment="Center">
+                                                                <Grid>
                                                                     <TextBlock Text="{Binding DisplayName}"
-                                                                               FontSize="12"
+                                                                               FontSize="12.5"
                                                                                FontWeight="SemiBold"
                                                                                TextTrimming="CharacterEllipsis"
                                                                                ToolTip="{Binding SourcePath}" />
-                                                                    <TextBlock Margin="0,2,0,0"
+                                                                    <Border HorizontalAlignment="Right"
+                                                                            Padding="8,2"
+                                                                            CornerRadius="999">
+                                                                        <Border.Style>
+                                                                            <Style TargetType="Border">
+                                                                                <Setter Property="Background" Value="{DynamicResource SegmentBackgroundBrush}" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding Status}" Value="Transferring">
+                                                                                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Status}" Value="Completed">
+                                                                                        <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                                                        <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Status}" Value="Skipped">
+                                                                                        <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </Border.Style>
+                                                                        <TextBlock FontSize="10"
+                                                                                   FontWeight="SemiBold"
+                                                                                   Style="{StaticResource QueueStatusTextStyle}"
+                                                                                   Text="{Binding StatusText}" />
+                                                                    </Border>
+                                                                </Grid>
+                                                                <TextBlock Margin="0,2,0,0"
+                                                                           FontSize="10.5"
+                                                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                           Text="{Binding Subtitle}"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <Grid Margin="0,7,0,0">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <ProgressBar Height="4"
+                                                                                 VerticalAlignment="Center"
+                                                                                 Maximum="100"
+                                                                                 Minimum="0"
+                                                                                 Style="{StaticResource QueueProgressBarStyle}"
+                                                                                 Value="{Binding ProgressPercent, Mode=OneWay}" />
+                                                                    <TextBlock Grid.Column="1"
+                                                                               Width="36"
+                                                                               Margin="8,0,0,0"
+                                                                               VerticalAlignment="Center"
                                                                                FontSize="10"
-                                                                               Foreground="{DynamicResource TextTertiaryBrush}"
-                                                                               Text="{Binding Subtitle}"
-                                                                               TextTrimming="CharacterEllipsis" />
-                                                                </StackPanel>
-                                                            </Grid>
-                                                            <TextBlock Grid.Column="1"
-                                                                       VerticalAlignment="Center"
-                                                                       FontSize="10.5"
-                                                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                                                       Text="{Binding Size, Converter={StaticResource ByteSizeConverter}}" />
-                                                            <TextBlock Grid.Column="2"
-                                                                       VerticalAlignment="Center"
-                                                                       Style="{StaticResource QueueStatusTextStyle}"
-                                                                       Text="{Binding StatusText}" />
-                                                            <Grid Grid.Column="3" VerticalAlignment="Center">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="*" />
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                </Grid.ColumnDefinitions>
-                                                                <ProgressBar Height="4"
-                                                                             VerticalAlignment="Center"
-                                                                             Maximum="100"
-                                                                             Minimum="0"
-                                                                             Style="{StaticResource QueueProgressBarStyle}"
-                                                                             Value="{Binding ProgressPercent, Mode=OneWay}" />
-                                                                <TextBlock Grid.Column="1"
-                                                                           Width="34"
-                                                                           Margin="8,0,0,0"
-                                                                           VerticalAlignment="Center"
-                                                                           FontSize="10"
-                                                                           Foreground="{DynamicResource TextSecondaryBrush}"
-                                                                           Text="{Binding ProgressText}"
+                                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                               Text="{Binding ProgressText}"
+                                                                               TextAlignment="Right" />
+                                                                </Grid>
+                                                            </StackPanel>
+
+                                                            <StackPanel Grid.Column="2"
+                                                                        Width="118"
+                                                                        Margin="4,0,0,0"
+                                                                        VerticalAlignment="Center">
+                                                                <TextBlock FontSize="11.5"
+                                                                           FontWeight="SemiBold"
+                                                                           Text="{Binding SpeedText}"
                                                                            TextAlignment="Right" />
-                                                            </Grid>
+                                                                <TextBlock Margin="0,2,0,0"
+                                                                           FontSize="10"
+                                                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                                                           Text="{Binding EtaText}"
+                                                                           TextAlignment="Right" />
+                                                            </StackPanel>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
                                             </ListBox.ItemTemplate>
                                         </ListBox>
 
-                                    </Grid>
-
                                     <Grid x:Name="QueueEmptyPanel"
-                                          Grid.RowSpan="2"
                                           Background="{DynamicResource SurfaceBrush}">
                                         <Border Margin="14"
                                                 Padding="18"
-                                                Background="{DynamicResource AccentSoftBrush}"
-                                                BorderBrush="{DynamicResource AccentLineBrush}"
+                                                Background="{DynamicResource SurfaceBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
                                                 BorderThickness="1"
                                                 CornerRadius="12">
                                             <StackPanel Width="420"
@@ -1151,16 +1110,14 @@
                                                 <Border Width="54"
                                                         Height="54"
                                                         HorizontalAlignment="Center"
-                                                        Background="{DynamicResource SurfaceBrush}"
-                                                        BorderBrush="{DynamicResource AccentLineBrush}"
-                                                        BorderThickness="1"
+                                                        Background="{DynamicResource SegmentBackgroundBrush}"
                                                         CornerRadius="14">
                                                     <Path Width="26"
                                                           Height="26"
                                                           Data="{StaticResource FolderAddGlyph}"
                                                           Fill="Transparent"
                                                           Stretch="Uniform"
-                                                          Stroke="{DynamicResource AccentBrush}"
+                                                          Stroke="{DynamicResource TextSecondaryBrush}"
                                                           StrokeEndLineCap="Round"
                                                           StrokeLineJoin="Round"
                                                           StrokeStartLineCap="Round"
@@ -1180,19 +1137,6 @@
                                                            Text="支持整组发送，文件夹会保留目录结构；也可以继续往队列里追加"
                                                            TextAlignment="Center"
                                                            TextWrapping="Wrap" />
-                                                <StackPanel Margin="0,16,0,0"
-                                                            HorizontalAlignment="Center"
-                                                            Orientation="Horizontal">
-                                                    <Button Content="添加文件夹…"
-                                                            IsEnabled="{Binding IsEnabled, ElementName=AddQueueFolderButton}"
-                                                            Style="{StaticResource SecondaryButtonStyle}"
-                                                            Click="AddQueueFolderButton_Click" />
-                                                    <Button Margin="8,0,0,0"
-                                                            Content="添加文件…"
-                                                            IsEnabled="{Binding IsEnabled, ElementName=AddQueueFilesButton}"
-                                                            Style="{StaticResource PrimaryButtonStyle}"
-                                                            Click="AddQueueFilesButton_Click" />
-                                                </StackPanel>
                                             </StackPanel>
                                         </Border>
                                     </Grid>
@@ -1638,19 +1582,7 @@
                                        VerticalAlignment="Center" />
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="Right">
-                                <Button x:Name="HistoryButton"
-                                        Content="传输历史"
-                                        Style="{StaticResource SmallSubtleButtonStyle}"
-                                        ToolTip="查看传输历史"
-                                        Click="HistoryButton_Click" />
-                                <Button x:Name="ExportDiagnosticsButton"
-                                        Margin="2,0,0,0"
-                                        Content="诊断"
-                                        Style="{StaticResource SmallSubtleButtonStyle}"
-                                        ToolTip="导出日志、设置和构建信息"
-                                        Click="ExportDiagnosticsButton_Click" />
                                 <Button x:Name="AboutButton"
-                                        Margin="2,0,0,0"
                                         Content="关于"
                                         Style="{StaticResource SmallSubtleButtonStyle}"
                                         Click="AboutButton_Click" />
@@ -2014,12 +1946,21 @@
                            Foreground="{DynamicResource TextSecondaryBrush}"
                            Text="未连接"
                            TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="ProtocolVersionText"
-                           Grid.Column="1"
-                           VerticalAlignment="Center"
-                           FontSize="10.5"
-                           Foreground="{DynamicResource TextTertiaryBrush}"
-                           Text="双向传输" />
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                    <Button x:Name="StatusLogButton"
+                            Margin="0,0,12,0"
+                            Content="日志"
+                            Style="{StaticResource SmallSubtleButtonStyle}"
+                            ToolTip="展开或收起运行日志"
+                            Click="StatusLogButton_Click" />
+                    <TextBlock x:Name="ProtocolVersionText"
+                               VerticalAlignment="Center"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               Text="双向传输" />
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>
