@@ -428,19 +428,21 @@ public sealed class FileReceiver : IAsyncDisposable
 
         if (payload.Length is <= 0 or > FileTransferProtocol.BlockSize)
         {
-            DeleteActive(
-                new MessageProtocolException(
-                    $"FileChunk payload 长度必须在 1..{FileTransferProtocol.BlockSize} 之间。"),
-                _safeFileName);
+            var error = new MessageProtocolException(
+                $"FileChunk payload 长度必须在 1..{FileTransferProtocol.BlockSize} 之间。");
+            await SendTransferErrorBestEffortAsync(error, cancellationToken)
+                .ConfigureAwait(false);
+            DeleteActive(error, _safeFileName);
             return;
         }
 
         if (_received + payload.Length > _expectedSize)
         {
-            DeleteActive(
-                new MessageProtocolException(
-                    "FileChunk 超过了 FileStart 声明的文件大小。"),
-                _safeFileName);
+            var error = new MessageProtocolException(
+                "FileChunk 超过了 FileStart 声明的文件大小。");
+            await SendTransferErrorBestEffortAsync(error, cancellationToken)
+                .ConfigureAwait(false);
+            DeleteActive(error, _safeFileName);
             return;
         }
 
