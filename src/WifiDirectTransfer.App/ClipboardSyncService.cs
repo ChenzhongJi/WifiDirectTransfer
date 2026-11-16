@@ -26,6 +26,11 @@ internal sealed class ClipboardSyncService : IDisposable
     private const int ClipboardRetryDelayMilliseconds = 50;
     private const int RemoteEchoSuppressMilliseconds = 2000;
 
+    /// <summary>
+    /// 远端 PNG 解码前的像素上限，防止压缩率极高的小文件解码成超大位图。
+    /// </summary>
+    private const long MaxDecodedPixelCount = 100_000_000;
+
     // 复制大文件或从图片查看器复制时，剪贴板可能几秒内都无法读取。
     private static readonly int[] ReadRetryDelaysMilliseconds =
     {
@@ -275,6 +280,14 @@ internal sealed class ClipboardSyncService : IDisposable
                 case ClipboardContentType.Image
                     when snapshot.ClipboardImage is not null:
                     var image = snapshot.ClipboardImage;
+
+                    if ((long)image.PixelWidth * image.PixelHeight >
+                        MaxDecodedPixelCount)
+                    {
+                        _log("剪贴板图片像素过多，已跳过同步。");
+                        return;
+                    }
+
                     var pngBytes = await Task.Run(
                             () => EncodePng(image),
                             _lifetimeToken)
@@ -455,6 +468,13 @@ internal sealed class ClipboardSyncService : IDisposable
             _log(
                 "剪贴板图片过大，已跳过同步" +
                 $"（PNG {content.Data.Length} 字节）");
+            return;
+        }
+
+        if (content.Type == ClipboardContentType.Image &&
+            !HasSafePngDimensions(content.Data))
+        {
+            _log("剪贴板图片不是有效 PNG 或解码尺寸过大，已跳过同步。");
             return;
         }
 
@@ -792,10 +812,10 @@ internal sealed class ClipboardSyncService : IDisposable
                     return (null, string.Empty);
                 }
 
-                // 只校验 PNG 头，避免为验证而完整解码 75 MP 图片。
-                if (!HasValidPngHeader(pngBytes))
+                // 只校验 PNG 头和解码尺寸，避免为验证而完整解码大图。
+                if (!HasSafePngDimensions(pngBytes))
                 {
-                    _log($"剪贴板图片文件不是有效的 PNG：{fileName}");
+                    _log($"剪贴板图片文件不是有效 PNG 或尺寸过大：{fileName}");
                     return (null, string.Empty);
                 }
 
@@ -823,6 +843,15 @@ internal sealed class ClipboardSyncService : IDisposable
             }
 
             var frame = decoder.Frames[0];
+
+            if ((long)frame.PixelWidth * frame.PixelHeight >
+                MaxDecodedPixelCount)
+            {
+                _log("剪贴板图片像素过多，已跳过同步" +
+                     $"（文件 {fileName}）");
+                return (null, string.Empty);
+            }
+
             var description =
                 $"文件 {fileName}（解码为 PNG，" +
                 $"{frame.PixelWidth}x{frame.PixelHeight}）";
@@ -855,6 +884,22 @@ internal sealed class ClipboardSyncService : IDisposable
                bytes[15] == (byte)'R' &&
                BinaryPrimitives.ReadUInt32BigEndian(bytes.Slice(16, 4)) > 0 &&
                BinaryPrimitives.ReadUInt32BigEndian(bytes.Slice(20, 4)) > 0;
+    }
+
+    /// <summary>
+    /// 远端图片只接受 PNG，并在解码前限制像素数，避免压缩炸弹导致超大位图分配。
+    /// </summary>
+    private static bool HasSafePngDimensions(ReadOnlySpan<byte> bytes)
+    {
+        if (!HasValidPngHeader(bytes))
+        {
+            return false;
+        }
+
+        var width = BinaryPrimitives.ReadUInt32BigEndian(bytes.Slice(16, 4));
+        var height = BinaryPrimitives.ReadUInt32BigEndian(bytes.Slice(20, 4));
+
+        return (long)width * height <= MaxDecodedPixelCount;
     }
 
     private async Task SendPayloadAsync(

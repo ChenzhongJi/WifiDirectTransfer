@@ -183,6 +183,15 @@ public sealed class MessageDispatcher
                         $"未知的 MessageType：0x{typeBuffer[0]:X2}。");
                 }
 
+                // 按消息类型进一步收紧上限，避免异常或恶意帧触发过大的缓冲区分配。
+                var receiveLimit = GetReceivePayloadLimit(type);
+
+                if (payloadLength > (uint)receiveLimit)
+                {
+                    throw new MessageProtocolException(
+                        $"帧 payload 长度 {payloadLength} 超过 {type} 类型的接收上限 {receiveLimit}。");
+                }
+
                 var payload = new byte[(int)payloadLength];
 
                 await _input
@@ -204,6 +213,35 @@ public sealed class MessageDispatcher
             RaiseDisconnected(exception, remoteClosed: false);
         }
     }
+
+    /// <summary>
+    /// 接收方向的单帧类型上限。剪贴板图片仍允许使用配置的单帧上限；
+    /// 文件块保留 2 个块的余量，让 FileReceiver 能按协议语义返回 TransferError。
+    /// </summary>
+    private int GetReceivePayloadLimit(MessageType type) => type switch
+    {
+        MessageType.FileStart => Math.Min(
+            _maxPayloadLength,
+            FileTransferProtocol.FixedHeaderLength +
+            FileTransferProtocol.MaxFileNameLength +
+            FileTransferProtocol.MaxRelativeDirectoryLength),
+        MessageType.FileChunk => Math.Min(
+            _maxPayloadLength,
+            FileTransferProtocol.BlockSize * 2),
+        MessageType.FileEnd => Math.Min(
+            _maxPayloadLength,
+            MessageProtocol.FileEndDigestLength),
+        MessageType.ControlMessage => Math.Min(
+            _maxPayloadLength,
+            MessageProtocol.DefaultMaxPayloadLength),
+        MessageType.TextMessage => Math.Min(
+            _maxPayloadLength,
+            TextMessageCodec.MaxPayloadBytes),
+        MessageType.ScreenCapture or MessageType.InputEvent => Math.Min(
+            _maxPayloadLength,
+            MessageProtocol.DefaultMaxPayloadLength),
+        _ => _maxPayloadLength
+    };
 
     private async Task InvokeMessageHandlersAsync(
         MessageReceivedEventArgs args,

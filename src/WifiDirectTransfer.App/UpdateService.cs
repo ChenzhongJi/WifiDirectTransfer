@@ -137,6 +137,7 @@ internal static class UpdateService
                 await CopyLocalFileAsync(
                         manifest.SetupUri.LocalPath,
                         partPath,
+                        manifest.Size,
                         progress,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -212,6 +213,13 @@ internal static class UpdateService
                 cancellationToken)
             .ConfigureAwait(false);
         var total = response.Content.Headers.ContentLength ?? expectedSize;
+
+        if (total > expectedSize)
+        {
+            throw new InvalidDataException(
+                $"更新包大小超过清单声明的 {expectedSize} 字节，下载已中止。");
+        }
+
         await using var source = await response.Content
             .ReadAsStreamAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -237,6 +245,12 @@ internal static class UpdateService
                 break;
             }
 
+            if (received + read > expectedSize)
+            {
+                throw new InvalidDataException(
+                    $"更新包大小超过清单声明的 {expectedSize} 字节，下载已中止。");
+            }
+
             await destination
                 .WriteAsync(buffer.AsMemory(0, read), cancellationToken)
                 .ConfigureAwait(false);
@@ -256,6 +270,7 @@ internal static class UpdateService
     private static async Task CopyLocalFileAsync(
         string sourcePath,
         string destinationPath,
+        long expectedSize,
         IProgress<UpdateDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -266,6 +281,14 @@ internal static class UpdateService
             FileShare.Read,
             bufferSize: 128 * 1024,
             useAsync: true);
+
+        if (source.Length != expectedSize)
+        {
+            throw new InvalidDataException(
+                $"更新包大小与清单不一致：预期 {expectedSize} 字节，" +
+                $"实际 {source.Length} 字节。");
+        }
+
         await using var destination = new FileStream(
             destinationPath,
             FileMode.Create,
