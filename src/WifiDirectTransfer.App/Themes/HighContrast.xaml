@@ -49,5 +49,4 @@
     <SolidColorBrush x:Key="ProgressTrackBrush" Color="{x:Static SystemColors.ControlColor}" />
     <SolidColorBrush x:Key="ToolTipBackgroundBrush" Color="{x:Static SystemColors.InfoColor}" />
     <SolidColorBrush x:Key="ToolTipForegroundBrush" Color="{x:Static SystemColors.InfoTextColor}" />
-    <SolidColorBrush x:Key="AccentGradientBrush" Color="{x:Static SystemColors.HighlightColor}" />
 </ResourceDictionary>
