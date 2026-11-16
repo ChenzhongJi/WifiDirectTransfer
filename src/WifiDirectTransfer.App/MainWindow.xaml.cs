@@ -138,6 +138,10 @@ public partial class MainWindow : Window
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetCurrentProcessExplicitAppUserModelID(
+        out IntPtr appId);
+
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
     private WifiDirectAvailability? _capability;
@@ -157,6 +161,9 @@ public partial class MainWindow : Window
     private bool _isDisconnecting;
     private bool _isSending;
     private bool _isCollectingPaths;
+    private bool _wasDeactivatedWhileWaiting;
+    private DateTimeOffset _lastForegroundAdvertisingRefresh =
+        DateTimeOffset.MinValue;
     private bool _isHandlingRequest;
     private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
@@ -314,7 +321,92 @@ public partial class MainWindow : Window
         if (_initialized && !_isClosing)
         {
             RefreshReceivedFilesAvailability();
+            _ = RefreshAdvertisingAfterForegroundAsync();
         }
+    }
+
+    protected override void OnDeactivated(EventArgs e)
+    {
+        base.OnDeactivated(e);
+
+        if (!_initialized ||
+            _isClosing ||
+            _role != AppRole.Receiver ||
+            !_serviceStarted ||
+            _channel is not null ||
+            _isHandlingRequest)
+        {
+            return;
+        }
+
+        _wasDeactivatedWhileWaiting = true;
+        Log(
+            "等待连接期间窗口失去前台焦点。PeerFinder 只有在应用处于前台时" +
+            "才会广播，请保持本窗口在前台。");
+        UpdateStatus(
+            "窗口已失去前台焦点；对端可能扫描不到本机，请保持窗口在前台。");
+    }
+
+    private static string GetProcessAumid()
+    {
+        try
+        {
+            if (GetCurrentProcessExplicitAppUserModelID(out var pointer) == 0 &&
+                pointer != IntPtr.Zero)
+            {
+                try
+                {
+                    return Marshal.PtrToStringUni(pointer) ?? "(空)";
+                }
+                finally
+                {
+                    Marshal.FreeCoTaskMem(pointer);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // 诊断信息获取失败不应影响应用。
+        }
+
+        return "(未设置)";
+    }
+
+    private static string GetDiscoveryDiagnostics()
+    {
+        try
+        {
+            return new WifiDirectCapabilityChecker().GetDiagnostics();
+        }
+        catch (Exception exception)
+        {
+            return $"诊断不可用：{exception.GetType().Name}";
+        }
+    }
+
+    private async Task RefreshAdvertisingAfterForegroundAsync()
+    {
+        if (!_wasDeactivatedWhileWaiting ||
+            _role != AppRole.Receiver ||
+            !_serviceStarted ||
+            _channel is not null ||
+            _isHandlingRequest ||
+            _isClosing)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+
+        if (now - _lastForegroundAdvertisingRefresh < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        _lastForegroundAdvertisingRefresh = now;
+        _wasDeactivatedWhileWaiting = false;
+        Log("窗口回到前台，重新启动等待广播。");
+        await RestartReceiverAdvertisementAsync("窗口回到前台");
     }
 
     private bool CapabilitySupported =>
@@ -439,6 +531,11 @@ public partial class MainWindow : Window
                 CapabilityDot.Fill = Brushes.SeaGreen;
                 CapabilityText.Text = "Wi-Fi Direct 可用";
                 Log("C1 预检通过：Wi-Fi Direct 发现能力可用。");
+                Log(
+                    "发现诊断：" +
+                    $"os={Environment.OSVersion.Version}, " +
+                    $"aumid={GetProcessAumid()}, " +
+                    GetDiscoveryDiagnostics());
             }
             else
             {
@@ -1367,7 +1464,8 @@ public partial class MainWindow : Window
         }
 
         Log("等待端已就绪，等待连接发起端连接。");
-        UpdateStatus("等待连接…如长时间无法被发现，点击“重新等待”。");
+        UpdateStatus(
+            "等待连接…请保持本窗口在前台，最小化或隐藏到托盘会让对端扫描不到本机。");
         StartAdvertisementWatchdog();
         UpdateUi();
     }
@@ -1574,6 +1672,12 @@ public partial class MainWindow : Window
         UpdateUi();
         UpdateStatus("正在搜索设备…");
         Log("FindAllPeersAsync 开始：搜索窗口 15 秒，自动重试。");
+        Log(
+            "发现诊断：" +
+            $"os={Environment.OSVersion.Version}, " +
+            $"aumid={GetProcessAumid()}, " +
+            $"foreground={IsActive}, " +
+            GetDiscoveryDiagnostics());
 
         using var scanCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         _scanCts = scanCts;
@@ -1673,8 +1777,12 @@ public partial class MainWindow : Window
             {
                 Log($"搜索结束：尝试 {attempt} 次，未发现设备。");
                 UpdateStatus(
-                    "未发现设备。请确认对端已选择“等待连接”并点击“等待连接”，" +
-                    "两台电脑保持前台后重试。");
+                    "未发现设备。请确认：两端使用同一构建并都保持前台；" +
+                    "接收端已选择“等待连接”并点击按钮（最小化或隐藏到托盘会停止广播）；" +
+                    "两端 Wi-Fi 已打开。");
+                Log(
+                    "未发现设备排查：PeerFinder 要求双方应用都在前台且 AppUserModelID " +
+                    "一致；Windows 11 24H2+ 上还需确认网卡驱动支持 Wi-Fi Direct 发现。");
             }
             else
             {
@@ -5329,6 +5437,7 @@ public partial class MainWindow : Window
         Topmost = false;
         _isHiddenToTray = false;
         Log("已从托盘恢复窗口。");
+        _ = RefreshAdvertisingAfterForegroundAsync();
     }
 
     private void HideToTray()
@@ -5339,11 +5448,23 @@ public partial class MainWindow : Window
         _isHiddenToTray = true;
         Log("窗口已隐藏到托盘，传输继续在后台进行。");
 
+        if (_role == AppRole.Receiver &&
+            _serviceStarted &&
+            _channel is null)
+        {
+            _wasDeactivatedWhileWaiting = true;
+            Log(
+                "等待连接期间隐藏到托盘：PeerFinder 只在应用处于前台时广播，" +
+                "对端可能扫描不到本机。");
+        }
+
         if (_notificationsEnabled)
         {
             _trayIcon?.ShowBalloon(
                 "后台运行中",
-                "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
+                _role == AppRole.Receiver && _serviceStarted && _channel is null
+                    ? "等待连接期间隐藏到托盘可能导致对端扫描不到本机，请恢复窗口并重新等待。"
+                    : "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
         }
     }
 
@@ -5357,11 +5478,23 @@ public partial class MainWindow : Window
         _isHiddenToTray = true;
         Log("关闭窗口：已最小化到托盘。");
 
+        if (_role == AppRole.Receiver &&
+            _serviceStarted &&
+            _channel is null)
+        {
+            _wasDeactivatedWhileWaiting = true;
+            Log(
+                "等待连接期间关闭到托盘：PeerFinder 只在应用处于前台时广播，" +
+                "对端可能扫描不到本机。");
+        }
+
         if (_notificationsEnabled)
         {
             _trayIcon?.ShowBalloon(
                 "仍在后台运行",
-                "双击托盘图标恢复窗口，右键托盘图标可选择“退出”。");
+                _role == AppRole.Receiver && _serviceStarted && _channel is null
+                    ? "等待连接期间关闭到托盘可能导致对端扫描不到本机，请恢复窗口并重新等待。"
+                    : "双击托盘图标恢复窗口，右键托盘图标可选择“退出”。");
         }
     }
 
