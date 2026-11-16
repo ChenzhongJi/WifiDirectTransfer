@@ -138,6 +138,61 @@ public partial class MainWindow : Window
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmWindowCornerRound = 2;
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        ref int value,
+        int size);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(
+        IntPtr monitor,
+        ref MonitorInfo monitorInfo);
+
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
     private WifiDirectAvailability? _capability;
@@ -157,6 +212,7 @@ public partial class MainWindow : Window
     private bool _isDisconnecting;
     private bool _isSending;
     private bool _isCollectingPaths;
+    private bool _showOnboarding = true;
     private bool _isHandlingRequest;
     private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
@@ -229,6 +285,8 @@ public partial class MainWindow : Window
             source.AddHook(WndProc);
             _clipboardSyncService.Attach(source.Handle);
 
+            TryEnableRoundedCorners(source.Handle);
+
             _sessionNotificationRegistered =
                 WTSRegisterSessionNotification(
                     source.Handle,
@@ -245,6 +303,12 @@ public partial class MainWindow : Window
         IntPtr lParam,
         ref bool handled)
     {
+        if (message == WmGetMinMaxInfo)
+        {
+            ApplyMaximizedWorkArea(hwnd, lParam);
+            return IntPtr.Zero;
+        }
+
         if (message == ClipboardSyncService.WmClipboardUpdate)
         {
             _clipboardSyncService.OnClipboardUpdate();
@@ -278,6 +342,133 @@ public partial class MainWindow : Window
         }
 
         return IntPtr.Zero;
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState.Minimized;
+
+    /// <summary>
+    /// WindowStyle=None + WindowChrome 时，最大化会越过任务栏；这里把可最大化
+    /// 区域限制到当前显示器的工作区。
+    /// </summary>
+    private static void ApplyMaximizedWorkArea(IntPtr hwnd, IntPtr lParam)
+    {
+        if (lParam == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+
+        if (monitor == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var monitorInfo = new MonitorInfo
+        {
+            Size = Marshal.SizeOf<MonitorInfo>()
+        };
+
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            return;
+        }
+
+        var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        var work = monitorInfo.Work;
+        var screen = monitorInfo.Monitor;
+
+        info.MaxPosition.X = Math.Abs(work.Left - screen.Left);
+        info.MaxPosition.Y = Math.Abs(work.Top - screen.Top);
+        info.MaxSize.X = work.Right - work.Left;
+        info.MaxSize.Y = work.Bottom - work.Top;
+        info.MaxTrackSize = info.MaxSize;
+
+        Marshal.StructureToPtr(info, lParam, true);
+    }
+
+    private void MaximizeButton_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Window_StateChanged(object? sender, EventArgs e) =>
+        UpdateWindowChromeForState();
+
+    private void UpdateWindowChromeForState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+
+        if (MaximizeGlyph is not null && RestoreGlyph is not null)
+        {
+            MaximizeGlyph.Visibility =
+                maximized ? Visibility.Collapsed : Visibility.Visible;
+            RestoreGlyph.Visibility =
+                maximized ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (MaximizeButton is not null)
+        {
+            MaximizeButton.ToolTip = maximized ? "还原" : "最大化";
+        }
+
+        if (RootFrame is not null)
+        {
+            RootFrame.BorderThickness = maximized
+                ? new Thickness(0)
+                : new Thickness(1);
+        }
+    }
+
+    private void TryEnableRoundedCorners(IntPtr hwnd)
+    {
+        if (Environment.OSVersion.Version.Build < 22000)
+        {
+            return;
+        }
+
+        try
+        {
+            var preference = DwmWindowCornerRound;
+            DwmSetWindowAttribute(
+                hwnd,
+                DwmwaWindowCornerPreference,
+                ref preference,
+                sizeof(int));
+        }
+        catch (Exception)
+        {
+            // 旧系统或 DWM 不可用时保持直角窗口。
+        }
+    }
+
+    private void OnboardingWaitButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _showOnboarding = false;
+        RoleReceiverRadio.IsChecked = true;
+        UpdateUi();
+        WaitButton_Click(sender, e);
+    }
+
+    private void OnboardingScanButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _showOnboarding = false;
+        RoleSenderRadio.IsChecked = true;
+        UpdateUi();
+        ScanButton_Click(sender, e);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -331,6 +522,7 @@ public partial class MainWindow : Window
 
         StatusText.Text = "未连接";
         Log("M0 界面已启动。");
+        TitleBarVersionText.Text = $"v{BuildInfo.VersionText}";
         Log($"日志文件：{AppLog.FilePath}");
         Log($"本端构建：{GetBuildInfo()}");
         InitializeTrayIcon();
@@ -3858,6 +4050,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _showOnboarding = false;
+        UpdateUi();
         SendTabButton.IsChecked = true;
 
         if (_channel is not null &&
@@ -6191,6 +6385,35 @@ public partial class MainWindow : Window
                    _isRestartingDiscovery ||
                    _isAutoReconnecting;
 
+        if (connected)
+        {
+            _showOnboarding = false;
+        }
+
+        OnboardingPanel.Visibility = _showOnboarding
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        LeftRailCard.Visibility = _showOnboarding
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        WorkspaceGrid.Visibility = _showOnboarding
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        OnboardingWaitButton.IsEnabled = supported;
+        OnboardingScanButton.IsEnabled = supported;
+
+        if (!supported)
+        {
+            OnboardingCapabilityText.Text =
+                _capability?.UnsupportedReason ??
+                "当前设备不支持 Wi-Fi Direct 发现。";
+            OnboardingCapabilityText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            OnboardingCapabilityText.Visibility = Visibility.Collapsed;
+        }
+
         RoleReceiverRadio.IsEnabled = supported && !connected && !busy;
         RoleSenderRadio.IsEnabled = supported && !connected && !busy;
 
@@ -6257,10 +6480,16 @@ public partial class MainWindow : Window
         QueueEmptyPanel.Visibility = queue is { HasGroups: true }
             ? Visibility.Collapsed
             : Visibility.Visible;
+        QueueProgressCard.Visibility = queue is { HasGroups: true }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
-        QueueEmptyText.Text = "队列为空";
-        QueueEmptyHintText.Text =
-            "拖入文件或文件夹，或从资源管理器添加";
+        QueueEmptyText.Text = canTransfer
+            ? "拖入文件或文件夹开始发送"
+            : "连接设备后开始发送";
+        QueueEmptyHintText.Text = canTransfer
+            ? "支持整组发送，文件夹会保留目录结构；也可以继续往队列里追加"
+            : "先连接对端设备，再拖入或选择要发送的文件";
 
         AddQueueFilesButton.IsEnabled = canTransfer &&
                                         !_isSending &&
@@ -6291,18 +6520,32 @@ public partial class MainWindow : Window
     private void UpdateConnectionHeader()
     {
         var connected = _channel is not null;
+        var connecting = _isConnecting || _isScanning;
 
-        ConnectionChip.Background = connected
-            ? Brushes.Honeydew
-            : Brushes.WhiteSmoke;
-        ConnectionDot.Fill = connected
-            ? Brushes.SeaGreen
-            : _isConnecting
-                ? Brushes.DarkOrange
-                : Brushes.Gray;
-        ConnectionStatusText.Foreground = connected
-            ? Brushes.ForestGreen
-            : Brushes.DimGray;
+        ConnectionChip.Background = (Brush)FindResource(
+            connected
+                ? "SuccessSoftBrush"
+                : connecting
+                    ? "WarningSoftBrush"
+                    : "SurfaceBrush");
+        ConnectionChip.BorderBrush = (Brush)FindResource(
+            connected
+                ? "SuccessBrush"
+                : connecting
+                    ? "WarningLineBrush"
+                    : "BorderBrush");
+        ConnectionDot.Fill = (Brush)FindResource(
+            connected
+                ? "SuccessBrush"
+                : connecting
+                    ? "WarningBrush"
+                    : "TextTertiaryBrush");
+        ConnectionStatusText.Foreground = (Brush)FindResource(
+            connected
+                ? "SuccessBrush"
+                : connecting
+                    ? "WarningBrush"
+                    : "TextSecondaryBrush");
 
         ConnectionStatusText.Text = connected
             ? "已连接"
