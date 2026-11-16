@@ -101,7 +101,7 @@ Windows 与 Windows 之间通过 Wi-Fi Direct 直连传输文件、文本和剪�
 
 - 单文件上限 16 GiB；超过 2 GiB 需要两端都使用 1.2 或更高版本。
 - 单条文本上限 64 KiB；收件箱最多 100 条，关闭应用后清空。
-- 剪贴板图片上限 32 MiB。
+- 剪贴板图片上限 32 MiB；为避免压缩图片解码后占用过多内存，接收端还限制解码后不超过 1 亿像素。
 - 文件夹会保留目录结构；空文件夹只有两端都是 1.3+ 时才会保留，旧对端会跳过并提示。
 - 接收端已有同名顶层文件夹时默认合并；发送端同一队列内重复文件夹会自动使用 `docs (2)` 等路径区分，跨会话不处理已有目录冲突。
 - 1.1 起协议版本为 v4，不兼容 1.0.x；1.2 / 1.3 / 1.4 / 1.5 与 1.1.x 在 2 GiB 以内互通，空文件夹需要 1.3+，设备身份验证需要两端 1.4+，窗口传输需要两端 1.5+。
@@ -193,7 +193,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.5.0-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.6.3-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
@@ -215,7 +215,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.5.0`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+当前版本 `1.6.3`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
 
 ## 反馈问题
 

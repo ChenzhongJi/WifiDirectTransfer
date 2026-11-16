@@ -1,3 +1,8 @@
+> 历史文档：本文记录 M0 阶段的连接栈验证与初始方案。当前实现已升级为 M1 多路复用协议
+> （协议 v4、文件头 v2，包含块级 ACK、断点续传、窗口传输和设备身份验证）。
+> 文中“Version 1、无 ACK、无断点续传”等描述仅代表当时的 M0 设计；与当前实现的差异以
+> `docs/REQUIREMENTS.md` 为准。
+
 ## 架构决策
 
 - 连接栈：PeerFinder（Windows.Networking.Proximity）+ StreamSocket。
