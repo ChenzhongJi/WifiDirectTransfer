@@ -4,8 +4,8 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Wi-Fi Direct 文件传输"
         Icon="pack://application:,,,/Assets/app.ico"
-        Width="1120"
-        Height="760"
+        Width="1400"
+        Height="840"
         MinWidth="1000"
         MinHeight="640"
         WindowStartupLocation="CenterScreen"
@@ -49,6 +49,7 @@
         <Geometry x:Key="RestoreGlyph">M4.5,2.5 H11.5 V9.5 H4.5 Z M2.5,4.5 V11.5 H9.5</Geometry>
         <Geometry x:Key="CloseGlyph">M2.8,2.8 L11.2,11.2 M11.2,2.8 L2.8,11.2</Geometry>
         <Geometry x:Key="ChevronDownGlyph">M3,5 L7,9 L11,5</Geometry>
+        <Geometry x:Key="SettingsGlyph">M12,8.2 A3.8,3.8 0 1 1 12,15.8 A3.8,3.8 0 1 1 12,8.2 M12,2.6 V5.1 M12,18.9 V21.4 M2.6,12 H5.1 M18.9,12 H21.4 M5.4,5.4 L7.1,7.1 M16.9,16.9 L18.6,18.6 M18.6,5.4 L16.9,7.1 M7.1,16.9 L5.4,18.6</Geometry>
         <Geometry x:Key="PauseGlyph">M5.2,3.5 V12.5 M10.8,3.5 V12.5</Geometry>
         <Geometry x:Key="MoreGlyph">M2.2,8 A1.3,1.3 0 1 1 4.8,8 A1.3,1.3 0 1 1 2.2,8 M6.7,8 A1.3,1.3 0 1 1 9.3,8 A1.3,1.3 0 1 1 6.7,8 M11.2,8 A1.3,1.3 0 1 1 13.8,8 A1.3,1.3 0 1 1 11.2,8</Geometry>
 
@@ -184,13 +185,6 @@
                     </Border>
                 </StackPanel>
 
-                <TextBlock Grid.Column="1"
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Center"
-                           FontSize="11"
-                           Foreground="{DynamicResource TextTertiaryBrush}"
-                           Text="点对点直连 · 不经过云端" />
-
                 <StackPanel Grid.Column="2"
                             Margin="0,0,8,0"
                             VerticalAlignment="Center"
@@ -277,15 +271,6 @@
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Border>
-                        <Button x:Name="DisconnectButton"
-                                Margin="8,0,0,0"
-                                VerticalAlignment="Center"
-                                AutomationProperties.Name="断开连接"
-                                Content="断开"
-                                Style="{StaticResource SmallButtonStyle}"
-                                ToolTip="断开当前连接"
-                                Visibility="Collapsed"
-                                Click="DisconnectButton_Click" />
                     </StackPanel>
 
                     <TextBlock x:Name="ConnectionHintText"
@@ -310,29 +295,46 @@
                                 Style="{StaticResource SmallPrimaryButtonStyle}"
                                 Click="CommandSendFileButton_Click" />
                         <Button x:Name="CommandSettingsButton"
+                                Width="34"
+                                Height="34"
                                 Margin="6,0,0,0"
-                                Content="设置"
-                                Style="{StaticResource SmallSubtleButtonStyle}"
-                                Click="CommandSettingsButton_Click" />
-                        <Border Width="1"
-                                Height="16"
-                                Margin="12,0"
+                                AutomationProperties.Name="设置"
+                                Style="{StaticResource SubtleButtonStyle}"
+                                ToolTip="更多设置"
+                                Click="CommandSettingsButton_Click">
+                            <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                       FontSize="16"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="&#xE713;" />
+                        </Button>
+                        <Button x:Name="DisconnectButton"
+                                Margin="6,0,0,0"
                                 VerticalAlignment="Center"
-                                Background="{DynamicResource BorderBrush}" />
-                        <Ellipse x:Name="CapabilityDot"
-                                 Width="8"
-                                 Height="8"
-                                 VerticalAlignment="Center"
-                                 Fill="{DynamicResource TextTertiaryBrush}" />
-                        <TextBlock x:Name="CapabilityText"
-                                   MaxWidth="220"
-                                   Margin="7,0,0,0"
-                                   VerticalAlignment="Center"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                   Text="正在检查 Wi-Fi Direct 能力…"
-                                   TextTrimming="CharacterEllipsis"
-                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                                AutomationProperties.Name="断开连接"
+                                Content="断开"
+                                Style="{StaticResource SmallButtonStyle}"
+                                ToolTip="断开当前连接"
+                                Visibility="Collapsed"
+                                Click="DisconnectButton_Click" />
+                        <StackPanel x:Name="CapabilityPanel"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Orientation="Horizontal">
+                            <Ellipse x:Name="CapabilityDot"
+                                     Width="8"
+                                     Height="8"
+                                     VerticalAlignment="Center"
+                                     Fill="{DynamicResource TextTertiaryBrush}" />
+                            <TextBlock x:Name="CapabilityText"
+                                       MaxWidth="220"
+                                       Margin="7,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="正在检查 Wi-Fi Direct 能力…"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -346,15 +348,23 @@
             </Grid.ColumnDefinitions>
 
             <!-- 左侧：连接与设备 -->
+            <!-- 左侧：连接与设备 -->
             <Border x:Name="LeftRailCard"
                     Grid.Column="0"
                     Margin="0,0,18,0"
                     Style="{StaticResource CardBorderStyle}">
-                <ScrollViewer x:Name="LeftRailScrollViewer"
-                              HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="16,18,16,18">
-                        <TextBlock Style="{StaticResource SectionLabelText}"
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <ScrollViewer x:Name="LeftRailScrollViewer"
+                                  Grid.Row="0"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="16,18,16,12">
+<TextBlock Style="{StaticResource SectionLabelText}"
                                    Text="连接方式" />
                         <Grid Margin="0,10,0,0">
                             <Grid.ColumnDefinitions>
@@ -363,6 +373,7 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <RadioButton x:Name="RoleReceiverRadio"
+                                         AutomationProperties.Name="等待连接"
                                          GroupName="Role"
                                          Style="{StaticResource SegmentRadioStyle}"
                                          Checked="RoleRadio_Checked">
@@ -392,6 +403,7 @@
                             </RadioButton>
                             <RadioButton x:Name="RoleSenderRadio"
                                          Grid.Column="2"
+                                         AutomationProperties.Name="连接设备"
                                          GroupName="Role"
                                          Style="{StaticResource SegmentRadioStyle}"
                                          Checked="RoleRadio_Checked">
@@ -420,18 +432,11 @@
                                 </StackPanel>
                             </RadioButton>
                         </Grid>
-                        <Grid Margin="0,14,0,8">
-                            <TextBlock Style="{StaticResource SectionTitleText}"
-                                       Text="设备"
-                                       VerticalAlignment="Center" />
-                            <Button x:Name="ScanButton"
-                                    HorizontalAlignment="Right"
-                                    Content="扫描设备"
-                                    Style="{StaticResource SmallSubtleButtonStyle}"
-                                    Click="ScanButton_Click" />
-                        </Grid>
-
-                        <ListBox x:Name="PeerList"
+                        
+                            <TextBlock Margin="0,18,0,8"
+                                       Style="{StaticResource SectionLabelText}"
+                                       Text="附近设备" />
+<ListBox x:Name="PeerList"
                                  MinHeight="60"
                                  MaxHeight="168"
                                  Background="Transparent"
@@ -511,7 +516,7 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
 
-                        <Grid Margin="0,8,0,0">
+<Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="8" />
@@ -526,231 +531,44 @@
                                     Content="快速重连"
                                     Click="QuickReconnectButton_Click" />
                         </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
 
-                        <Button x:Name="WaitButton"
-                                Margin="0,8,0,0"
-                                Content="等待连接"
-                                Style="{StaticResource PrimaryButtonStyle}"
-                                Click="WaitButton_Click" />
-
-                        <Border Height="1"
-                                Margin="0,16,0,12"
-                                Background="{DynamicResource BorderBrush}" />
-
-                        <TextBlock Style="{StaticResource SectionTitleText}"
-                                   Text="文本" />
-                        <Grid Margin="0,8,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Button x:Name="SendTextButton"
-                                    Content="发送文本"
-                                    ToolTip="向对端发送一段文本"
-                                    Click="SendTextButton_Click" />
-                            <Button x:Name="TextInboxButton"
-                                    Grid.Column="2"
-                                    Content="收到的文本"
-                                    ToolTip="查看收到的文本"
-                                    Click="TextInboxButton_Click" />
-                        </Grid>
-
-                        <Border Height="1"
-                                Margin="0,16,0,10"
-                                Background="{DynamicResource BorderBrush}" />
-
-                        <ToggleButton x:Name="AdvancedSettingsToggle"
-                                      AutomationProperties.Name="更多设置"
-                                      AutomationProperties.HelpText="展开剪贴板、远程文本和接收目录设置"
-                                      Style="{StaticResource AdvancedToggleStyle}"
-                                      Checked="AdvancedSettingsToggle_Changed"
-                                      Unchecked="AdvancedSettingsToggle_Changed">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock VerticalAlignment="Center"
-                                           Text="更多设置" />
-                                <TextBlock x:Name="AdvancedSettingsChevron"
-                                           Grid.Column="2"
-                                           VerticalAlignment="Center"
-                                           FontSize="13"
-                                           Text="⌄" />
-                            </Grid>
-                        </ToggleButton>
-
-                        <StackPanel x:Name="AdvancedSettingsPanel"
-                                    Margin="4,4,4,0"
-                                    Visibility="Collapsed">
-                            <TextBlock Margin="0,6,0,0"
-                                       Style="{StaticResource MetaText}"
-                                       Text="主题" />
-                            <ComboBox x:Name="ThemeModeComboBox"
-                                      Margin="0,4,0,0"
-                                      SelectedIndex="0"
-                                      Style="{StaticResource CompactComboBoxStyle}"
-                                      SelectionChanged="ThemeModeComboBox_SelectionChanged">
-                                <ComboBoxItem Content="跟随系统"
-                                              Tag="System" />
-                                <ComboBoxItem Content="浅色"
-                                              Tag="Light" />
-                                <ComboBoxItem Content="深色"
-                                              Tag="Dark" />
-                            </ComboBox>
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="深色模式会立即应用到所有窗口。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="ExplorerContextMenuCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="资源管理器右键发送"
-                                      ToolTip="在资源管理器中右键文件或文件夹，选择“通过 Wi-Fi Direct 发送”"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="ExplorerContextMenuCheckBox_Checked"
-                                      Unchecked="ExplorerContextMenuCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="只注册当前用户。右键文件或文件夹后可直接加入发送队列；多选时请逐个发送。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="ClipboardSyncCheckBox"
-                                      Margin="0,6,0,0"
-                                      Content="启用剪贴板同步"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="ClipboardSyncCheckBox_Checked"
-                                      Unchecked="ClipboardSyncCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="TextReceiveCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="允许接收远程文本"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="TextReceiveCheckBox_Checked"
-                                      Unchecked="TextReceiveCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="NotificationsCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="启用系统通知"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="NotificationsCheckBox_Checked"
-                                      Unchecked="NotificationsCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="连接请求、传输完成和自动重连结果会显示托盘通知。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="TrustedAutoAcceptCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="可信设备自动接受连接"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="TrustedAutoAcceptCheckBox_Checked"
-                                      Unchecked="TrustedAutoAcceptCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="只对已配对且公钥指纹一致的设备生效；首次配对仍需确认配对码。"
-                                       TextWrapping="Wrap" />
-                            <Button x:Name="ManageTrustedDevicesButton"
-                                    Margin="24,6,0,0"
-                                    HorizontalAlignment="Left"
-                                    Content="管理可信设备…"
-                                    Style="{StaticResource SmallSubtleButtonStyle}"
-                                    Click="ManageTrustedDevicesButton_Click" />
-
-                            <CheckBox x:Name="AutoUpdateCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="启动时检查更新"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="AutoUpdateCheckBox_Checked"
-                                      Unchecked="AutoUpdateCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="仅安装版可用；便携版请在“关于”中手动打开下载页。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="StartWithWindowsCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="开机自动启动"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="StartWithWindowsCheckBox_Checked"
-                                      Unchecked="StartWithWindowsCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="登录后在托盘运行，不会自动开始等待连接；仅安装版可用。"
-                                       TextWrapping="Wrap" />
-
-                            <CheckBox x:Name="CloseToTrayCheckBox"
-                                      Margin="0,10,0,0"
-                                      Content="关闭窗口时最小化到托盘"
-                                      Style="{StaticResource WdtCheckBoxStyle}"
-                                      Checked="CloseToTrayCheckBox_Checked"
-                                      Unchecked="CloseToTrayCheckBox_Unchecked" />
-                            <TextBlock Margin="24,3,0,0"
-                                       Style="{StaticResource TinyText}"
-                                       Text="关闭后应用仍在托盘运行。双击图标恢复窗口，右键图标选择“退出”可完全退出。"
-                                       TextWrapping="Wrap" />
-
-                            <StackPanel x:Name="SameNamePolicyPanel"
-                                        Margin="0,12,0,0">
-                                <TextBlock Style="{StaticResource MetaText}"
-                                           Text="同名文件" />
-                                <ComboBox x:Name="SameNamePolicyComboBox"
-                                          Margin="0,4,0,0"
-                                          SelectedIndex="0"
-                                          Style="{StaticResource CompactComboBoxStyle}"
-                                          SelectionChanged="SameNamePolicyComboBox_SelectionChanged">
-                                    <ComboBoxItem Content="自动重命名（追加 (1)、(2)）"
-                                                  Tag="AutoRename" />
-                                    <ComboBoxItem Content="覆盖"
-                                                  Tag="Overwrite" />
-                                    <ComboBoxItem Content="跳过"
-                                                  Tag="Skip" />
-                                </ComboBox>
-                            </StackPanel>
-
-                            <TextBlock Margin="0,12,0,0"
-                                       Style="{StaticResource MetaText}"
-                                       Text="接收目录" />
-                            <Grid Margin="0,4,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ReceiveDirectoryText"
+                    <StackPanel Grid.Row="1"
+                                Margin="16,0,16,16">
+                        <Border Padding="10,8"
+                                Background="{DynamicResource SurfaceAltBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="7"
+                                         Height="7"
+                                         VerticalAlignment="Center"
+                                         Fill="{DynamicResource SuccessBrush}" />
+                                <TextBlock Margin="8,0,0,0"
                                            VerticalAlignment="Center"
                                            FontSize="10.5"
                                            Foreground="{DynamicResource TextTertiaryBrush}"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
-                                <Button x:Name="ChangeReceiveDirectoryButton"
-                                        Grid.Column="1"
-                                        Margin="8,0,0,0"
-                                        Content="更改…"
-                                        Style="{StaticResource SmallSubtleButtonStyle}"
-                                        Click="ChangeReceiveDirectoryButton_Click" />
-                            </Grid>
-
-                            <Button x:Name="SendTestFileButton"
-                                    Margin="0,10,0,0"
-                                    HorizontalAlignment="Left"
-                                    Content="发送测试文件（1 MiB）"
-                                    Style="{StaticResource SmallSubtleButtonStyle}"
-                                    Click="SendTestFileButton_Click" />
-                        </StackPanel>
+                                           Text="Wi-Fi Direct 可用 · 已启用加密"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="ScanButton"
+                                Height="40"
+                                Margin="0,10,0,0"
+                                Content="扫描附近设备"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="ScanButton_Click" />
+                        <Button x:Name="WaitButton"
+                                Height="40"
+                                Margin="0,10,0,0"
+                                Content="等待连接"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="WaitButton_Click" />
                     </StackPanel>
-                </ScrollViewer>
+                </Grid>
             </Border>
-
             <!-- 右侧：传输工作区 -->
             <Grid x:Name="WorkspaceGrid" Grid.Column="1">
                 <Grid.RowDefinitions>
@@ -795,12 +613,6 @@
                                 Style="{StaticResource SmallSubtleButtonStyle}"
                                 ToolTip="查看传输历史"
                                 Click="HistoryButton_Click" />
-                        <Button x:Name="ExportDiagnosticsButton"
-                                Margin="2,0,0,0"
-                                Content="诊断"
-                                Style="{StaticResource SmallSubtleButtonStyle}"
-                                ToolTip="导出日志、设置和构建信息"
-                                Click="ExportDiagnosticsButton_Click" />
                     </StackPanel>
                 </Grid>
 
@@ -1928,6 +1740,243 @@
                     </Grid>
                 </ScrollViewer>
             </Grid>
+            <!-- 更多设置浮层 -->
+            <Grid x:Name="SettingsOverlay"
+                  Grid.ColumnSpan="2"
+                  Background="#66000000"
+                  MouseLeftButtonDown="SettingsOverlay_MouseLeftButtonDown"
+                  Visibility="Collapsed">
+                <Border Width="640"
+                        Margin="24"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Stretch"
+                        Padding="0"
+                        Style="{StaticResource CardBorderStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Padding="20,16"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,0,0,1">
+                            <Grid>
+                                <StackPanel>
+                                    <TextBlock FontSize="16"
+                                               FontWeight="SemiBold"
+                                               Text="更多设置" />
+                                    <TextBlock Margin="0,3,0,0"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               Text="主题、剪贴板、远程文本、接收目录和启动选项" />
+                                </StackPanel>
+                                <Button HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="关闭设置"
+                                        Content="关闭"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        Click="CloseSettingsButton_Click" />
+                            </Grid>
+                        </Border>
+
+                        <ScrollViewer Grid.Row="1"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="20,16,20,20">
+                                <TextBlock Style="{StaticResource SectionTitleText}"
+                                           Text="文本" />
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button x:Name="SendTextButton"
+                                            Content="发送文本"
+                                            ToolTip="向对端发送一段文本"
+                                            Click="SendTextButton_Click" />
+                                    <Button x:Name="TextInboxButton"
+                                            Grid.Column="2"
+                                            Content="收到的文本"
+                                            ToolTip="查看收到的文本"
+                                            Click="TextInboxButton_Click" />
+                                </Grid>
+
+                                <Border Height="1"
+                                        Margin="0,18,0,14"
+                                        Background="{DynamicResource BorderBrush}" />
+
+<StackPanel x:Name="AdvancedSettingsPanel"
+                                    Margin="4,4,4,0"
+                                    Visibility="Visible">
+                            <TextBlock Margin="0,6,0,0"
+                                       Style="{StaticResource MetaText}"
+                                       Text="主题" />
+                            <ComboBox x:Name="ThemeModeComboBox"
+                                      Margin="0,4,0,0"
+                                      SelectedIndex="0"
+                                      Style="{StaticResource CompactComboBoxStyle}"
+                                      SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="跟随系统"
+                                              Tag="System" />
+                                <ComboBoxItem Content="浅色"
+                                              Tag="Light" />
+                                <ComboBoxItem Content="深色"
+                                              Tag="Dark" />
+                            </ComboBox>
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="深色模式会立即应用到所有窗口。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="ExplorerContextMenuCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="资源管理器右键发送"
+                                      ToolTip="在资源管理器中右键文件或文件夹，选择“通过 Wi-Fi Direct 发送”"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="ExplorerContextMenuCheckBox_Checked"
+                                      Unchecked="ExplorerContextMenuCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="只注册当前用户。右键文件或文件夹后可直接加入发送队列；多选时请逐个发送。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="ClipboardSyncCheckBox"
+                                      Margin="0,6,0,0"
+                                      Content="启用剪贴板同步"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="ClipboardSyncCheckBox_Checked"
+                                      Unchecked="ClipboardSyncCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="对端可看到你复制的内容。大图片可能不会出现在 Win+V 历史里，直接粘贴正常。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="TextReceiveCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="允许接收远程文本"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="TextReceiveCheckBox_Checked"
+                                      Unchecked="TextReceiveCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="对端发送的文本会显示在文本收件箱中，默认关闭。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="NotificationsCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="启用系统通知"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="NotificationsCheckBox_Checked"
+                                      Unchecked="NotificationsCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="连接请求、传输完成和自动重连结果会显示托盘通知。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="TrustedAutoAcceptCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="可信设备自动接受连接"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="TrustedAutoAcceptCheckBox_Checked"
+                                      Unchecked="TrustedAutoAcceptCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="只对已配对且公钥指纹一致的设备生效；首次配对仍需确认配对码。"
+                                       TextWrapping="Wrap" />
+                            <Button x:Name="ManageTrustedDevicesButton"
+                                    Margin="24,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Content="管理可信设备…"
+                                    Style="{StaticResource SmallSubtleButtonStyle}"
+                                    Click="ManageTrustedDevicesButton_Click" />
+
+                            <CheckBox x:Name="AutoUpdateCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="启动时检查更新"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="AutoUpdateCheckBox_Checked"
+                                      Unchecked="AutoUpdateCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="仅安装版可用；便携版请在“关于”中手动打开下载页。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="StartWithWindowsCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="开机自动启动"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="StartWithWindowsCheckBox_Checked"
+                                      Unchecked="StartWithWindowsCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="登录后在托盘运行，不会自动开始等待连接；仅安装版可用。"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="CloseToTrayCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="关闭窗口时最小化到托盘"
+                                      Style="{StaticResource WdtCheckBoxStyle}"
+                                      Checked="CloseToTrayCheckBox_Checked"
+                                      Unchecked="CloseToTrayCheckBox_Unchecked" />
+                            <TextBlock Margin="24,3,0,0"
+                                       Style="{StaticResource TinyText}"
+                                       Text="关闭后应用仍在托盘运行。双击图标恢复窗口，右键图标选择“退出”可完全退出。"
+                                       TextWrapping="Wrap" />
+
+                            <StackPanel x:Name="SameNamePolicyPanel"
+                                        Margin="0,12,0,0">
+                                <TextBlock Style="{StaticResource MetaText}"
+                                           Text="同名文件" />
+                                <ComboBox x:Name="SameNamePolicyComboBox"
+                                          Margin="0,4,0,0"
+                                          SelectedIndex="0"
+                                          Style="{StaticResource CompactComboBoxStyle}"
+                                          SelectionChanged="SameNamePolicyComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="自动重命名（追加 (1)、(2)）"
+                                                  Tag="AutoRename" />
+                                    <ComboBoxItem Content="覆盖"
+                                                  Tag="Overwrite" />
+                                    <ComboBoxItem Content="跳过"
+                                                  Tag="Skip" />
+                                </ComboBox>
+                            </StackPanel>
+
+                            <TextBlock Margin="0,12,0,0"
+                                       Style="{StaticResource MetaText}"
+                                       Text="接收目录" />
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ReceiveDirectoryText"
+                                           VerticalAlignment="Center"
+                                           FontSize="10.5"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                                <Button x:Name="ChangeReceiveDirectoryButton"
+                                        Grid.Column="1"
+                                        Margin="8,0,0,0"
+                                        Content="更改…"
+                                        Style="{StaticResource SmallSubtleButtonStyle}"
+                                        Click="ChangeReceiveDirectoryButton_Click" />
+                            </Grid>
+
+                            <Button x:Name="SendTestFileButton"
+                                    Margin="0,10,0,0"
+                                    HorizontalAlignment="Left"
+                                    Content="发送测试文件（1 MiB）"
+                                    Style="{StaticResource SmallSubtleButtonStyle}"
+                                    Click="SendTestFileButton_Click" />
+                        </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
 
         <!-- 底部状态栏 -->
@@ -1950,11 +1999,17 @@
                             VerticalAlignment="Center"
                             Orientation="Horizontal">
                     <Button x:Name="StatusLogButton"
-                            Margin="0,0,12,0"
+                            Margin="0,0,10,0"
                             Content="日志"
                             Style="{StaticResource SmallSubtleButtonStyle}"
                             ToolTip="展开或收起运行日志"
                             Click="StatusLogButton_Click" />
+                    <Button x:Name="ExportDiagnosticsButton"
+                            Margin="0,0,12,0"
+                            Content="诊断"
+                            Style="{StaticResource SmallSubtleButtonStyle}"
+                            ToolTip="导出日志、设置和构建信息"
+                            Click="ExportDiagnosticsButton_Click" />
                     <TextBlock x:Name="ProtocolVersionText"
                                VerticalAlignment="Center"
                                FontSize="10.5"

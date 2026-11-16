@@ -512,7 +512,22 @@ public partial class MainWindow : Window
 
         _showOnboarding = false;
         UpdateUi();
-        AdvancedSettingsToggle.IsChecked = true;
+        SettingsOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void CloseSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void SettingsOverlay_MouseLeftButtonDown(
+        object sender,
+        System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (ReferenceEquals(e.Source, SettingsOverlay))
+        {
+            SettingsOverlay.Visibility = Visibility.Collapsed;
+        }
     }
 
     protected override void OnClosed(EventArgs e)
@@ -6018,41 +6033,6 @@ public partial class MainWindow : Window
         QueueDetailsToggleButton.Content = show ? "收起详情" : "详情";
     }
 
-    private void AdvancedSettingsToggle_Changed(object sender, RoutedEventArgs e)
-    {
-        if (AdvancedSettingsPanel is null)
-        {
-            return;
-        }
-
-        var show = AdvancedSettingsToggle.IsChecked == true;
-
-        AdvancedSettingsPanel.Visibility =
-            show ? Visibility.Visible : Visibility.Collapsed;
-        AdvancedSettingsChevron.Text = show ? "⌃" : "⌄";
-
-        if (show)
-        {
-            _ = Dispatcher.BeginInvoke(
-                new Action(() =>
-                {
-                    var position = AdvancedSettingsToggle.TranslatePoint(
-                        new Point(0, 0),
-                        LeftRailScrollViewer);
-                    var target = LeftRailScrollViewer.VerticalOffset +
-                                 position.Y - 8;
-
-                    LeftRailScrollViewer.ScrollToVerticalOffset(
-                        Math.Max(0, target));
-                }),
-                DispatcherPriority.Background);
-        }
-        else
-        {
-            LeftRailScrollViewer.ScrollToTop();
-        }
-    }
-
     private void SetLogCollapsed(bool collapsed)
     {
         _isLogCollapsed = collapsed;
@@ -6470,6 +6450,15 @@ public partial class MainWindow : Window
 
         RoleReceiverRadio.IsEnabled = supported && !connected && !busy;
         RoleSenderRadio.IsEnabled = supported && !connected && !busy;
+        CapabilityPanel.Visibility = supported
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        ScanButton.Visibility = _role == AppRole.Sender
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        WaitButton.Visibility = _role == AppRole.Receiver
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         SameNamePolicyPanel.Visibility = Visibility.Visible;
         SameNamePolicyComboBox.IsEnabled = true;
