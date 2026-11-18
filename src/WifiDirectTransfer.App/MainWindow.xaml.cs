@@ -1712,10 +1712,26 @@ public partial class MainWindow : Window
                 {
                     break;
                 }
-                catch (Exception) when (attempt <= 2 && !_lifetimeCts.IsCancellationRequested)
+                catch (Exception exception) when (attempt <= 3 && !_lifetimeCts.IsCancellationRequested)
                 {
-                    Log($"FindAllPeersAsync 第 {attempt} 次异常，准备重试。");
                     peers = Array.Empty<WifiDirectPeer>();
+                    Log(
+                        $"FindAllPeersAsync 第 {attempt} 次异常：" +
+                        $"{exception.GetType().Name}, " +
+                        $"HResult=0x{exception.HResult:X8}, " +
+                        $"message={exception.Message}");
+
+                    // ERROR_CRC 等异常通常意味着 PeerFinder 状态已损坏，
+                    // 单纯重试没有意义，先停止再重新启动。
+                    if (!await RestartPeerFinderAsync(
+                            $"第 {attempt} 次扫描异常",
+                            scanCts.Token))
+                    {
+                        break;
+                    }
+
+                    UpdateStatus("正在重新启动搜索…");
+                    continue;
                 }
 
                 Log($"FindAllPeersAsync 第 {attempt} 次返回 {peers.Count} 台设备。");

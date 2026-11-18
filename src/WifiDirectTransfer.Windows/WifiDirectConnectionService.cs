@@ -173,9 +173,9 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        var window = timeout < TimeSpan.FromSeconds(3)
+        var window = timeout < TimeSpan.FromSeconds(8)
             ? timeout
-            : TimeSpan.FromSeconds(3);
+            : TimeSpan.FromSeconds(8);
 
         if (window <= TimeSpan.Zero)
         {
@@ -212,6 +212,8 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
             lock (gate)
             {
+                LogDiagnostic(
+                    $"PeerWatcher 发现结束：{results.Count} 台设备。");
                 return results.ToArray();
             }
         }
@@ -252,7 +254,8 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
     public async Task<IDuplexChannel> ConnectAsync(
         WifiDirectPeer peer,
-        CancellationToken cancellationToken = default)    {
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(peer);
 
         EnsureStarted();

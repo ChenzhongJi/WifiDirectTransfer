@@ -8,6 +8,8 @@
 - 接收端收到非法 `FileChunk`（长度为 0、超过 64 KiB 或超出声明的文件大小）时先回发 `TransferError`，发送端不再空等 30 秒 ACK 超时。
 - 更新包下载按清单声明的大小限流，超过预期大小时立即中止；本地 `file://` 测试源也会先校验文件大小。
 - 完善 Wi-Fi Direct 发现诊断：日志记录操作系统版本、AppUserModelID、PeerFinder 发现类型/开关状态和是否前台；等待连接时窗口失去前台焦点或隐藏到托盘会提示“对端可能扫描不到”，回到前台后自动重启广播。
+- 扫描设备时如果 `FindAllPeersAsync` 抛出 `COMException`（含 ERROR_CRC），先重启 PeerFinder 再重试，最多 3 次；日志记录异常类型和 HResult，不再只显示“未知错误”。
+- `PeerWatcher` 兜底发现窗口从 3 秒延长到 8 秒，并记录每次兜底发现的设备数量。
 
 ### 优化
 
