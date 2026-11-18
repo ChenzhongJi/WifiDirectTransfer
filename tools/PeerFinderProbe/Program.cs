@@ -55,8 +55,19 @@ internal static class Program
         PeerFinder.AllowBluetooth = false;
         PeerFinder.AllowInfrastructure = false;
 
-        var discoveryTypes = PeerFinder.SupportedDiscoveryTypes;
-        Console.WriteLine($"SupportedDiscoveryTypes：{discoveryTypes}");
+        PeerDiscoveryTypes discoveryTypes;
+
+        try
+        {
+            discoveryTypes = PeerFinder.SupportedDiscoveryTypes;
+        }
+        catch (Exception exception)
+        {
+            PrintException("读取 SupportedDiscoveryTypes", exception);
+            return 2;
+        }
+
+        Console.WriteLine($"[1/4] SupportedDiscoveryTypes：{discoveryTypes}");
         Console.WriteLine(
             $"AllowWiFiDirect={PeerFinder.AllowWiFiDirect}, " +
             $"AllowInfrastructure={PeerFinder.AllowInfrastructure}, " +
@@ -76,8 +87,16 @@ internal static class Program
                 $"[ConnectionRequested] " +
                 $"{e.PeerInformation.DisplayName} / {e.PeerInformation.Id}");
 
-        PeerFinder.Start();
-        Console.WriteLine("PeerFinder.Start 完成。");
+        try
+        {
+            PeerFinder.Start();
+            Console.WriteLine("[2/4] PeerFinder.Start 完成。");
+        }
+        catch (Exception exception)
+        {
+            PrintException("PeerFinder.Start", exception);
+            return 4;
+        }
 
         PeerWatcher? watcher = null;
         var found = false;
@@ -103,14 +122,12 @@ internal static class Program
                         $"[Watcher] 已停止（Status={watcher.Status}）。");
                 watcher.Start();
                 Console.WriteLine(
-                    $"PeerWatcher 已启动（Status={watcher.Status}）。");
+                    $"[3/4] PeerWatcher 已启动（Status={watcher.Status}）。");
             }
         }
         catch (Exception exception)
         {
-            Console.WriteLine(
-                $"PeerWatcher 启动失败：{exception.GetType().Name}: " +
-                $"{exception.Message}");
+            PrintException("创建/启动 PeerWatcher", exception);
         }
 
         var deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
@@ -188,6 +205,25 @@ internal static class Program
                 : "探测结果：未发现任何对端。");
         return found ? 0 : 3;
     }
+
+    private static void PrintException(string step, Exception exception)
+    {
+        Console.WriteLine(
+            $"!!! {step} 失败：{exception.GetType().Name}: " +
+            $"{exception.Message} (0x{exception.HResult:X8})");
+        Console.WriteLine($"    HRESULT 含义：{DescribeHResult(exception.HResult)}");
+    }
+
+    private static string DescribeHResult(int hresult) => hresult switch
+    {
+        unchecked((int)0x80070017) =>
+            "ERROR_CRC / 数据无效。常见于 Wi-Fi Direct 服务或虚拟网卡状态异常",
+        unchecked((int)0x80070005) => "E_ACCESSDENIED / 权限不足",
+        unchecked((int)0x80070490) => "ERROR_NOT_FOUND / 找不到元素",
+        unchecked((int)0x80070057) => "E_INVALIDARG / 参数无效",
+        unchecked((int)0x8007048F) => "设备未就绪",
+        _ => "未知 HRESULT，请记录该值"
+    };
 
     private static string? GetOption(string[] args, string name)
     {

@@ -63,3 +63,25 @@ Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Netwtw10'; Start
 ```
 
 如果 `WFDSConMgrSvc` 被停止或禁用，尝试启动它；如果 `Wi-Fi Direct Device / GO / Client / P2P Device Discovery` 不是 Supported，说明系统/网卡层不支持。
+
+## 0x80070017（ERROR_CRC）
+
+如果探测在 `[2/4] PeerFinder.Start` 打印 `COMException (0x80070017)`，表示 Wi-Fi Direct 服务/虚拟网卡没有正常启动，通常不是应用代码问题。在故障机器上依次尝试：
+
+1. 设备管理器 → 网络适配器：启用（必要时卸载后扫描硬件改动）
+   `Microsoft Wi-Fi Direct Virtual Adapter` 和 `Microsoft Wi-Fi Direct Virtual Adapter #2`。
+2. 管理员 PowerShell：
+   ```powershell
+   Restart-Service WlanSvc
+   Get-Service WFDSConMgrSvc | Start-Service
+   ```
+   （重启 WlanSvc 会让 Wi-Fi 短暂断开。）
+3. 关闭再打开 Wi-Fi，或完整重启电脑（`shutdown /s /t 0`，避免快速启动）。
+4. 检查网卡/系统日志：
+   ```powershell
+   Get-PnpDevice -Class Net | Where-Object Status -ne 'OK'
+   Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddHours(-1)}
+   ```
+5. 如仍失败，运行 `sfc /scannow` 和
+   `DISM /Online /Cleanup-Image /RestoreHealth`，并考虑回退最近一次 Windows 更新。
+

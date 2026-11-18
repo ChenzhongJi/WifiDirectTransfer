@@ -204,8 +204,7 @@ public sealed class WifiDirectErrorMapperTests
     }
 
     [Fact]
-    public void Map_AccessDeniedHResult_UsesContext()
-    {
+    public void Map_AccessDeniedHResult_UsesContext()    {
         var exception = new Exception { HResult = unchecked((int)0x80070005) };
 
         Assert.Equal(
@@ -221,6 +220,19 @@ public sealed class WifiDirectErrorMapperTests
                 exception,
                 WifiDirectOperation.Transfer,
                 WifiDirectErrorContext.FileIo));
+    }
+
+    [Fact]
+    public void Map_ProximityStartCrcHResult_UsesProximityStartFailed()
+    {
+        var exception = new Exception { HResult = unchecked((int)0x80070017) };
+
+        Assert.Equal(
+            WifiDirectErrorCode.ProximityStartFailed,
+            WifiDirectErrorMapper.Map(
+                exception,
+                WifiDirectOperation.Discovery,
+                WifiDirectErrorContext.WinRt));
     }
 
     [Fact]

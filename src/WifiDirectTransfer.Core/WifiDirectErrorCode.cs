@@ -28,5 +28,6 @@ public enum WifiDirectErrorCode
     FileTooLarge = 20,
     FileSkipped = 21,
     IdentityVerificationFailed = 22,
-    DeviceIdentityUnavailable = 23
+    DeviceIdentityUnavailable = 23,
+    ProximityStartFailed = 24
 }

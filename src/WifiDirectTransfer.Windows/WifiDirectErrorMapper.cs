@@ -55,6 +55,10 @@ public static class WifiDirectErrorMapper
             "设备身份验证失败，连接已断开。请重新配对。",
         WifiDirectErrorCode.DeviceIdentityUnavailable =>
             "无法初始化本机设备身份，无法建立安全连接。请检查 Windows 用户密钥存储后重试。",
+        WifiDirectErrorCode.ProximityStartFailed =>
+            "Wi-Fi Direct 发现服务未就绪或虚拟网卡状态异常。请重启 Wi-Fi、" +
+            "重启电脑；如果仍然失败，请在设备管理器中启用" +
+            "“Microsoft Wi-Fi Direct Virtual Adapter”后重试。",
         _ => "发生未知错误，请重试或查看日志。"
     };
 
@@ -107,6 +111,13 @@ public static class WifiDirectErrorMapper
             exception.HResult == unchecked((int)0x80070057))
         {
             return WifiDirectErrorCode.PeerNotFound;
+        }
+
+        // PeerFinder.Start/FindAllPeersAsync 在 Wi-Fi Direct 服务或虚拟网卡异常时
+        // 可能返回 ERROR_CRC（0x80070017）。
+        if (exception.HResult == unchecked((int)0x80070017))
+        {
+            return WifiDirectErrorCode.ProximityStartFailed;
         }
 
         switch (exception.HResult & 0xFFFF)
