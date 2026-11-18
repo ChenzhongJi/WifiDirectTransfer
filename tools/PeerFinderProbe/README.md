@@ -21,14 +21,16 @@ tools/PeerFinderProbe/bin/Release/net8.0-windows10.0.19041.0/
 **机器 A（模拟接收端）**：
 
 ```powershell
-.\PeerFinderProbe.exe --mode watcher --seconds 180
+.\PeerFinderProbe.exe --mode watcher --seconds 180 --pause
 ```
 
 **机器 B（模拟发送端）**：
 
 ```powershell
-.\PeerFinderProbe.exe --mode scan --seconds 60
+.\PeerFinderProbe.exe --mode scan --seconds 60 --pause
 ```
+
+`--pause` 会要求你先点击控制台窗口、按 Enter 后再启动，确保应用处于前台。
 
 要求：
 
@@ -52,6 +54,13 @@ tools/PeerFinderProbe/bin/Release/net8.0-windows10.0.19041.0/
 | Probe B 也返回 0 台，且看得到 A 的 `PeerWatcher` 初始枚举完成 | Windows/PeerFinder 环境问题（系统、服务、前台、AUMID 或网卡 P2P） |
 | `Watcher.Status=Aborted` | PeerWatcher 被系统中止；确认控制台窗口在前台后重试，并检查 Wi-Fi Direct 服务/系统事件日志 |
 | `Watcher.Status=EnumerationCompleted` 后 `Stopped` | 正常收尾；若没有 `Added` 事件，说明当时没有可发现的对端 |
+
+## 做反向与 2.4GHz 对照
+
+- **反向**：B 运行 watcher，A 运行 scan。若反向能找到，说明问题在单向的网卡/接收状态，而不是应用身份。
+- **2.4GHz**：两台电脑都连接 2.4GHz 的 Wi-Fi 热点再测；部分网卡在“5GHz 基础设施连接 + 2.4GHz P2P 发现”并发时无法工作。
+- **断开 AP**：也可以两台都断开 Wi-Fi 关联（保持 Wi-Fi 开关打开），只靠 Wi-Fi Direct 发现，再测。
+
 
 ## 补充检查
 

@@ -14,6 +14,14 @@ internal static class Program
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(
+        IntPtr hWnd,
+        out uint processId);
+
     private static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -48,6 +56,16 @@ internal static class Program
         Console.WriteLine($"模式：{mode}，持续 {seconds} 秒");
         Console.WriteLine(
             "提示：等待端请保持本控制台窗口在前台；另一端运行 scan 模式。");
+
+        if (args.Contains("--pause", StringComparer.OrdinalIgnoreCase))
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                "请点击此窗口使其成为前台窗口，然后按 Enter 开始探测…");
+            Console.ReadLine();
+        }
+
+        PrintForegroundWindow();
         Console.WriteLine();
 
         PeerFinder.DisplayName = $"WDT-PROBE-{Environment.MachineName}";
@@ -223,6 +241,25 @@ internal static class Program
                 ? "探测结果：发现对端。"
                 : $"探测结果：未发现任何对端（Status={watcher?.Status.ToString() ?? "scan"}）。");
         return found ? 0 : 3;
+    }
+
+    private static void PrintForegroundWindow()
+    {
+        var window = GetForegroundWindow();
+
+        if (window == IntPtr.Zero)
+        {
+            Console.WriteLine("前台窗口：无法读取。");
+            return;
+        }
+
+        _ = GetWindowThreadProcessId(window, out var processId);
+
+        Console.WriteLine(
+            $"前台窗口进程 PID={processId}，本探测进程 PID={Environment.ProcessId}" +
+            (processId == Environment.ProcessId
+                ? "（前台正确）"
+                : "（如果当前是 Windows Terminal，父终端在前台也属于正常）"));
     }
 
     private static void PrintException(string step, Exception exception)
