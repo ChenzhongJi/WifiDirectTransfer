@@ -123,6 +123,8 @@ internal static class Program
                 watcher.Start();
                 Console.WriteLine(
                     $"[3/4] PeerWatcher 已启动（Status={watcher.Status}）。");
+                Console.WriteLine(
+                    "[4/4] 等待 PeerWatcher.Added 事件；保持本窗口在前台，另一端运行 scan。");
             }
         }
         catch (Exception exception)
@@ -130,7 +132,15 @@ internal static class Program
             PrintException("创建/启动 PeerWatcher", exception);
         }
 
+        if (watcher is null)
+        {
+            Console.WriteLine(
+                "[4/4] 进入 FindAllPeersAsync 循环；保持本窗口在前台。");
+        }
+
         var deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        var startedAt = DateTimeOffset.UtcNow;
+        var nextHeartbeat = startedAt.AddSeconds(5);
         var attempt = 0;
         string? lastWatcherStatus = null;
 
@@ -181,6 +191,15 @@ internal static class Program
                     break;
                 }
 
+                if (DateTimeOffset.UtcNow >= nextHeartbeat)
+                {
+                    nextHeartbeat = nextHeartbeat.AddSeconds(5);
+                    Console.WriteLine(
+                        $"[{DateTime.Now:HH:mm:ss}] 等待中… " +
+                        $"已运行 {(int)(DateTimeOffset.UtcNow - startedAt).TotalSeconds} 秒，" +
+                        $"Status={watcher?.Status.ToString() ?? "scan"}");
+                }
+
                 await Task.Delay(TimeSpan.FromSeconds(1));
             }
         }
@@ -202,7 +221,7 @@ internal static class Program
         Console.WriteLine(
             found
                 ? "探测结果：发现对端。"
-                : "探测结果：未发现任何对端。");
+                : $"探测结果：未发现任何对端（Status={watcher?.Status.ToString() ?? "scan"}）。");
         return found ? 0 : 3;
     }
 
