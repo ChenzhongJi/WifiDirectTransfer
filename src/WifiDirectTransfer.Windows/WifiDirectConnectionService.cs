@@ -97,10 +97,30 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
         try
         {
-            var peerInformationResults = await PeerFinder
-                .FindAllPeersAsync()
-                .AsTask(linkedCts.Token)
-                .ConfigureAwait(false);
+            IReadOnlyList<PeerInformation> peerInformationResults;
+
+            try
+            {
+                peerInformationResults = await PeerFinder
+                    .FindAllPeersAsync()
+                    .AsTask(linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (IsProximityCrcError(exception) &&
+                      !linkedCts.IsCancellationRequested)
+            {
+                // 某些 Windows/驱动组合下 FindAllPeersAsync 返回 ERROR_CRC，
+                // 但 PeerWatcher 仍能发现对端。
+                LogDiagnostic(
+                    "FindAllPeersAsync 返回 ERROR_CRC(0x80070017)，" +
+                    "改用 PeerWatcher 发现。");
+
+                peerInformationResults = await BrowseWithWatcherAsync(
+                        timeout,
+                        linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
 
             ThrowIfDisposed();
 
@@ -145,10 +165,94 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         }
     }
 
+    /// <summary>
+    /// 用 PeerWatcher 在短时间内收集对端，作为 FindAllPeersAsync 失败时的兜底。
+    /// 调用方必须已经启动 PeerFinder。
+    /// </summary>
+    private async Task<IReadOnlyList<PeerInformation>> BrowseWithWatcherAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var window = timeout < TimeSpan.FromSeconds(3)
+            ? timeout
+            : TimeSpan.FromSeconds(3);
+
+        if (window <= TimeSpan.Zero)
+        {
+            window = TimeSpan.FromMilliseconds(500);
+        }
+
+        var results = new List<PeerInformation>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var gate = new object();
+        PeerWatcher? watcher = null;
+
+        try
+        {
+            watcher = PeerFinder.CreateWatcher();
+            watcher.Added += (_, peer) =>
+            {
+                var key = string.IsNullOrWhiteSpace(peer.Id)
+                    ? peer.DisplayName
+                    : peer.Id;
+
+                lock (gate)
+                {
+                    if (seen.Add(key))
+                    {
+                        results.Add(peer);
+                    }
+                }
+            };
+
+            watcher.Start();
+            LogDiagnostic($"PeerWatcher 发现已启动，等待 {window.TotalSeconds:0.#} 秒。");
+
+            await Task.Delay(window, cancellationToken).ConfigureAwait(false);
+
+            lock (gate)
+            {
+                return results.ToArray();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            LogDiagnostic(
+                "PeerWatcher 发现失败：" +
+                $"{exception.GetType().Name}: {exception.Message}");
+            return Array.Empty<PeerInformation>();
+        }
+        finally
+        {
+            try
+            {
+                watcher?.Stop();
+            }
+            catch (Exception)
+            {
+                // watcher 已停止时忽略清理异常。
+            }
+        }
+    }
+
+    private static bool IsProximityCrcError(Exception exception)
+    {
+        if (exception is AggregateException aggregate &&
+            aggregate.InnerExceptions.Count == 1)
+        {
+            return IsProximityCrcError(aggregate.InnerExceptions[0]);
+        }
+
+        return exception.HResult == unchecked((int)0x80070017);
+    }
+
     public async Task<IDuplexChannel> ConnectAsync(
         WifiDirectPeer peer,
-        CancellationToken cancellationToken = default)
-    {
+        CancellationToken cancellationToken = default)    {
         ArgumentNullException.ThrowIfNull(peer);
 
         EnsureStarted();
