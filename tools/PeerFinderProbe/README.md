@@ -30,6 +30,14 @@ tools/PeerFinderProbe/bin/Release/net8.0-windows10.0.19041.0/
 .\PeerFinderProbe.exe --mode scan --seconds 60 --pause
 ```
 
+如果 B 的 `scan` 报 `FindAllPeersAsync 异常：COMException (0x80070017)`，用下面这个模式验证应用新增的兜底路径：
+
+```powershell
+.\PeerFinderProbe.exe --mode scan-fallback --seconds 60 --pause
+```
+
+`scan-fallback` 会先调用 `FindAllPeersAsync`，遇到 `0x80070017` 时自动改用 `PeerWatcher` 等待 5 秒，与应用当前的兜底逻辑一致。
+
 `--pause` 会要求你先点击控制台窗口、按 Enter 后再启动，确保应用处于前台。
 
 要求：

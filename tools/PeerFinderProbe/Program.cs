@@ -32,9 +32,9 @@ internal static class Program
             : 120;
         var aumid = GetOption(args, "--aumid") ?? DefaultAumid;
 
-        if (mode is not ("scan" or "wait" or "watcher"))
+        if (mode is not ("scan" or "wait" or "watcher" or "scan-fallback"))
         {
-            Console.WriteLine("--mode 支持 scan、wait、watcher。");
+            Console.WriteLine("--mode 支持 scan、wait、watcher、scan-fallback。");
             return 1;
         }
 
@@ -114,6 +114,27 @@ internal static class Program
         {
             PrintException("PeerFinder.Start", exception);
             return 4;
+        }
+
+        if (mode == "scan-fallback")
+        {
+            var fallbackFound = await RunScanWithFallbackAsync();
+
+            Console.WriteLine(
+                fallbackFound
+                    ? "探测结果：发现对端。"
+                    : "探测结果：未发现任何对端。");
+
+            try
+            {
+                PeerFinder.Stop();
+            }
+            catch (Exception)
+            {
+                // 清理失败不影响退出。
+            }
+
+            return fallbackFound ? 0 : 3;
         }
 
         PeerWatcher? watcher = null;
@@ -241,6 +262,94 @@ internal static class Program
                 ? "探测结果：发现对端。"
                 : $"探测结果：未发现任何对端（Status={watcher?.Status.ToString() ?? "scan"}）。");
         return found ? 0 : 3;
+    }
+
+    private static async Task<bool> RunScanWithFallbackAsync()
+    {
+        try
+        {
+            var peers = await PeerFinder.FindAllPeersAsync();
+            Console.WriteLine($"FindAllPeersAsync 返回 {peers.Count} 台设备。");
+
+            foreach (var peer in peers)
+            {
+                Console.WriteLine(
+                    $"peer: DisplayName={peer.DisplayName}, Id={peer.Id}");
+            }
+
+            if (peers.Count > 0)
+            {
+                return true;
+            }
+        }
+        catch (Exception exception) when (IsCrcError(exception))
+        {
+            Console.WriteLine(
+                "FindAllPeersAsync 返回 ERROR_CRC(0x80070017)，" +
+                "改用 PeerWatcher 兜底。");
+        }
+        catch (Exception exception)
+        {
+            PrintException("FindAllPeersAsync", exception);
+            return false;
+        }
+
+        return await RunWatcherAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task<bool> RunWatcherAsync(TimeSpan window)
+    {
+        var found = false;
+        PeerWatcher? watcher = null;
+
+        try
+        {
+            watcher = PeerFinder.CreateWatcher();
+            watcher.Added += (_, peer) =>
+            {
+                found = true;
+                Console.WriteLine(
+                    $"[Watcher.Added] {peer.DisplayName} / {peer.Id}");
+            };
+            watcher.EnumerationCompleted += (_, _) =>
+                Console.WriteLine("[Watcher] 初始枚举完成。");
+            watcher.Stopped += (_, _) =>
+                Console.WriteLine($"[Watcher] 已停止（Status={watcher.Status}）。");
+
+            watcher.Start();
+            Console.WriteLine(
+                $"PeerWatcher 兜底已启动，等待 {window.TotalSeconds:0.#} 秒…");
+
+            await Task.Delay(window);
+            return found;
+        }
+        catch (Exception exception)
+        {
+            PrintException("PeerWatcher 兜底", exception);
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                watcher?.Stop();
+            }
+            catch (Exception)
+            {
+                // 清理失败不影响退出。
+            }
+        }
+    }
+
+    private static bool IsCrcError(Exception exception)
+    {
+        if (exception is AggregateException aggregate &&
+            aggregate.InnerExceptions.Count == 1)
+        {
+            return IsCrcError(aggregate.InnerExceptions[0]);
+        }
+
+        return exception.HResult == unchecked((int)0x80070017);
     }
 
     private static void PrintForegroundWindow()
