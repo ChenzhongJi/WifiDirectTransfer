@@ -293,6 +293,17 @@ public partial class MainWindow : Window
         _advertisementWatchdog = null;
         NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
 
+        if (_updateCheckTimer is not null)
+        {
+            _updateCheckTimer.Stop();
+            _updateCheckTimer = null;
+        }
+
+        if (_service is not null)
+        {
+            _service.DiagnosticMessage -= OnServiceDiagnosticMessage;
+        }
+
         if (_hwndSource is not null)
         {
             if (_sessionNotificationRegistered)
@@ -3512,6 +3523,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileFailed(sender, args)));
+            return;
+        }
+
         if (args.Error is InsufficientStorageException storage)
         {
             var message = storage.UserMessage;
@@ -3561,6 +3579,13 @@ public partial class MainWindow : Window
     {
         if (_isClosing || !ReferenceEquals(_fileReceiver, sender))
         {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileSkipped(sender, args)));
             return;
         }
 
@@ -5422,6 +5447,17 @@ public partial class MainWindow : Window
     {
         // 系统注销/关机时不要弹出后台确认框。
         _allowClose = true;
+
+        // 注销/关机给的时间窗口极短，不能等待 ShutdownAsync，
+        // 仅做最快的同步取消，让进行中的传输循环尽快观察到取消。
+        try
+        {
+            _lifetimeCts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // CTS 已释放，无需再取消。
+        }
     }
 
     private void OnTrayExitRequested()
@@ -5600,6 +5636,7 @@ public partial class MainWindow : Window
             await ResetConnectionAsync();
 
             _service.ConnectionRequested -= OnConnectionRequested;
+            _service.DiagnosticMessage -= OnServiceDiagnosticMessage;
 
             try
             {
