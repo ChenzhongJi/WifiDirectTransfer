@@ -19,7 +19,7 @@
 
 4. 不使用 `Windows.Devices.WiFiDirect`、`Windows.Devices.WiFiDirect.Services`、`System.Net.Sockets`。文件传输走 `PeerFinder.ConnectAsync` 返回的 `StreamSocket`，不自己开 `TcpListener`，不固定端口。
 
-5. `StreamSocket.InputStream` 使用 `AsStream(InputStreamOptions.Partial)`，读取定长头部时使用 `ReadExactlyAsync`。
+5. `StreamSocket.InputStream` 使用 `AsStreamForRead(bufferSize: 0)`（.NET 8 的 CsWinRT 投影没有 `AsStream(IInputStream, InputStreamOptions)` 重载；`AsStreamForRead(0)` 按 Partial 语义读取，效果等同），读取定长头部时使用 `ReadExactlyAsync`。
 
 6. 所有 WinRT 异常必须映射为用户可读的中文提示，集中放在 `WifiDirectErrorMapper` 类中，UI 层不得直接显示 HRESULT。不要根据本地化的 `Exception.Message` 判断错误。
 
