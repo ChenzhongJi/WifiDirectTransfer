@@ -153,6 +153,11 @@ public sealed class FileReceiver : IAsyncDisposable
                     break;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 主动取消/断开不是传输失败：保留 .part/.meta 供续传，不触发 FileFailed。
+            PreserveActive(error: null, fileName: null);
+        }
         catch (Exception exception)
         {
             // 连接/写入类错误保留 .part/.meta，供重连续传。
@@ -210,12 +215,15 @@ public sealed class FileReceiver : IAsyncDisposable
         var queueBytes = _pendingQueueBytes;
         _pendingQueueBytes = null;
 
+        // 快照同名策略：枚举期间 UI 修改属性不会让检查与分支使用不同策略。
+        var sameNamePolicy = _sameNamePolicy;
+
         var targetFileName = safeFileName;
         var skip = false;
 
         if (PathExists(targetDirectory, safeFileName))
         {
-            switch (_sameNamePolicy)
+            switch (sameNamePolicy)
             {
                 case SameNamePolicy.AutoRename:
                     targetFileName = GetAvailableFileName(
@@ -291,7 +299,7 @@ public sealed class FileReceiver : IAsyncDisposable
             _finalPath = finalPath;
             _partPath = partPath;
             _metaPath = metaPath;
-            _overwriteOnFinalMove = _sameNamePolicy == SameNamePolicy.Overwrite;
+            _overwriteOnFinalMove = sameNamePolicy == SameNamePolicy.Overwrite;
             _expectedSize = start.Header.FileSize;
             _metadataIntervalBytes = CalculateMetadataInterval(
                 start.Header.FileSize);
@@ -854,6 +862,30 @@ public sealed class FileReceiver : IAsyncDisposable
         {
             stem = fileName;
             extension = string.Empty;
+        }
+
+        // NTFS 单个路径组件上限 255 字符。为 " (n)" 后缀预留空间后截断主名，
+        // 避免追加后超限导致 .part 创建或最终 Move 失败。
+        const int maxComponentChars = 255;
+        const int reservedSuffixChars = 12;
+        var maxStemChars = maxComponentChars - extension.Length - reservedSuffixChars;
+
+        if (maxStemChars > 0 && stem.Length > maxStemChars)
+        {
+            stem = stem.Substring(0, maxStemChars);
+
+            // 不拆开代理对，也不保留会被 Windows 剥离的结尾点和空格。
+            if (stem.Length > 0 && char.IsHighSurrogate(stem[^1]))
+            {
+                stem = stem[..^1];
+            }
+
+            stem = stem.TrimEnd(' ', '.');
+
+            if (stem.Length == 0)
+            {
+                stem = "文件";
+            }
         }
 
         for (var index = 1; index < int.MaxValue; index++)
