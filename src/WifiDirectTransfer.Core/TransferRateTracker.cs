@@ -13,6 +13,7 @@ public sealed class TransferRateTracker
     private static readonly TimeSpan DefaultMinimumSampleInterval =
         TimeSpan.FromMilliseconds(200);
 
+    private readonly object _gate = new();
     private readonly TimeSpan _minimumSampleInterval;
 
     private long _lastBytes;
@@ -34,20 +35,41 @@ public sealed class TransferRateTracker
     }
 
     /// <summary>是否已经产生过有效速率。</summary>
-    public bool HasValue => _hasValue;
+    public bool HasValue
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _hasValue;
+            }
+        }
+    }
 
     /// <summary>当前平滑后的速率，单位字节/秒。</summary>
-    public double BytesPerSecond => _hasValue ? _bytesPerSecond : 0d;
+    public double BytesPerSecond
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _hasValue ? _bytesPerSecond : 0d;
+            }
+        }
+    }
 
     /// <summary>
     /// 重置到指定累计字节数。开始新文件或重新连接时调用。
     /// </summary>
     public void Reset(long bytesTransferred = 0)
     {
-        _lastBytes = Math.Max(0, bytesTransferred);
-        _lastElapsed = TimeSpan.Zero;
-        _bytesPerSecond = 0d;
-        _hasValue = false;
+        lock (_gate)
+        {
+            _lastBytes = Math.Max(0, bytesTransferred);
+            _lastElapsed = TimeSpan.Zero;
+            _bytesPerSecond = 0d;
+            _hasValue = false;
+        }
     }
 
     /// <summary>
@@ -61,36 +83,47 @@ public sealed class TransferRateTracker
             bytesTransferred = 0;
         }
 
-        if (elapsed < _lastElapsed)
+        lock (_gate)
         {
-            Reset(bytesTransferred);
-            return;
+            if (elapsed < _lastElapsed)
+            {
+                ResetLocked(bytesTransferred);
+                return;
+            }
+
+            var deltaBytes = bytesTransferred - _lastBytes;
+            var deltaTime = elapsed - _lastElapsed;
+
+            if (deltaBytes < 0)
+            {
+                ResetLocked(bytesTransferred);
+                return;
+            }
+
+            if (deltaTime < _minimumSampleInterval ||
+                deltaTime <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            var instantaneous = deltaBytes / deltaTime.TotalSeconds;
+
+            _bytesPerSecond = _hasValue
+                ? (_bytesPerSecond * (1d - SmoothingFactor)) +
+                  (instantaneous * SmoothingFactor)
+                : instantaneous;
+            _hasValue = true;
+            _lastBytes = bytesTransferred;
+            _lastElapsed = elapsed;
         }
+    }
 
-        var deltaBytes = bytesTransferred - _lastBytes;
-        var deltaTime = elapsed - _lastElapsed;
-
-        if (deltaBytes < 0)
-        {
-            Reset(bytesTransferred);
-            return;
-        }
-
-        if (deltaTime < _minimumSampleInterval ||
-            deltaTime <= TimeSpan.Zero)
-        {
-            return;
-        }
-
-        var instantaneous = deltaBytes / deltaTime.TotalSeconds;
-
-        _bytesPerSecond = _hasValue
-            ? (_bytesPerSecond * (1d - SmoothingFactor)) +
-              (instantaneous * SmoothingFactor)
-            : instantaneous;
-        _hasValue = true;
-        _lastBytes = bytesTransferred;
-        _lastElapsed = elapsed;
+    private void ResetLocked(long bytesTransferred)
+    {
+        _lastBytes = Math.Max(0, bytesTransferred);
+        _lastElapsed = TimeSpan.Zero;
+        _bytesPerSecond = 0d;
+        _hasValue = false;
     }
 
     /// <summary>
@@ -98,28 +131,31 @@ public sealed class TransferRateTracker
     /// </summary>
     public TimeSpan? GetRemaining(long totalBytes)
     {
-        if (!_hasValue || _bytesPerSecond <= 0d || totalBytes <= 0)
+        lock (_gate)
         {
-            return null;
+            if (!_hasValue || _bytesPerSecond <= 0d || totalBytes <= 0)
+            {
+                return null;
+            }
+
+            var remainingBytes = totalBytes - _lastBytes;
+
+            if (remainingBytes <= 0)
+            {
+                return TimeSpan.Zero;
+            }
+
+            var seconds = remainingBytes / _bytesPerSecond;
+
+            if (double.IsNaN(seconds) ||
+                double.IsInfinity(seconds) ||
+                seconds > TimeSpan.MaxValue.TotalSeconds)
+            {
+                return null;
+            }
+
+            return TimeSpan.FromSeconds(seconds);
         }
-
-        var remainingBytes = totalBytes - _lastBytes;
-
-        if (remainingBytes <= 0)
-        {
-            return TimeSpan.Zero;
-        }
-
-        var seconds = remainingBytes / _bytesPerSecond;
-
-        if (double.IsNaN(seconds) ||
-            double.IsInfinity(seconds) ||
-            seconds > TimeSpan.MaxValue.TotalSeconds)
-        {
-            return null;
-        }
-
-        return TimeSpan.FromSeconds(seconds);
     }
 }
 

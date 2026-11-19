@@ -216,11 +216,38 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
     }
 
-    public int CompletedCount => _completedCount;
+    public int CompletedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _completedCount;
+            }
+        }
+    }
 
-    public int FailedCount => _failedCount;
+    public int FailedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _failedCount;
+            }
+        }
+    }
 
-    public int SkippedCount => _skippedCount;
+    public int SkippedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _skippedCount;
+            }
+        }
+    }
 
     public int EmptyDirectoryCount
     {
@@ -244,7 +271,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         }
     }
 
-    public int FinishedCount => _completedCount + _failedCount + _skippedCount;
+    public int FinishedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _completedCount + _failedCount + _skippedCount;
+            }
+        }
+    }
 
     public bool HasEmptyDirectories => EmptyDirectoryCount > 0;
 
@@ -847,17 +883,16 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             _emptyDirectoryCount = 0;
             _skippedEmptyDirectoryCount = 0;
             _sentEmptyDirectoryCount = 0;
+            CurrentFile = null;
+            _selectedFile = null;
+            _selectedGroup = null;
+            _files.Clear();
+            _completedCount = 0;
+            _failedCount = 0;
+            _skippedCount = 0;
+            _overallRate.Reset();
+            _overallWatch.Reset();
         }
-
-        CurrentFile = null;
-        _selectedFile = null;
-        _selectedGroup = null;
-        _files.Clear();
-        _completedCount = 0;
-        _failedCount = 0;
-        _skippedCount = 0;
-        _overallRate.Reset();
-        _overallWatch.Reset();
 
         OnPropertyChanged(nameof(SelectedFile));
         OnPropertyChanged(nameof(SelectedGroup));
@@ -1662,7 +1697,8 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
                 directory);
 
             if (chunk.Count > 0 &&
-                payloadLength + entryLength > maximumPayloadLength)
+                (payloadLength + entryLength > maximumPayloadLength ||
+                 chunk.Count >= DirectoryManifestCodec.MaxEntriesPerMessage))
             {
                 await SendDirectoryManifestChunkAsync(
                         chunk,
@@ -1749,7 +1785,12 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
             file.BytesTransferred = result.FileSize;
             file.StartOffset = result.StartOffset;
             file.Status = PendingFileStatus.Completed;
-            _completedCount++;
+
+            lock (_gate)
+            {
+                _completedCount++;
+            }
+
             UpdateOverallRate();
             transferWatch.Stop();
 
@@ -1764,7 +1805,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             file.Status = PendingFileStatus.Skipped;
             file.ErrorMessage = exception.Message;
-            _skippedCount++;
+
+            lock (_gate)
+            {
+                _skippedCount++;
+            }
 
             RaiseFileSkipped(
                 new QueueFileSkippedEventArgs(file, exception.Message));
@@ -1775,7 +1820,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             file.Status = PendingFileStatus.Failed;
             file.ErrorMessage = exception.Message;
-            _failedCount++;
+
+            lock (_gate)
+            {
+                _failedCount++;
+            }
 
             RaiseFileFailed(new QueueFileFailedEventArgs(file, exception));
             return exception.Message;
@@ -1785,7 +1834,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             file.Status = PendingFileStatus.Failed;
             file.ErrorMessage = "操作已取消。";
-            _failedCount++;
+
+            lock (_gate)
+            {
+                _failedCount++;
+            }
 
             RaiseFileFailed(new QueueFileFailedEventArgs(file, exception));
             return null;
@@ -1794,7 +1847,11 @@ public sealed class TransferQueueManager : INotifyPropertyChanged
         {
             file.Status = PendingFileStatus.Failed;
             file.ErrorMessage = ResolveErrorMessage(exception);
-            _failedCount++;
+
+            lock (_gate)
+            {
+                _failedCount++;
+            }
 
             RaiseFileFailed(new QueueFileFailedEventArgs(file, exception));
             return null;
