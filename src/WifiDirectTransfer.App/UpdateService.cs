@@ -24,8 +24,9 @@ internal sealed class UpdateDownloadProgress
 }
 
 /// <summary>
-/// 检查、下载并校验更新包。只接受 HTTPS 和 GitHub 域名，
-/// 本地测试可通过 WDT_UPDATE_FEED 指到 file:// 或 localhost。
+/// 检查、下载并校验更新包。只接受 HTTPS 和 GitHub 域名。
+/// WDT_UPDATE_FEED 是本地测试专用开关，仅 Debug 构建生效，
+/// 可临时指向 file:// 或 localhost；Release 构建忽略该变量。
 /// </summary>
 internal static class UpdateService
 {
@@ -408,6 +409,10 @@ internal static class UpdateService
 
     private static Uri ResolveFeedUri()
     {
+#if DEBUG
+        // 本地测试专用开关：仅 Debug 构建生效，
+        // 可指向 file:// 或 localhost 的更新源。
+        // Release 构建完全忽略该变量，只走 HTTPS + GitHub 规则。
         var value = Environment.GetEnvironmentVariable(FeedOverrideVariable);
 
         if (!string.IsNullOrWhiteSpace(value) &&
@@ -415,6 +420,7 @@ internal static class UpdateService
         {
             return overridden;
         }
+#endif
 
         return new Uri(DefaultFeedUrl);
     }
