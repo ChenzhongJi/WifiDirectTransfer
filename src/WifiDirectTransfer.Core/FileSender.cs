@@ -7,13 +7,16 @@ namespace WifiDirectTransfer.Core;
 /// <summary>
 /// M1 文件发送端：FileStart → FileChunk(64 KiB) → FileEnd，全部通过 MessageDispatcher 发送。
 /// 每个 FileChunk 等待接收端 Ack；FileStart 后等待 ResumeRequest/TransferError/FileSkipped，
-/// 2 秒内没有响应则按偏移 0 开始（兼容旧接收端）。
+/// 10 秒内没有响应则按偏移 0 开始（兼容旧接收端；慢速磁盘下接收端预检可能超过 2 秒）。
+/// 续传时接收端要先重新校验已有 .part 数据，期间不回 ACK，因此首个 ACK 使用 10 分钟宽限。
 /// 调用方必须已经在 dispatcher 上启动接收循环，否则无法收到 ResumeRequest/Ack。
 /// </summary>
 public static class FileSender
 {
     private static readonly TimeSpan AckTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan StartResponseTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan StartResponseTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ResumeAckGraceTimeout =
+        TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DefaultVerificationTimeout =
         TimeSpan.FromSeconds(60);
 
@@ -148,6 +151,16 @@ public static class FileSender
             startProgress?.Report(
                 new FileTransferStartInfo(fileName, initialLength, resumeOffset));
 
+            var resumed = resumeOffset > 0;
+            var graceFirstAckWait = resumed;
+
+            if (resumed && initialLength >= 8L * 1024 * 1024)
+            {
+                log?.Invoke(
+                    $"续传：偏移 {resumeOffset} 字节，接收端正在校验已有数据，" +
+                    "首个 ACK 宽限 10 分钟。");
+            }
+
             var windowSize = FileTransferProtocol.DefaultWindowSize;
             var windowAckInterval =
                 FileTransferProtocol.DefaultWindowAckInterval;
@@ -254,20 +267,25 @@ public static class FileSender
                         if (requiredAckedOffset > 0)
                         {
                             var waitWatch = Stopwatch.StartNew();
+                            var waitTimeout = graceFirstAckWait
+                                ? ResumeAckGraceTimeout
+                                : AckTimeout;
 
                             try
                             {
                                 await controlState
                                     .WaitForAckedOffsetAsync(
                                         requiredAckedOffset,
-                                        AckTimeout,
+                                        waitTimeout,
                                         cancellationToken)
                                     .ConfigureAwait(false);
                             }
                             catch (TimeoutException)
                             {
                                 throw new TransferTimeoutException(
-                                    "等待接收端累计 ACK 超时（30 秒）。");
+                                    graceFirstAckWait
+                                        ? "续传等待接收端校验已有数据超时（10 分钟）。"
+                                        : "等待接收端累计 ACK 超时（30 秒）。");
                             }
                             finally
                             {
@@ -275,6 +293,8 @@ public static class FileSender
                                 windowWaitTicks += waitWatch.ElapsedTicks;
                                 windowWaitCount++;
                             }
+
+                            graceFirstAckWait = false;
                         }
 
                         await dispatcher
@@ -306,22 +326,29 @@ public static class FileSender
 
                             long acknowledgedOffset;
                             var ackWatch = Stopwatch.StartNew();
+                            var ackTimeout = graceFirstAckWait
+                                ? ResumeAckGraceTimeout
+                                : AckTimeout;
 
                             try
                             {
                                 acknowledgedOffset = await controlState.AckTask
-                                    .WaitAsync(AckTimeout, cancellationToken)
+                                    .WaitAsync(ackTimeout, cancellationToken)
                                     .ConfigureAwait(false);
                             }
                             catch (TimeoutException)
                             {
                                 throw new TransferTimeoutException(
-                                    "等待接收端 ACK 超时（30 秒）。");
+                                    graceFirstAckWait
+                                        ? "续传等待接收端校验已有数据超时（10 分钟）。"
+                                        : "等待接收端 ACK 超时（30 秒）。");
                             }
                             finally
                             {
                                 ackWatch.Stop();
                             }
+
+                            graceFirstAckWait = false;
 
                             if (congestionMonitor.Report(ackWatch.Elapsed))
                             {
@@ -619,6 +646,10 @@ public static class FileSender
             TimeSpan timeout,
             CancellationToken cancellationToken)
         {
+            // timeout 是整个等待的整体预算，而不是每个 ACK 脉冲的重置计时，
+            // 避免缓慢推进的对端让发送端无限期挂起。
+            var deadlineWatch = Stopwatch.StartNew();
+
             while (true)
             {
                 Task waitTask;
@@ -642,8 +673,15 @@ public static class FileSender
                     throw error;
                 }
 
+                var remaining = timeout - deadlineWatch.Elapsed;
+
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException();
+                }
+
                 await waitTask
-                    .WaitAsync(timeout, cancellationToken)
+                    .WaitAsync(remaining, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
