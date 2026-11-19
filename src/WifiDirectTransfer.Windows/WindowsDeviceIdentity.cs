@@ -75,36 +75,67 @@ public sealed class WindowsDeviceIdentity : IDeviceIdentity, IDisposable
 
     private static CngKey OpenOrCreateKey(string keyName)
     {
+        CngKey? existing = null;
+
         try
         {
-            return CngKey.Open(
+            existing = CngKey.Open(
                 keyName,
                 CngProvider.MicrosoftSoftwareKeyStorageProvider,
                 CngKeyOpenOptions.UserKey);
         }
         catch (CryptographicException)
         {
+            // 尚无同名容器，走首次创建路径。
+        }
+
+        if (existing is not null)
+        {
+            if (IsCompatibleEcdsaP256Key(existing))
+            {
+                return existing;
+            }
+
+            // 同名容器可能是外部程序或旧版本留下的非 P-256 密钥，
+            // 直接使用会在构造 ECDsaCng 时抛出异常；删除后按首次创建路径重建。
             try
             {
-                return CngKey.Create(
-                    CngAlgorithm.ECDsaP256,
-                    keyName,
-                    new CngKeyCreationParameters
-                    {
-                        Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
-                        KeyUsage = CngKeyUsages.Signing,
-                        ExportPolicy = CngExportPolicies.None,
-                        KeyCreationOptions = CngKeyCreationOptions.None
-                    });
+                existing.Delete();
             }
             catch (CryptographicException)
             {
-                // 两个进程同时首次创建时可能竞争，再尝试打开一次。
-                return CngKey.Open(
-                    keyName,
-                    CngProvider.MicrosoftSoftwareKeyStorageProvider,
-                    CngKeyOpenOptions.UserKey);
+                // 删除失败时继续尝试覆盖创建。
+            }
+            finally
+            {
+                existing.Dispose();
             }
         }
+
+        try
+        {
+            return CngKey.Create(
+                CngAlgorithm.ECDsaP256,
+                keyName,
+                new CngKeyCreationParameters
+                {
+                    Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                    KeyUsage = CngKeyUsages.Signing,
+                    ExportPolicy = CngExportPolicies.None,
+                    KeyCreationOptions = CngKeyCreationOptions.None
+                });
+        }
+        catch (CryptographicException)
+        {
+            // 两个进程同时首次创建时可能竞争，再尝试打开一次。
+            return CngKey.Open(
+                keyName,
+                CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                CngKeyOpenOptions.UserKey);
+        }
     }
+
+    private static bool IsCompatibleEcdsaP256Key(CngKey key) =>
+        key.AlgorithmGroup == CngAlgorithmGroup.ECDsa &&
+        key.KeySize == 256;
 }
