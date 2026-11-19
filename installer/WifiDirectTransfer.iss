@@ -66,7 +66,9 @@ Name: "{autoprograms}\{cm:ProductDisplayName}"; Filename: "{app}\WifiDirectTrans
 Name: "{autodesktop}\{cm:ProductDisplayName}"; Filename: "{app}\WifiDirectTransfer.App.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\WifiDirectTransfer.App.exe"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall
+; 不带 postinstall：普通 [Run] 条目在安装结束后自动执行，
+; 交互式与 /SILENT、/VERYSILENT 静默安装都会重启应用。
+Filename: "{app}\WifiDirectTransfer.App.exe"; Description: "{cm:LaunchApp}"; Flags: nowait runasoriginaluser
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
