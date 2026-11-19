@@ -150,6 +150,13 @@ internal sealed class ClipboardSyncService : IDisposable
     public void SetSender(
         Func<ReadOnlyMemory<byte>, CancellationToken, Task>? sendAsync)
     {
+        // 对端变化（包括断开传 null）时必须清空去重哈希，
+        // 否则连接到新对端后复制相同内容会在“内容未变化”处被丢弃。
+        if (!ReferenceEquals(sendAsync, _sendAsync))
+        {
+            ClearHashes();
+        }
+
         _sendAsync = sendAsync;
 
         if (sendAsync is null)
