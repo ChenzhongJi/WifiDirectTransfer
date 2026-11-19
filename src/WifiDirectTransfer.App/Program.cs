@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows;
 using WifiDirectTransfer.Core;
 
 namespace WifiDirectTransfer.App;
@@ -57,11 +58,15 @@ internal static class Program
         var hresult = SetCurrentProcessExplicitAppUserModelID(AppUserModelId);
         if (hresult != 0)
         {
-            throw new InvalidOperationException(
-                "无法初始化应用的 Wi-Fi Direct 标识，设备发现功能不可用。请重启应用后重试。")
-            {
-                HResult = hresult
-            };
+            StartupLog.Write(
+                $"SetCurrentProcessExplicitAppUserModelID 失败，" +
+                $"HRESULT=0x{hresult:X8}，应用将退出。");
+            MessageBox.Show(
+                "无法初始化应用的 Wi-Fi Direct 标识，设备发现功能不可用。请重启应用后重试。",
+                "Wi-Fi Direct 文件传输",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
         }
 
         var app = new App();
