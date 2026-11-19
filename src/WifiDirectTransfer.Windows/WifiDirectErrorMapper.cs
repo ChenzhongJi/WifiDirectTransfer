@@ -11,11 +11,11 @@ public static class WifiDirectErrorMapper
     public static string GetUserMessage(WifiDirectErrorCode errorCode) => errorCode switch
     {
         WifiDirectErrorCode.WifiDirectNotSupported =>
-            "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。",
+            "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。",
         WifiDirectErrorCode.WifiDirectDisabled =>
             "Wi-Fi Direct 当前不可用，请检查无线网卡和 Wi-Fi 开关。",
         WifiDirectErrorCode.BrowseDiscoveryUnsupported =>
-            "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。",
+            "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。",
         WifiDirectErrorCode.DiscoveryFailed => "搜索设备失败，请重试。",
         WifiDirectErrorCode.DiscoveryTimeout =>
             "搜索设备超时，请确认两台电脑都已打开应用并开启 Wi-Fi；" +

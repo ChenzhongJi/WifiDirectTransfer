@@ -223,10 +223,15 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         }
         catch (Exception exception)
         {
+            // 不能把发现栈的真实失败吞成“没有设备”；按主路径
+            // FindAllPeersAsync 的方式映射为搜索失败异常向上抛出。
             LogDiagnostic(
                 "PeerWatcher 发现失败：" +
                 $"{exception.GetType().Name}: {exception.Message}");
-            return Array.Empty<PeerInformation>();
+            throw new WifiDirectException(
+                WifiDirectErrorCode.DiscoveryFailed,
+                WifiDirectErrorMapper.GetUserMessage(WifiDirectErrorCode.DiscoveryFailed),
+                exception);
         }
         finally
         {
@@ -566,26 +571,30 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             throw new WifiDirectConnectionFailedException();
         }
 
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            socket.Dispose();
-            throw new ObjectDisposedException(nameof(WifiDirectConnectionService));
-        }
-
-        if (!_started)
-        {
-            socket.Dispose();
-            throw new WifiDirectInvalidStateException("Wi-Fi Direct 连接服务已停止。");
-        }
-
-        var connection = new WifiDirectConnection(socket, OnConnectionDisposed);
+        // disposed/started 检查和 _activeConnection 赋值必须在同一个 lock 内完成，
+        // 否则并发 StopCoreAsync 可能在两者之间清空连接并把状态改回 Idle，
+        // 导致已接受的套接字泄漏、状态被 Connected 覆盖。
+        WifiDirectConnection connection;
 
         lock (_gate)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                socket.Dispose();
+                throw new ObjectDisposedException(nameof(WifiDirectConnectionService));
+            }
+
+            if (!_started)
+            {
+                socket.Dispose();
+                throw new WifiDirectInvalidStateException("Wi-Fi Direct 连接服务已停止。");
+            }
+
+            connection = new WifiDirectConnection(socket, OnConnectionDisposed);
             _activeConnection = connection;
+            SetState(WifiDirectState.Connected);
         }
 
-        SetState(WifiDirectState.Connected);
         return connection;
     }
 
@@ -605,11 +614,6 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
     private void OnConnectionRequested(object sender, ConnectionRequestedEventArgs args)
     {
-        if (Volatile.Read(ref _disposed) != 0 || !_started)
-        {
-            return;
-        }
-
         var peerInformation = args.PeerInformation;
         if (peerInformation is null)
         {
@@ -625,13 +629,26 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
         var peer = new WifiDirectPeer(id, displayName);
 
+        // 检查、_peers 回填和事件触发必须在同一个 lock 内完成，
+        // 否则 Stop 可能清空列表后这里又重新填充并触发事件。
+        // UI 订阅方只做 Dispatcher.BeginInvoke，不会同步回调本服务。
         lock (_gate)
         {
-            _peers[id] = peerInformation;
-        }
+            if (Volatile.Read(ref _disposed) != 0 || !_started)
+            {
+                return;
+            }
 
-        var request = new WifiDirectConnectionRequest(peer, peerInformation, DateTimeOffset.Now);
-        ConnectionRequested?.Invoke(this, new WifiDirectConnectionRequestEventArgs(request));
+            _peers[id] = peerInformation;
+
+            var request = new WifiDirectConnectionRequest(
+                peer,
+                peerInformation,
+                DateTimeOffset.Now);
+            ConnectionRequested?.Invoke(
+                this,
+                new WifiDirectConnectionRequestEventArgs(request));
+        }
     }
 
     private static void EnsureBrowseSupported()

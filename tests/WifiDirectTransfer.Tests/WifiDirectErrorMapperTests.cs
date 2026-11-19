@@ -22,10 +22,10 @@ public sealed class WifiDirectErrorMapperTests
     [Theory]
     [InlineData(
         WifiDirectErrorCode.WifiDirectNotSupported,
-        "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。")]
+        "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。")]
     [InlineData(
         WifiDirectErrorCode.BrowseDiscoveryUnsupported,
-        "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。")]
+        "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。")]
     [InlineData(
         WifiDirectErrorCode.DiscoveryTimeout,
         "搜索设备超时，请确认两台电脑都已打开应用并开启 Wi-Fi；如果刚拒绝过 Windows 网络/防火墙提示，请允许后重试。")]
