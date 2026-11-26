@@ -54,11 +54,16 @@ internal sealed class WifiDirectConnection : IDuplexChannel
 
         try
         {
-            await Output.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            // 断开/退出时不能无限等待对端读取：最多等待 2 秒，随后直接关闭 Socket。
+            using var flushCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(2));
+            await Output
+                .FlushAsync(flushCts.Token)
+                .ConfigureAwait(false);
         }
         catch (Exception)
         {
-            // 连接已断开时 Flush 可能失败，不应阻止关闭 Socket。
+            // 连接已断开、刷新超时或已被取消时，不应阻止关闭 Socket。
         }
         finally
         {

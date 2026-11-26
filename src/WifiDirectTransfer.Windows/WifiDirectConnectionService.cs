@@ -97,10 +97,30 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
         try
         {
-            var peerInformationResults = await PeerFinder
-                .FindAllPeersAsync()
-                .AsTask(linkedCts.Token)
-                .ConfigureAwait(false);
+            IReadOnlyList<PeerInformation> peerInformationResults;
+
+            try
+            {
+                peerInformationResults = await PeerFinder
+                    .FindAllPeersAsync()
+                    .AsTask(linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (IsProximityCrcError(exception) &&
+                      !linkedCts.IsCancellationRequested)
+            {
+                // 某些 Windows/驱动组合下 FindAllPeersAsync 返回 ERROR_CRC，
+                // 但 PeerWatcher 仍能发现对端。
+                LogDiagnostic(
+                    "FindAllPeersAsync 返回 ERROR_CRC(0x80070017)，" +
+                    "改用 PeerWatcher 发现。");
+
+                peerInformationResults = await BrowseWithWatcherAsync(
+                        timeout,
+                        linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
 
             ThrowIfDisposed();
 
@@ -143,6 +163,149 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         {
             SetState(GetRestingState());
         }
+    }
+
+    /// <summary>
+    /// 用 PeerWatcher 在短时间内收集对端，作为 FindAllPeersAsync 失败时的兜底。
+    /// 调用方必须已经启动 PeerFinder。
+    /// </summary>
+    private async Task<IReadOnlyList<PeerInformation>> BrowseWithWatcherAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var window = timeout < TimeSpan.FromSeconds(8)
+            ? timeout
+            : TimeSpan.FromSeconds(8);
+
+        if (window <= TimeSpan.Zero)
+        {
+            window = TimeSpan.FromMilliseconds(500);
+        }
+
+        var results = new List<PeerInformation>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var gate = new object();
+        PeerWatcher? watcher = null;
+        var stopped = new TaskCompletionSource<PeerWatcherStatus>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnAdded(PeerWatcher sender, PeerInformation peer)
+        {
+            var key = string.IsNullOrWhiteSpace(peer.Id)
+                ? peer.DisplayName
+                : peer.Id;
+
+            lock (gate)
+            {
+                if (seen.Add(key))
+                {
+                    results.Add(peer);
+                }
+            }
+        }
+
+        void OnStopped(PeerWatcher sender, object args)
+        {
+            // WinRT 的 Stopped 事件参数为 object，实际状态从 sender.Status 读取。
+            var status = sender.Status;
+
+            if (status is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                stopped.TrySetResult(status);
+            }
+        }
+
+        try
+        {
+            watcher = PeerFinder.CreateWatcher();
+            watcher.Added += OnAdded;
+            watcher.Stopped += OnStopped;
+            watcher.Start();
+            LogDiagnostic($"PeerWatcher 发现已启动，等待 {window.TotalSeconds:0.#} 秒。");
+
+            if (watcher.Status is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                throw new InvalidOperationException(
+                    $"PeerWatcher 启动后立即停止，状态：{watcher.Status}。");
+            }
+
+            var delay = Task.Delay(window, cancellationToken);
+            await Task.WhenAny(delay, stopped.Task).ConfigureAwait(false);
+
+            if (delay.IsCompleted)
+            {
+                // 让本地取消按原路径传播。
+                await delay.ConfigureAwait(false);
+            }
+
+            var finalStatus = stopped.Task.IsCompletedSuccessfully
+                ? stopped.Task.Result
+                : watcher.Status;
+
+            if (finalStatus is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                throw new InvalidOperationException(
+                    $"PeerWatcher 在发现期间异步停止，状态：{finalStatus}。");
+            }
+
+            lock (gate)
+            {
+                LogDiagnostic(
+                    $"PeerWatcher 发现结束：{results.Count} 台设备。");
+                return results.ToArray();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            // 不能把发现栈的真实失败吞成“没有设备”；按主路径
+            // FindAllPeersAsync 的方式映射为搜索失败异常向上抛出。
+            LogDiagnostic(
+                "PeerWatcher 发现失败：" +
+                $"{exception.GetType().Name}: {exception.Message}");
+            throw new WifiDirectException(
+                WifiDirectErrorCode.DiscoveryFailed,
+                WifiDirectErrorMapper.GetUserMessage(WifiDirectErrorCode.DiscoveryFailed),
+                exception);
+        }
+        finally
+        {
+            if (watcher is not null)
+            {
+                try
+                {
+                    watcher.Added -= OnAdded;
+                    watcher.Stopped -= OnStopped;
+                }
+                catch (Exception)
+                {
+                    // watcher 已失效时仍继续 Stop 清理。
+                }
+            }
+
+            try
+            {
+                watcher?.Stop();
+            }
+            catch (Exception)
+            {
+                // watcher 已停止时忽略清理异常。
+            }
+        }
+    }
+
+    private static bool IsProximityCrcError(Exception exception)
+    {
+        if (exception is AggregateException aggregate &&
+            aggregate.InnerExceptions.Count == 1)
+        {
+            return IsProximityCrcError(aggregate.InnerExceptions[0]);
+        }
+
+        return exception.HResult == unchecked((int)0x80070017);
     }
 
     public async Task<IDuplexChannel> ConnectAsync(
@@ -459,26 +622,30 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
             throw new WifiDirectConnectionFailedException();
         }
 
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            socket.Dispose();
-            throw new ObjectDisposedException(nameof(WifiDirectConnectionService));
-        }
-
-        if (!_started)
-        {
-            socket.Dispose();
-            throw new WifiDirectInvalidStateException("Wi-Fi Direct 连接服务已停止。");
-        }
-
-        var connection = new WifiDirectConnection(socket, OnConnectionDisposed);
+        // disposed/started 检查和 _activeConnection 赋值必须在同一个 lock 内完成，
+        // 否则并发 StopCoreAsync 可能在两者之间清空连接并把状态改回 Idle，
+        // 导致已接受的套接字泄漏、状态被 Connected 覆盖。
+        WifiDirectConnection connection;
 
         lock (_gate)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                socket.Dispose();
+                throw new ObjectDisposedException(nameof(WifiDirectConnectionService));
+            }
+
+            if (!_started)
+            {
+                socket.Dispose();
+                throw new WifiDirectInvalidStateException("Wi-Fi Direct 连接服务已停止。");
+            }
+
+            connection = new WifiDirectConnection(socket, OnConnectionDisposed);
             _activeConnection = connection;
+            SetState(WifiDirectState.Connected);
         }
 
-        SetState(WifiDirectState.Connected);
         return connection;
     }
 
@@ -498,11 +665,6 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
     private void OnConnectionRequested(object sender, ConnectionRequestedEventArgs args)
     {
-        if (Volatile.Read(ref _disposed) != 0 || !_started)
-        {
-            return;
-        }
-
         var peerInformation = args.PeerInformation;
         if (peerInformation is null)
         {
@@ -518,13 +680,26 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
 
         var peer = new WifiDirectPeer(id, displayName);
 
+        // 检查、_peers 回填和事件触发必须在同一个 lock 内完成，
+        // 否则 Stop 可能清空列表后这里又重新填充并触发事件。
+        // UI 订阅方只做 Dispatcher.BeginInvoke，不会同步回调本服务。
         lock (_gate)
         {
-            _peers[id] = peerInformation;
-        }
+            if (Volatile.Read(ref _disposed) != 0 || !_started)
+            {
+                return;
+            }
 
-        var request = new WifiDirectConnectionRequest(peer, peerInformation, DateTimeOffset.Now);
-        ConnectionRequested?.Invoke(this, new WifiDirectConnectionRequestEventArgs(request));
+            _peers[id] = peerInformation;
+
+            var request = new WifiDirectConnectionRequest(
+                peer,
+                peerInformation,
+                DateTimeOffset.Now);
+            ConnectionRequested?.Invoke(
+                this,
+                new WifiDirectConnectionRequestEventArgs(request));
+        }
     }
 
     private static void EnsureBrowseSupported()

@@ -131,7 +131,10 @@ public partial class UpdateWindow : Window
 
         try
         {
-            UpdateInstaller.Launch(_downloadedPath);
+            UpdateInstaller.Launch(
+                _downloadedPath,
+                _manifest.Size,
+                _manifest.Sha256);
             _installing = true;
             AppLog.Write("已启动更新安装程序，应用即将退出。");
 

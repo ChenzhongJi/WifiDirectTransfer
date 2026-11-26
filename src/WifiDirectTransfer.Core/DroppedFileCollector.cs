@@ -8,9 +8,10 @@ public static class DroppedFileCollector
 {
     public static IReadOnlyList<string> Collect(
         IEnumerable<string> paths,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
-        return CollectPlan(paths, log)
+        return CollectPlan(paths, log, cancellationToken)
             .Files
             .Select(item => item.SourcePath)
             .ToArray();
@@ -18,14 +19,16 @@ public static class DroppedFileCollector
 
     public static IReadOnlyList<TransferSource> CollectItems(
         IEnumerable<string> paths,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
-        return CollectPlan(paths, log).Files;
+        return CollectPlan(paths, log, cancellationToken).Files;
     }
 
     public static TransferPlan CollectPlan(
         IEnumerable<string> paths,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
@@ -40,6 +43,8 @@ public static class DroppedFileCollector
 
         foreach (var path in paths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (string.IsNullOrWhiteSpace(path))
             {
                 continue;
@@ -81,7 +86,8 @@ public static class DroppedFileCollector
                         seenFiles,
                         seenEmptyDirectories,
                         usedRootNames,
-                        log);
+                        log,
+                        cancellationToken);
 
                     if (rootName is null ||
                         (groupFiles.Count == 0 &&
@@ -127,7 +133,8 @@ public static class DroppedFileCollector
         HashSet<string> seenFiles,
         HashSet<string> seenEmptyDirectories,
         HashSet<string> usedRootNames,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken)
     {
         var initialFileCount = files.Count;
         var initialEmptyDirectoryCount = emptyDirectories.Count;
@@ -145,6 +152,8 @@ public static class DroppedFileCollector
                      "*",
                      SearchOption.AllDirectories))
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var fullPath = Path.GetFullPath(file);
 
             if (!seenFiles.Add(fullPath))
@@ -176,14 +185,18 @@ public static class DroppedFileCollector
                     destinationDirectory));
         }
 
-        var subdirectories = Directory.EnumerateDirectories(
-                fullRoot,
-                "*",
-                SearchOption.AllDirectories)
-            .Select(Path.GetFullPath)
-            .ToArray();
+        var subdirectories = new List<string>();
 
-        if (subdirectories.Length == 0 &&
+        foreach (var subdirectory in Directory.EnumerateDirectories(
+                     fullRoot,
+                     "*",
+                     SearchOption.AllDirectories))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            subdirectories.Add(Path.GetFullPath(subdirectory));
+        }
+
+        if (subdirectories.Count == 0 &&
             !nonEmptyDirectories.Contains(fullRoot))
         {
             AddEmptyDirectory(
@@ -195,6 +208,8 @@ public static class DroppedFileCollector
 
         foreach (var subdirectory in subdirectories)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (nonEmptyDirectories.Contains(subdirectory))
             {
                 continue;

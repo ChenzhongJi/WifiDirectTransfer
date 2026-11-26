@@ -59,6 +59,50 @@ public sealed class WindowsDeviceIdentityTests
         }
     }
 
+    [Fact]
+    public void Constructor_ReplacesIncompatibleExistingKey()
+    {
+        var keyName = "WifiDirectTransfer.Tests." + Guid.NewGuid().ToString("N");
+
+        try
+        {
+            // 预置一个同名但非 P-256 的密钥，模拟外部程序或旧版本残留。
+            using (var foreign = CngKey.Create(
+                CngAlgorithm.ECDsaP384,
+                keyName,
+                new CngKeyCreationParameters
+                {
+                    Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                    KeyUsage = CngKeyUsages.Signing,
+                    ExportPolicy = CngExportPolicies.None
+                }))
+            {
+                Assert.Equal(384, foreign.KeySize);
+            }
+
+            using var identity = new WindowsDeviceIdentity("测试电脑", keyName);
+
+            using var key = CngKey.Open(
+                keyName,
+                CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                CngKeyOpenOptions.UserKey);
+
+            Assert.Equal(CngAlgorithmGroup.ECDsa, key.AlgorithmGroup);
+            Assert.Equal(256, key.KeySize);
+
+            var data = RandomNumberGenerator.GetBytes(32);
+            Assert.True(
+                DeviceIdentityCrypto.Verify(
+                    identity.PublicKey,
+                    data,
+                    identity.SignData(data)));
+        }
+        finally
+        {
+            DeleteKey(keyName);
+        }
+    }
+
     private static void DeleteKey(string keyName)
     {
         try

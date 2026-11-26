@@ -11,11 +11,11 @@ public static class WifiDirectErrorMapper
     public static string GetUserMessage(WifiDirectErrorCode errorCode) => errorCode switch
     {
         WifiDirectErrorCode.WifiDirectNotSupported =>
-            "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。",
+            "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。",
         WifiDirectErrorCode.WifiDirectDisabled =>
             "Wi-Fi Direct 当前不可用，请检查无线网卡和 Wi-Fi 开关。",
         WifiDirectErrorCode.BrowseDiscoveryUnsupported =>
-            "当前设备不支持 Wi-Fi Direct 发现，请检查无线网卡或驱动。",
+            "当前无线网卡或驱动不支持 Wi-Fi Direct 发现。",
         WifiDirectErrorCode.DiscoveryFailed => "搜索设备失败，请重试。",
         WifiDirectErrorCode.DiscoveryTimeout =>
             "搜索设备超时，请确认两台电脑都已打开应用并开启 Wi-Fi；" +
@@ -55,6 +55,10 @@ public static class WifiDirectErrorMapper
             "设备身份验证失败，连接已断开。请重新配对。",
         WifiDirectErrorCode.DeviceIdentityUnavailable =>
             "无法初始化本机设备身份，无法建立安全连接。请检查 Windows 用户密钥存储后重试。",
+        WifiDirectErrorCode.ProximityStartFailed =>
+            "Wi-Fi Direct 发现服务未就绪或虚拟网卡状态异常。请重启 Wi-Fi、" +
+            "重启电脑；如果仍然失败，请在设备管理器中启用" +
+            "“Microsoft Wi-Fi Direct Virtual Adapter”后重试。",
         _ => "发生未知错误，请重试或查看日志。"
     };
 
@@ -107,6 +111,13 @@ public static class WifiDirectErrorMapper
             exception.HResult == unchecked((int)0x80070057))
         {
             return WifiDirectErrorCode.PeerNotFound;
+        }
+
+        // PeerFinder.Start/FindAllPeersAsync 在 Wi-Fi Direct 服务或虚拟网卡异常时
+        // 可能返回 ERROR_CRC（0x80070017）。
+        if (exception.HResult == unchecked((int)0x80070017))
+        {
+            return WifiDirectErrorCode.ProximityStartFailed;
         }
 
         switch (exception.HResult & 0xFFFF)

@@ -138,6 +138,10 @@ public partial class MainWindow : Window
     [DllImport("wtsapi32.dll", SetLastError = true)]
     private static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
 
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetCurrentProcessExplicitAppUserModelID(
+        out IntPtr appId);
+
     private readonly SemaphoreSlim _resetGate = new(1, 1);
 
     private WifiDirectAvailability? _capability;
@@ -156,6 +160,10 @@ public partial class MainWindow : Window
     private bool _isConnecting;
     private bool _isDisconnecting;
     private bool _isSending;
+    private bool _isCollectingPaths;
+    private bool _wasDeactivatedWhileWaiting;
+    private DateTimeOffset _lastForegroundAdvertisingRefresh =
+        DateTimeOffset.MinValue;
     private bool _isHandlingRequest;
     private IWifiDirectConnectionRequest? _pendingConnectionRequest;
     private string? _connectedPeerName;
@@ -285,6 +293,17 @@ public partial class MainWindow : Window
         _advertisementWatchdog = null;
         NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
 
+        if (_updateCheckTimer is not null)
+        {
+            _updateCheckTimer.Stop();
+            _updateCheckTimer = null;
+        }
+
+        if (_service is not null)
+        {
+            _service.DiagnosticMessage -= OnServiceDiagnosticMessage;
+        }
+
         if (_hwndSource is not null)
         {
             if (_sessionNotificationRegistered)
@@ -313,7 +332,92 @@ public partial class MainWindow : Window
         if (_initialized && !_isClosing)
         {
             RefreshReceivedFilesAvailability();
+            _ = RefreshAdvertisingAfterForegroundAsync();
         }
+    }
+
+    protected override void OnDeactivated(EventArgs e)
+    {
+        base.OnDeactivated(e);
+
+        if (!_initialized ||
+            _isClosing ||
+            _role != AppRole.Receiver ||
+            !_serviceStarted ||
+            _channel is not null ||
+            _isHandlingRequest)
+        {
+            return;
+        }
+
+        _wasDeactivatedWhileWaiting = true;
+        Log(
+            "等待连接期间窗口失去前台焦点。PeerFinder 只有在应用处于前台时" +
+            "才会广播，请保持本窗口在前台。");
+        UpdateStatus(
+            "窗口已失去前台焦点；对端可能扫描不到本机，请保持窗口在前台。");
+    }
+
+    private static string GetProcessAumid()
+    {
+        try
+        {
+            if (GetCurrentProcessExplicitAppUserModelID(out var pointer) == 0 &&
+                pointer != IntPtr.Zero)
+            {
+                try
+                {
+                    return Marshal.PtrToStringUni(pointer) ?? "(空)";
+                }
+                finally
+                {
+                    Marshal.FreeCoTaskMem(pointer);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // 诊断信息获取失败不应影响应用。
+        }
+
+        return "(未设置)";
+    }
+
+    private static string GetDiscoveryDiagnostics()
+    {
+        try
+        {
+            return new WifiDirectCapabilityChecker().GetDiagnostics();
+        }
+        catch (Exception exception)
+        {
+            return $"诊断不可用：{exception.GetType().Name}";
+        }
+    }
+
+    private async Task RefreshAdvertisingAfterForegroundAsync()
+    {
+        if (!_wasDeactivatedWhileWaiting ||
+            _role != AppRole.Receiver ||
+            !_serviceStarted ||
+            _channel is not null ||
+            _isHandlingRequest ||
+            _isClosing)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+
+        if (now - _lastForegroundAdvertisingRefresh < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        _lastForegroundAdvertisingRefresh = now;
+        _wasDeactivatedWhileWaiting = false;
+        Log("窗口回到前台，重新启动等待广播。");
+        await RestartReceiverAdvertisementAsync("窗口回到前台");
     }
 
     private bool CapabilitySupported =>
@@ -438,6 +542,11 @@ public partial class MainWindow : Window
                 CapabilityDot.Fill = Brushes.SeaGreen;
                 CapabilityText.Text = "Wi-Fi Direct 可用";
                 Log("C1 预检通过：Wi-Fi Direct 发现能力可用。");
+                Log(
+                    "发现诊断：" +
+                    $"os={Environment.OSVersion.Version}, " +
+                    $"aumid={GetProcessAumid()}, " +
+                    GetDiscoveryDiagnostics());
             }
             else
             {
@@ -1366,7 +1475,8 @@ public partial class MainWindow : Window
         }
 
         Log("等待端已就绪，等待连接发起端连接。");
-        UpdateStatus("等待连接…如长时间无法被发现，点击“重新等待”。");
+        UpdateStatus(
+            "等待连接…请保持本窗口在前台，最小化或隐藏到托盘会让对端扫描不到本机。");
         StartAdvertisementWatchdog();
         UpdateUi();
     }
@@ -1573,6 +1683,12 @@ public partial class MainWindow : Window
         UpdateUi();
         UpdateStatus("正在搜索设备…");
         Log("FindAllPeersAsync 开始：搜索窗口 15 秒，自动重试。");
+        Log(
+            "发现诊断：" +
+            $"os={Environment.OSVersion.Version}, " +
+            $"aumid={GetProcessAumid()}, " +
+            $"foreground={IsActive}, " +
+            GetDiscoveryDiagnostics());
 
         using var scanCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
         _scanCts = scanCts;
@@ -1607,10 +1723,28 @@ public partial class MainWindow : Window
                 {
                     break;
                 }
-                catch (Exception) when (attempt <= 2 && !_lifetimeCts.IsCancellationRequested)
+                catch (Exception exception) when (attempt <= 3 && !_lifetimeCts.IsCancellationRequested)
                 {
-                    Log($"FindAllPeersAsync 第 {attempt} 次异常，准备重试。");
                     peers = Array.Empty<WifiDirectPeer>();
+                    Log(
+                        $"FindAllPeersAsync 第 {attempt} 次异常：" +
+                        $"{exception.GetType().Name}, " +
+                        $"HResult=0x{exception.HResult:X8}, " +
+                        $"message={exception.Message}");
+
+                    // ERROR_CRC 等异常通常意味着 PeerFinder 状态已损坏，
+                    // 单纯重试没有意义，先停止再重新启动。
+                    if (!await RestartPeerFinderAsync(
+                            $"第 {attempt} 次扫描异常",
+                            scanCts.Token))
+                    {
+                        // EnsureServiceStartedAsync 已给出具体启动失败原因，
+                        // 不能继续走“未发现设备”的成功收尾。
+                        return false;
+                    }
+
+                    UpdateStatus("正在重新启动搜索…");
+                    continue;
                 }
 
                 Log($"FindAllPeersAsync 第 {attempt} 次返回 {peers.Count} 台设备。");
@@ -1637,7 +1771,7 @@ public partial class MainWindow : Window
                             "连续 3 次未发现设备",
                             scanCts.Token))
                     {
-                        break;
+                        return false;
                     }
 
                     UpdateStatus("正在搜索设备…");
@@ -1672,8 +1806,12 @@ public partial class MainWindow : Window
             {
                 Log($"搜索结束：尝试 {attempt} 次，未发现设备。");
                 UpdateStatus(
-                    "未发现设备。请确认对端已选择“等待连接”并点击“等待连接”，" +
-                    "两台电脑保持前台后重试。");
+                    "未发现设备。请确认：两端使用同一构建并都保持前台；" +
+                    "接收端已选择“等待连接”并点击按钮（最小化或隐藏到托盘会停止广播）；" +
+                    "两端 Wi-Fi 已打开。");
+                Log(
+                    "未发现设备排查：PeerFinder 要求双方应用都在前台且 AppUserModelID " +
+                    "一致；Windows 11 24H2+ 上还需确认网卡驱动支持 Wi-Fi Direct 发现。");
             }
             else
             {
@@ -3387,6 +3525,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileFailed(sender, args)));
+            return;
+        }
+
         if (args.Error is InsufficientStorageException storage)
         {
             var message = storage.UserMessage;
@@ -3436,6 +3581,13 @@ public partial class MainWindow : Window
     {
         if (_isClosing || !ReferenceEquals(_fileReceiver, sender))
         {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => OnFileSkipped(sender, args)));
             return;
         }
 
@@ -3782,7 +3934,7 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void Window_PreviewDrop(object sender, DragEventArgs e)
+    private async void Window_PreviewDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
 
@@ -3820,38 +3972,10 @@ public partial class MainWindow : Window
 
         e.Effects = DragDropEffects.Copy;
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(droppedPaths, Log);
-
-            if (!plan.HasWork)
-            {
-                Log("拖入内容中没有可发送的文件。");
-                UpdateStatus("拖入内容中没有可发送的文件");
-                return;
-            }
-
-            var wasRunning = _queueManager.IsRunning;
-            var result = _queueManager.EnqueuePlan(plan);
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (InvalidOperationException exception)
-        {
-            Log($"拖入失败：{exception.Message}");
-            ShowDropPrompt($"添加文件失败：{exception.Message}");
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+        await EnqueueCollectedPathsAsync(
+                droppedPaths,
+                "拖入内容中没有可发送的文件。")
+            .ConfigureAwait(true);
     }
 
     /// <summary>
@@ -3891,7 +4015,7 @@ public partial class MainWindow : Window
             _queueManager is not null &&
             _step0Passed)
         {
-            EnqueueExternalPaths(paths);
+            _ = EnqueueExternalPathsAsync(paths);
             return;
         }
 
@@ -3930,10 +4054,10 @@ public partial class MainWindow : Window
 
         var paths = _pendingExternalPaths.ToArray();
         _pendingExternalPaths.Clear();
-        EnqueueExternalPaths(paths);
+        _ = EnqueueExternalPathsAsync(paths);
     }
 
-    private void EnqueueExternalPaths(IReadOnlyList<string> paths)
+    private async Task EnqueueExternalPathsAsync(IReadOnlyList<string> paths)
     {
         if (_isClosing || paths.Count == 0)
         {
@@ -3948,14 +4072,64 @@ public partial class MainWindow : Window
             return;
         }
 
+        await EnqueueCollectedPathsAsync(
+                paths,
+                "右键发送内容中没有可发送的文件。",
+                switchToSendTab: true)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 在后台线程展开拖入/选择的文件和文件夹，避免大目录阻塞 UI。
+    /// 展开完成后回到 UI 线程把结果加入发送队列。
+    /// </summary>
+    private async Task EnqueueCollectedPathsAsync(
+        IReadOnlyList<string> paths,
+        string emptyMessage,
+        bool switchToSendTab = false)
+    {
+        if (_isClosing || paths.Count == 0)
+        {
+            return;
+        }
+
+        if (_isCollectingPaths)
+        {
+            Log("正在展开上一个路径，请稍候再试。");
+            return;
+        }
+
+        if (_queueManager is not { } queue ||
+            _channel is null ||
+            !_step0Passed)
+        {
+            AddPendingExternalPaths(paths);
+            return;
+        }
+
+        _isCollectingPaths = true;
+        UpdateStatus(paths.Count == 1
+            ? "正在扫描要发送的内容…"
+            : $"正在扫描 {paths.Count} 个路径…");
+        Log($"开始扫描要发送的路径：{paths.Count} 个。");
+
         try
         {
-            var plan = DroppedFileCollector.CollectPlan(paths, Log);
+            var token = _lifetimeCts.Token;
+            var plan = await Task.Run(
+                    () => DroppedFileCollector.CollectPlan(paths, Log, token),
+                    token)
+                .ConfigureAwait(true);
+
+            if (_isClosing || !ReferenceEquals(_queueManager, queue))
+            {
+                return;
+            }
 
             if (!plan.HasWork)
             {
-                Log("右键发送内容中没有可发送的文件。");
-                UpdateStatus("右键发送内容中没有可发送的文件");
+                Log(emptyMessage);
+                UpdateStatus(emptyMessage);
                 return;
             }
 
@@ -3968,12 +4142,19 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            SendTabButton.IsChecked = true;
+            if (switchToSendTab)
+            {
+                SendTabButton.IsChecked = true;
+            }
 
+            SelectFirstGroupIfNeeded(result.AddedGroups);
             LogQueueEnqueueResult(result);
             UpdateStatus(BuildQueueAddStatus(result, wasRunning));
             UpdateUi();
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
+            // 窗口关闭时取消展开。
         }
         catch (Exception exception)
         {
@@ -3983,6 +4164,15 @@ public partial class MainWindow : Window
                 WifiDirectErrorContext.FileIo,
                 _lifetimeCts.Token);
             UpdateStatus(message);
+        }
+        finally
+        {
+            _isCollectingPaths = false;
+
+            if (!_isClosing)
+            {
+                UpdateUi();
+            }
         }
     }
 
@@ -4752,9 +4942,9 @@ public partial class MainWindow : Window
         _ => message.Subtype.ToString()
     };
 
-    private void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
+    private async void AddQueueFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isSending || _queueManager is not { } queue)
+        if (_isSending || _queueManager is null)
         {
             return;
         }
@@ -4771,39 +4961,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(
+        await EnqueueCollectedPathsAsync(
                 dialog.FileNames,
-                Log);
-            var wasRunning = queue.IsRunning;
-            var result = queue.EnqueuePlan(plan);
-
-            if (!result.HasWork &&
-                result.SkippedEmptyDirectoryCount == 0)
-            {
-                return;
-            }
-
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+                "所选文件中没有可发送的内容。")
+            .ConfigureAwait(true);
     }
 
-    private void AddQueueFolderButton_Click(object sender, RoutedEventArgs e)
+    private async void AddQueueFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isSending || _queueManager is not { } queue)
+        if (_isSending || _queueManager is null)
         {
             return;
         }
@@ -4818,41 +4984,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            var plan = DroppedFileCollector.CollectPlan(
+        await EnqueueCollectedPathsAsync(
                 new[] { dialog.FolderName },
-                Log);
-
-            if (!plan.HasWork)
-            {
-                UpdateStatus("所选文件夹中没有可发送的内容");
-                return;
-            }
-
-            var wasRunning = queue.IsRunning;
-            var result = queue.EnqueuePlan(plan);
-
-            if (!result.HasWork &&
-                result.SkippedEmptyDirectoryCount == 0)
-            {
-                return;
-            }
-
-            SelectFirstGroupIfNeeded(result.AddedGroups);
-            LogQueueEnqueueResult(result);
-            UpdateStatus(BuildQueueAddStatus(result, wasRunning));
-            UpdateUi();
-        }
-        catch (Exception exception)
-        {
-            var message = LogException(
-                exception,
-                WifiDirectOperation.Transfer,
-                WifiDirectErrorContext.FileIo,
-                _lifetimeCts.Token);
-            UpdateStatus(message);
-        }
+                "所选文件夹中没有可发送的内容")
+            .ConfigureAwait(true);
     }
 
     private void PauseQueueButton_Click(object sender, RoutedEventArgs e)
@@ -5314,6 +5449,17 @@ public partial class MainWindow : Window
     {
         // 系统注销/关机时不要弹出后台确认框。
         _allowClose = true;
+
+        // 注销/关机给的时间窗口极短，不能等待 ShutdownAsync，
+        // 仅做最快的同步取消，让进行中的传输循环尽快观察到取消。
+        try
+        {
+            _lifetimeCts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // CTS 已释放，无需再取消。
+        }
     }
 
     private void OnTrayExitRequested()
@@ -5345,6 +5491,7 @@ public partial class MainWindow : Window
         Topmost = false;
         _isHiddenToTray = false;
         Log("已从托盘恢复窗口。");
+        _ = RefreshAdvertisingAfterForegroundAsync();
     }
 
     private void HideToTray()
@@ -5355,11 +5502,23 @@ public partial class MainWindow : Window
         _isHiddenToTray = true;
         Log("窗口已隐藏到托盘，传输继续在后台进行。");
 
+        if (_role == AppRole.Receiver &&
+            _serviceStarted &&
+            _channel is null)
+        {
+            _wasDeactivatedWhileWaiting = true;
+            Log(
+                "等待连接期间隐藏到托盘：PeerFinder 只在应用处于前台时广播，" +
+                "对端可能扫描不到本机。");
+        }
+
         if (_notificationsEnabled)
         {
             _trayIcon?.ShowBalloon(
                 "后台运行中",
-                "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
+                _role == AppRole.Receiver && _serviceStarted && _channel is null
+                    ? "等待连接期间隐藏到托盘可能导致对端扫描不到本机，请恢复窗口并重新等待。"
+                    : "应用仍在后台保持连接和传输。双击托盘图标可恢复窗口。");
         }
     }
 
@@ -5373,11 +5532,23 @@ public partial class MainWindow : Window
         _isHiddenToTray = true;
         Log("关闭窗口：已最小化到托盘。");
 
+        if (_role == AppRole.Receiver &&
+            _serviceStarted &&
+            _channel is null)
+        {
+            _wasDeactivatedWhileWaiting = true;
+            Log(
+                "等待连接期间关闭到托盘：PeerFinder 只在应用处于前台时广播，" +
+                "对端可能扫描不到本机。");
+        }
+
         if (_notificationsEnabled)
         {
             _trayIcon?.ShowBalloon(
                 "仍在后台运行",
-                "双击托盘图标恢复窗口，右键托盘图标可选择“退出”。");
+                _role == AppRole.Receiver && _serviceStarted && _channel is null
+                    ? "等待连接期间关闭到托盘可能导致对端扫描不到本机，请恢复窗口并重新等待。"
+                    : "双击托盘图标恢复窗口，右键托盘图标可选择“退出”。");
         }
     }
 
@@ -5467,6 +5638,7 @@ public partial class MainWindow : Window
             await ResetConnectionAsync();
 
             _service.ConnectionRequested -= OnConnectionRequested;
+            _service.DiagnosticMessage -= OnServiceDiagnosticMessage;
 
             try
             {

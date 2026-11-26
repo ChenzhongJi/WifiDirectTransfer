@@ -168,6 +168,92 @@ public sealed class MessageDispatcherTests
     }
 
     [Fact]
+    public async Task ReceiveLoop_FileChunkAboveTypeLimit_FiresDisconnected()
+    {
+        using var wire = new MemoryStream();
+        wire.WriteByte((byte)MessageType.FileChunk);
+        var length = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(
+            length,
+            (uint)(FileTransferProtocol.BlockSize * 2 + 1));
+        wire.Write(length);
+        wire.Position = 0;
+
+        DisconnectedEventArgs? disconnected = null;
+        var receiver = new MessageDispatcher(wire, Stream.Null);
+        receiver.Disconnected += (_, args) => disconnected = args;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await receiver.StartReceiveLoopAsync(cts.Token);
+
+        Assert.NotNull(disconnected);
+        Assert.IsType<MessageProtocolException>(disconnected!.Error);
+        Assert.Contains(
+            nameof(MessageType.FileChunk),
+            disconnected.Error!.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReceiveLoop_FileChunkWithinTypeLimit_IsDelivered()
+    {
+        var payload = new byte[FileTransferProtocol.BlockSize + 1];
+        using var wire = new MemoryStream();
+        wire.WriteByte((byte)MessageType.FileChunk);
+        var length = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)payload.Length);
+        wire.Write(length);
+        wire.Write(payload);
+        wire.Position = 0;
+
+        var messages = new List<(MessageType Type, byte[] Payload)>();
+        var receiver = new MessageDispatcher(wire, Stream.Null);
+        receiver.MessageReceived += (_, args, _) =>
+        {
+            messages.Add((args.Type, args.Payload.ToArray()));
+            return Task.CompletedTask;
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await receiver.StartReceiveLoopAsync(cts.Token);
+
+        Assert.Single(messages);
+        Assert.Equal(MessageType.FileChunk, messages[0].Type);
+        Assert.Equal(payload, messages[0].Payload);
+    }
+
+    [Fact]
+    public async Task ReceiveLoop_ClipboardUpdate_UsesConfiguredMaximum()
+    {
+        var payload = new byte[2 * 1024 * 1024];
+        using var wire = new MemoryStream();
+        wire.WriteByte((byte)MessageType.ClipboardUpdate);
+        var length = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)payload.Length);
+        wire.Write(length);
+        wire.Write(payload);
+        wire.Position = 0;
+
+        var messages = new List<(MessageType Type, byte[] Payload)>();
+        var receiver = new MessageDispatcher(
+            wire,
+            Stream.Null,
+            maxPayloadLength: 4 * 1024 * 1024);
+        receiver.MessageReceived += (_, args, _) =>
+        {
+            messages.Add((args.Type, args.Payload.ToArray()));
+            return Task.CompletedTask;
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await receiver.StartReceiveLoopAsync(cts.Token);
+
+        Assert.Single(messages);
+        Assert.Equal(MessageType.ClipboardUpdate, messages[0].Type);
+        Assert.Equal(payload.Length, messages[0].Payload.Length);
+    }
+
+    [Fact]
     public async Task ReceiveLoop_HandlerException_FiresDisconnected()
     {
         using var wire = new MemoryStream();

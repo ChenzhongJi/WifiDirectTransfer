@@ -56,4 +56,25 @@ public sealed class WifiDirectCapabilityChecker
 
     private static WifiDirectAvailability Unsupported(WifiDirectErrorCode errorCode) =>
         WifiDirectAvailability.Unsupported(WifiDirectErrorMapper.GetUserMessage(errorCode));
+
+    /// <summary>
+    /// 返回 PeerFinder 当前状态摘要，用于日志和“发现诊断”。不包含用户数据。
+    /// </summary>
+    public string GetDiagnostics()
+    {
+        try
+        {
+            return
+                $"discoveryTypes={PeerFinder.SupportedDiscoveryTypes}, " +
+                $"allowWiFiDirect={PeerFinder.AllowWiFiDirect}, " +
+                $"allowInfrastructure={PeerFinder.AllowInfrastructure}, " +
+                $"allowBluetooth={PeerFinder.AllowBluetooth}, " +
+                $"role={PeerFinder.Role}, " +
+                $"displayName={PeerFinder.DisplayName}";
+        }
+        catch (Exception exception)
+        {
+            return $"PeerFinder 状态读取失败：{exception.GetType().Name}";
+        }
+    }
 }

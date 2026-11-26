@@ -74,6 +74,13 @@ public static class DeviceIdentityCrypto
         {
             using var ecdsa = ECDsa.Create();
             ecdsa.ImportSubjectPublicKeyInfo(publicKey, out _);
+
+            // 契约要求 ECDSA P-256；其它曲线的公钥即使签名有效也不接受。
+            if (ecdsa.KeySize != 256)
+            {
+                return false;
+            }
+
             return ecdsa.VerifyData(
                 data,
                 signature,

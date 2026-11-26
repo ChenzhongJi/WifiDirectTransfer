@@ -248,6 +248,62 @@ public sealed class DroppedFileCollectorTests
         }
     }
 
+    [Fact]
+    public async Task CollectPlan_CanceledToken_StopsBeforeExpanding()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var filePath = Path.Combine(directory, "file.txt");
+            await File.WriteAllTextAsync(filePath, "data");
+
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            Assert.Throws<OperationCanceledException>(
+                () => DroppedFileCollector.CollectPlan(
+                    new[] { directory },
+                    cancellationToken: cts.Token));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task CollectPlan_CancelDuringExpansion_StopsEnumeration()
+    {
+        var directory = CreateTempDirectory();
+
+        try
+        {
+            var first = Path.Combine(directory, "first.txt");
+            var second = Path.Combine(directory, "second.txt");
+            await File.WriteAllTextAsync(first, "data");
+            await File.WriteAllTextAsync(second, "data");
+
+            using var cts = new CancellationTokenSource();
+
+            IEnumerable<string> Paths()
+            {
+                yield return first;
+                cts.Cancel();
+                yield return second;
+            }
+
+            Assert.Throws<OperationCanceledException>(
+                () => DroppedFileCollector.CollectPlan(
+                    Paths(),
+                    cancellationToken: cts.Token));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var directory = Path.Combine(

@@ -24,8 +24,9 @@ internal sealed class UpdateDownloadProgress
 }
 
 /// <summary>
-/// 检查、下载并校验更新包。只接受 HTTPS 和 GitHub 域名，
-/// 本地测试可通过 WDT_UPDATE_FEED 指到 file:// 或 localhost。
+/// 检查、下载并校验更新包。只接受 HTTPS 和 GitHub 域名。
+/// WDT_UPDATE_FEED 是本地测试专用开关，仅 Debug 构建生效，
+/// 可临时指向 file:// 或 localhost；Release 构建忽略该变量。
 /// </summary>
 internal static class UpdateService
 {
@@ -122,6 +123,11 @@ internal static class UpdateService
     {
         ArgumentNullException.ThrowIfNull(manifest);
 
+        if (!IsAllowedDownloadUri(manifest.SetupUri))
+        {
+            throw new InvalidOperationException("更新地址不在允许的域名范围内。");
+        }
+
         Directory.CreateDirectory(UpdateDirectory);
         CleanupPreviousDownloads();
 
@@ -132,16 +138,19 @@ internal static class UpdateService
 
         try
         {
+#if DEBUG
             if (manifest.SetupUri.Scheme == Uri.UriSchemeFile)
             {
                 await CopyLocalFileAsync(
                         manifest.SetupUri.LocalPath,
                         partPath,
+                        manifest.Size,
                         progress,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
             else
+#endif
             {
                 await DownloadRemoteAsync(
                         manifest.SetupUri,
@@ -212,6 +221,13 @@ internal static class UpdateService
                 cancellationToken)
             .ConfigureAwait(false);
         var total = response.Content.Headers.ContentLength ?? expectedSize;
+
+        if (total > expectedSize)
+        {
+            throw new InvalidDataException(
+                $"更新包大小超过清单声明的 {expectedSize} 字节，下载已中止。");
+        }
+
         await using var source = await response.Content
             .ReadAsStreamAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -237,6 +253,12 @@ internal static class UpdateService
                 break;
             }
 
+            if (received + read > expectedSize)
+            {
+                throw new InvalidDataException(
+                    $"更新包大小超过清单声明的 {expectedSize} 字节，下载已中止。");
+            }
+
             await destination
                 .WriteAsync(buffer.AsMemory(0, read), cancellationToken)
                 .ConfigureAwait(false);
@@ -256,6 +278,7 @@ internal static class UpdateService
     private static async Task CopyLocalFileAsync(
         string sourcePath,
         string destinationPath,
+        long expectedSize,
         IProgress<UpdateDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -266,6 +289,14 @@ internal static class UpdateService
             FileShare.Read,
             bufferSize: 128 * 1024,
             useAsync: true);
+
+        if (source.Length != expectedSize)
+        {
+            throw new InvalidDataException(
+                $"更新包大小与清单不一致：预期 {expectedSize} 字节，" +
+                $"实际 {source.Length} 字节。");
+        }
+
         await using var destination = new FileStream(
             destinationPath,
             FileMode.Create,
@@ -385,6 +416,10 @@ internal static class UpdateService
 
     private static Uri ResolveFeedUri()
     {
+#if DEBUG
+        // 本地测试专用开关：仅 Debug 构建生效，
+        // 可指向 file:// 或 localhost 的更新源。
+        // Release 构建完全忽略该变量，只走 HTTPS + GitHub 规则。
         var value = Environment.GetEnvironmentVariable(FeedOverrideVariable);
 
         if (!string.IsNullOrWhiteSpace(value) &&
@@ -392,12 +427,14 @@ internal static class UpdateService
         {
             return overridden;
         }
+#endif
 
         return new Uri(DefaultFeedUrl);
     }
 
     private static bool IsAllowedFeedUri(Uri uri)
     {
+#if DEBUG
         if (uri.Scheme == Uri.UriSchemeFile)
         {
             return true;
@@ -407,6 +444,7 @@ internal static class UpdateService
         {
             return true;
         }
+#endif
 
         return uri.Scheme == Uri.UriSchemeHttps &&
                AllowedDownloadHosts.Contains(
@@ -416,6 +454,7 @@ internal static class UpdateService
 
     private static bool IsAllowedDownloadUri(Uri uri)
     {
+#if DEBUG
         if (uri.Scheme == Uri.UriSchemeFile)
         {
             return true;
@@ -425,6 +464,7 @@ internal static class UpdateService
         {
             return true;
         }
+#endif
 
         return uri.Scheme == Uri.UriSchemeHttps &&
                AllowedDownloadHosts.Contains(
