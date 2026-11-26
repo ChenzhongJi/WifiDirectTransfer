@@ -193,7 +193,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 .\publish.ps1
 ```
 
-默认生成 `publish\artifacts\WifiDirectTransfer-1.6.3-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
+默认生成 `publish\artifacts\WifiDirectTransfer-1.6.4-preview-<commit>-win-x64.zip` 和对应 `.sha256` 文件。
 
 常用参数：
 
@@ -215,7 +215,7 @@ dotnet test WifiDirectTransfer.sln -c Release --no-build
 
 ## 版本
 
-当前版本 `1.6.3`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
+当前版本 `1.6.4`，协议版本 v4。具体构建号和协议版本可在“关于”或日志中查看。历史版本和 SHA-256 见 [docs/RELEASES.md](docs/RELEASES.md)。
 
 ## 反馈问题
 
