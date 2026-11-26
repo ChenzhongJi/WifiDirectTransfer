@@ -378,6 +378,10 @@ public sealed class FileReceiver : IAsyncDisposable
                         resumeOffset,
                         _relativeDirectory)));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            PreserveActive(error: null, fileName: null);
+        }
         catch (Exception exception)
         {
             await SendTransferErrorBestEffortAsync(exception, cancellationToken)
@@ -508,6 +512,10 @@ public sealed class FileReceiver : IAsyncDisposable
                     .ConfigureAwait(false);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            PreserveActive(error: null, fileName: null);
+        }
         catch (Exception exception)
         {
             await SendTransferErrorBestEffortAsync(exception, cancellationToken)
@@ -615,6 +623,11 @@ public sealed class FileReceiver : IAsyncDisposable
                 relativeDirectory);
 
             RaiseFileReceived(new FileReceivedEventArgs(result, elapsed));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 本地取消不是校验或落盘失败，必须保留 .part/.meta 供续传。
+            PreserveActive(error: null, fileName: null);
         }
         catch (Exception exception)
         {
@@ -951,6 +964,10 @@ public sealed class FileReceiver : IAsyncDisposable
             return TransferMetadataCodec.TryDeserialize(bytes, out var metadata)
                 ? metadata
                 : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception)
         {

@@ -264,7 +264,9 @@ public static class FileSender
                         var requiredAckedOffset =
                             processed + read - windowBytes;
 
-                        if (requiredAckedOffset > 0)
+                        // 大偏移续传时 requiredAckedOffset 可能早已确认。
+                        // 只有确需等待新 ACK 才能消费续传首个响应的宽限。
+                        if (requiredAckedOffset > controlState.AckedOffset)
                         {
                             var waitWatch = Stopwatch.StartNew();
                             var waitTimeout = graceFirstAckWait
@@ -411,6 +413,9 @@ public static class FileSender
             var digest = hash.GetHashAndReset();
 
             controlState.BeginVerifyWait();
+            var verificationWaitTimeout = windowedTransfer && graceFirstAckWait
+                ? ResumeAckGraceTimeout
+                : verifyTimeout;
 
             try
             {
@@ -423,7 +428,7 @@ public static class FileSender
                 try
                 {
                     verifiedDigest = await controlState.VerifyTask
-                        .WaitAsync(verifyTimeout, cancellationToken)
+                        .WaitAsync(verificationWaitTimeout, cancellationToken)
                         .ConfigureAwait(false);
                 }
                 catch (TimeoutException)

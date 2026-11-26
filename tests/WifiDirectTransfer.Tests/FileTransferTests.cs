@@ -560,6 +560,136 @@ public sealed class FileTransferTests
         });
     }
 
+    [Theory]
+    [InlineData(MessageType.FileStart)]
+    [InlineData(MessageType.FileChunk)]
+    [InlineData(MessageType.FileEnd)]
+    public Task Receive_LocalCancellationDuringIO_PreservesPartialWithoutFailure(
+        MessageType cancelAt)
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            const string fileName = "cancel.bin";
+            const int resumeOffset = 32 * 1024;
+            var data = CreatePayload(64 * 1024);
+            var partPath = Path.Combine(directory, fileName + ".part");
+            var metaPath = Path.Combine(directory, fileName + ".meta");
+
+            if (cancelAt == MessageType.FileStart)
+            {
+                await File.WriteAllBytesAsync(
+                    partPath,
+                    data.AsSpan(0, resumeOffset).ToArray());
+                await File.WriteAllBytesAsync(
+                    metaPath,
+                    TransferMetadataCodec.Serialize(
+                        new TransferMetadata(
+                            fileName,
+                            data.Length,
+                            resumeOffset)));
+            }
+
+            await using var transport = new TestDuplexTransport();
+            using var senderCts = new CancellationTokenSource();
+            using var receiverCts = new CancellationTokenSource();
+            var sender = new MessageDispatcher(
+                transport.SenderInput,
+                transport.SenderOutput);
+            var receiverDispatcher = new MessageDispatcher(
+                transport.ReceiverInput,
+                transport.ReceiverOutput);
+
+            // 在 FileReceiver 之前取消，确保取消令牌进入其内部 I/O，
+            // 而不是只让最外层接收循环退出。
+            receiverDispatcher.MessageReceived += (_, args, _) =>
+            {
+                if (args.Type == cancelAt)
+                {
+                    receiverCts.Cancel();
+                }
+
+                return Task.CompletedTask;
+            };
+
+            await using var receiver = new FileReceiver(
+                receiverDispatcher,
+                directory);
+            var fileFailed = false;
+            receiver.FileFailed += (_, _) => fileFailed = true;
+
+            var senderLoop = sender.StartReceiveLoopAsync(senderCts.Token);
+            var receiverLoop = receiverDispatcher.StartReceiveLoopAsync(
+                receiverCts.Token);
+
+            try
+            {
+                var fileNameBytes = FileHeaderCodec.EncodeFileName(fileName);
+                var startPayload = new FileHeaderCodec()
+                    .SerializeFileStartPayload(
+                        FileHeader.CreateFileStart(
+                            data.Length,
+                            fileNameBytes.Length),
+                        fileNameBytes);
+
+                await sender.SendAsync(
+                    MessageType.FileStart,
+                    startPayload,
+                    senderCts.Token);
+
+                if (cancelAt != MessageType.FileStart)
+                {
+                    await sender.SendAsync(
+                        MessageType.FileChunk,
+                        data,
+                        senderCts.Token);
+                }
+
+                if (cancelAt == MessageType.FileEnd)
+                {
+                    await sender.SendAsync(
+                        MessageType.FileEnd,
+                        SHA256.HashData(data),
+                        senderCts.Token);
+                }
+
+                await receiverLoop.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.False(fileFailed);
+                Assert.True(File.Exists(partPath));
+                Assert.True(File.Exists(metaPath));
+
+                if (cancelAt == MessageType.FileStart)
+                {
+                    Assert.Equal(resumeOffset, new FileInfo(partPath).Length);
+                }
+            }
+            finally
+            {
+                senderCts.Cancel();
+                receiverCts.Cancel();
+                transport.CompleteBoth();
+
+                try
+                {
+                    await senderLoop;
+                }
+                catch (Exception)
+                {
+                    // 测试清理忽略循环退出异常。
+                }
+
+                try
+                {
+                    await receiverLoop;
+                }
+                catch (Exception)
+                {
+                    // 测试清理忽略循环退出异常。
+                }
+            }
+        });
+    }
+
     private static async Task SendManualFileAsync(
         MessageDispatcher sender,
         byte[] data,

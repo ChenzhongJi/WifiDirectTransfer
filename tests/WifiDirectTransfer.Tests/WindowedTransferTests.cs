@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using WifiDirectTransfer.Core;
 using Xunit;
 
@@ -224,6 +225,96 @@ public sealed class WindowedTransferTests
             Assert.False(File.Exists(partPath));
             Assert.False(File.Exists(metaPath));
         });
+    }
+
+    [Theory]
+    [InlineData(512 * 1024, 64 * 1024)]
+    [InlineData(2 * 1024 * 1024, 64 * 1024)]
+    public async Task WindowedTransfer_ResumedTailBeyondVerificationTimeout_UsesResumeGrace(
+        int resumeOffset,
+        int remainingBytes)
+    {
+        var payload = CreatePayload(resumeOffset + remainingBytes);
+
+        await using var transport = new TestDuplexTransport();
+        var sender = new MessageDispatcher(
+            transport.SenderInput,
+            transport.SenderOutput);
+        var receiver = new MessageDispatcher(
+            transport.ReceiverInput,
+            transport.ReceiverOutput);
+        var chunks = 0;
+
+        receiver.MessageReceived += async (dispatcher, args, cancellationToken) =>
+        {
+            if (args.Type == MessageType.FileStart)
+            {
+                await dispatcher.SendAsync(
+                    MessageType.ControlMessage,
+                    ControlMessageCodec.SerializeResumeRequest(resumeOffset),
+                    cancellationToken);
+            }
+            else if (args.Type == MessageType.FileChunk)
+            {
+                chunks++;
+            }
+            else if (args.Type == MessageType.FileEnd)
+            {
+                // 模拟接收端仍在重哈希已有 .part；本用例不会发生窗口 ACK 等待。
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(250),
+                    cancellationToken);
+                await dispatcher.SendAsync(
+                    MessageType.ControlMessage,
+                    ControlMessageCodec.SerializeFileVerified(
+                        args.Payload.ToArray()),
+                    cancellationToken);
+            }
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var senderLoop = sender.StartReceiveLoopAsync(cts.Token);
+        var receiverLoop = receiver.StartReceiveLoopAsync(cts.Token);
+
+        try
+        {
+            using var source = new MemoryStream(payload);
+
+            var result = await FileSender.SendAsync(
+                sender,
+                source,
+                "resume-tail.bin",
+                verificationTimeout: TimeSpan.FromMilliseconds(100),
+                windowedTransfer: true);
+
+            Assert.Equal(resumeOffset, result.StartOffset);
+            Assert.Equal(payload.Length, result.FileSize);
+            Assert.Equal(SHA256.HashData(payload), result.Sha256);
+            Assert.Equal(1, chunks);
+        }
+        finally
+        {
+            cts.Cancel();
+            transport.CompleteBoth();
+
+            try
+            {
+                await senderLoop;
+            }
+            catch (Exception)
+            {
+                // 测试清理忽略循环退出异常。
+            }
+
+            try
+            {
+                await receiverLoop;
+            }
+            catch (Exception)
+            {
+                // 测试清理忽略循环退出异常。
+            }
+        }
     }
 
     [Fact]
