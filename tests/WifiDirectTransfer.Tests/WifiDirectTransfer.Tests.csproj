@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\WifiDirectTransfer.Core\WifiDirectTransfer.Core.csproj" />
     <ProjectReference Include="..\..\src\WifiDirectTransfer.Windows\WifiDirectTransfer.Windows.csproj" />
+    <ProjectReference Include="..\..\src\WifiDirectTransfer.App\WifiDirectTransfer.App.csproj" />
   </ItemGroup>
 
 </Project>

@@ -264,6 +264,10 @@ public sealed class FileReceiver : IAsyncDisposable
                 await SendTransferErrorAsync(storageError, cancellationToken)
                     .ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception)
             {
                 // 连接已经断开时，仍要把失败原因交给本地 UI。
@@ -772,6 +776,11 @@ public sealed class FileReceiver : IAsyncDisposable
         {
             await SendTransferErrorAsync(error, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 让外层按本地取消处理，不能继续 DeleteActive 或上报原始错误。
+            throw;
         }
         catch (Exception sendError)
         {

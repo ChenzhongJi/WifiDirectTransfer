@@ -123,6 +123,11 @@ internal static class UpdateService
     {
         ArgumentNullException.ThrowIfNull(manifest);
 
+        if (!IsAllowedDownloadUri(manifest.SetupUri))
+        {
+            throw new InvalidOperationException("更新地址不在允许的域名范围内。");
+        }
+
         Directory.CreateDirectory(UpdateDirectory);
         CleanupPreviousDownloads();
 
@@ -133,6 +138,7 @@ internal static class UpdateService
 
         try
         {
+#if DEBUG
             if (manifest.SetupUri.Scheme == Uri.UriSchemeFile)
             {
                 await CopyLocalFileAsync(
@@ -144,6 +150,7 @@ internal static class UpdateService
                     .ConfigureAwait(false);
             }
             else
+#endif
             {
                 await DownloadRemoteAsync(
                         manifest.SetupUri,
@@ -427,6 +434,7 @@ internal static class UpdateService
 
     private static bool IsAllowedFeedUri(Uri uri)
     {
+#if DEBUG
         if (uri.Scheme == Uri.UriSchemeFile)
         {
             return true;
@@ -436,6 +444,7 @@ internal static class UpdateService
         {
             return true;
         }
+#endif
 
         return uri.Scheme == Uri.UriSchemeHttps &&
                AllowedDownloadHosts.Contains(
@@ -445,6 +454,7 @@ internal static class UpdateService
 
     private static bool IsAllowedDownloadUri(Uri uri)
     {
+#if DEBUG
         if (uri.Scheme == Uri.UriSchemeFile)
         {
             return true;
@@ -454,6 +464,7 @@ internal static class UpdateService
         {
             return true;
         }
+#endif
 
         return uri.Scheme == Uri.UriSchemeHttps &&
                AllowedDownloadHosts.Contains(

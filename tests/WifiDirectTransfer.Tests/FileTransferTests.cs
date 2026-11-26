@@ -690,6 +690,104 @@ public sealed class FileTransferTests
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Receive_CancelDuringTransferErrorNotification_PreservesCancellationSemantics(
+        bool insufficientStorage)
+    {
+        return InTempDirectoryAsync(async directory =>
+        {
+            const string fileName = "cancel-error.bin";
+            var data = CreatePayload(64 * 1024);
+            var partPath = Path.Combine(directory, fileName + ".part");
+            var metaPath = Path.Combine(directory, fileName + ".meta");
+
+            await using var transport = new TestDuplexTransport();
+            using var senderCts = new CancellationTokenSource();
+            using var receiverCts = new CancellationTokenSource();
+            var sender = new MessageDispatcher(
+                transport.SenderInput,
+                transport.SenderOutput);
+            var cancelOnError = new CancelOnTransferErrorStream(
+                transport.ReceiverOutput,
+                receiverCts);
+            var receiverDispatcher = new MessageDispatcher(
+                transport.ReceiverInput,
+                cancelOnError);
+            await using var receiver = new FileReceiver(
+                receiverDispatcher,
+                directory,
+                availableFreeSpaceProvider: _ => insufficientStorage
+                    ? 0L
+                    : long.MaxValue);
+            var fileFailed = false;
+            receiver.FileFailed += (_, _) => fileFailed = true;
+
+            var senderLoop = sender.StartReceiveLoopAsync(senderCts.Token);
+            var receiverLoop = receiverDispatcher.StartReceiveLoopAsync(
+                receiverCts.Token);
+
+            try
+            {
+                var fileNameBytes = FileHeaderCodec.EncodeFileName(fileName);
+                var startPayload = new FileHeaderCodec()
+                    .SerializeFileStartPayload(
+                        FileHeader.CreateFileStart(
+                            data.Length,
+                            fileNameBytes.Length),
+                        fileNameBytes);
+
+                await sender.SendAsync(
+                    MessageType.FileStart,
+                    startPayload,
+                    senderCts.Token);
+
+                if (!insufficientStorage)
+                {
+                    await sender.SendAsync(
+                        MessageType.FileChunk,
+                        Array.Empty<byte>(),
+                        senderCts.Token);
+                }
+
+                await receiverLoop.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.False(fileFailed);
+
+                if (!insufficientStorage)
+                {
+                    Assert.True(File.Exists(partPath));
+                    Assert.True(File.Exists(metaPath));
+                }
+            }
+            finally
+            {
+                senderCts.Cancel();
+                receiverCts.Cancel();
+                transport.CompleteBoth();
+
+                try
+                {
+                    await senderLoop;
+                }
+                catch (Exception)
+                {
+                    // 测试清理忽略循环退出异常。
+                }
+
+                try
+                {
+                    await receiverLoop;
+                }
+                catch (Exception)
+                {
+                    // 测试清理忽略循环退出异常。
+                }
+            }
+        });
+    }
+
     private static async Task SendManualFileAsync(
         MessageDispatcher sender,
         byte[] data,
@@ -771,6 +869,65 @@ public sealed class FileTransferTests
         }
 
         return data;
+    }
+
+    private sealed class CancelOnTransferErrorStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly CancellationTokenSource _cancellation;
+
+        public CancelOnTransferErrorStream(
+            Stream inner,
+            CancellationTokenSource cancellation)
+        {
+            _inner = inner;
+            _cancellation = cancellation;
+        }
+
+        public override bool CanRead => false;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => _inner.Flush();
+
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            _inner.FlushAsync(cancellationToken);
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (buffer.Length > 0 &&
+                buffer.Span[0] == (byte)ControlMessageSubtype.TransferError)
+            {
+                await _cancellation.CancelAsync();
+                throw new OperationCanceledException(_cancellation.Token);
+            }
+
+            await _inner.WriteAsync(buffer, cancellationToken);
+        }
     }
 
     private sealed class ShortReadStream : MemoryStream

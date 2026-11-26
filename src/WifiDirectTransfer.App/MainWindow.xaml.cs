@@ -1738,7 +1738,9 @@ public partial class MainWindow : Window
                             $"第 {attempt} 次扫描异常",
                             scanCts.Token))
                     {
-                        break;
+                        // EnsureServiceStartedAsync 已给出具体启动失败原因，
+                        // 不能继续走“未发现设备”的成功收尾。
+                        return false;
                     }
 
                     UpdateStatus("正在重新启动搜索…");
@@ -1769,7 +1771,7 @@ public partial class MainWindow : Window
                             "连续 3 次未发现设备",
                             scanCts.Token))
                     {
-                        break;
+                        return false;
                     }
 
                     UpdateStatus("正在搜索设备…");

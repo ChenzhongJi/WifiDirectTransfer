@@ -186,29 +186,67 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var gate = new object();
         PeerWatcher? watcher = null;
+        var stopped = new TaskCompletionSource<PeerWatcherStatus>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnAdded(PeerWatcher sender, PeerInformation peer)
+        {
+            var key = string.IsNullOrWhiteSpace(peer.Id)
+                ? peer.DisplayName
+                : peer.Id;
+
+            lock (gate)
+            {
+                if (seen.Add(key))
+                {
+                    results.Add(peer);
+                }
+            }
+        }
+
+        void OnStopped(PeerWatcher sender, object args)
+        {
+            // WinRT 的 Stopped 事件参数为 object，实际状态从 sender.Status 读取。
+            var status = sender.Status;
+
+            if (status is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                stopped.TrySetResult(status);
+            }
+        }
 
         try
         {
             watcher = PeerFinder.CreateWatcher();
-            watcher.Added += (_, peer) =>
-            {
-                var key = string.IsNullOrWhiteSpace(peer.Id)
-                    ? peer.DisplayName
-                    : peer.Id;
-
-                lock (gate)
-                {
-                    if (seen.Add(key))
-                    {
-                        results.Add(peer);
-                    }
-                }
-            };
-
+            watcher.Added += OnAdded;
+            watcher.Stopped += OnStopped;
             watcher.Start();
             LogDiagnostic($"PeerWatcher 发现已启动，等待 {window.TotalSeconds:0.#} 秒。");
 
-            await Task.Delay(window, cancellationToken).ConfigureAwait(false);
+            if (watcher.Status is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                throw new InvalidOperationException(
+                    $"PeerWatcher 启动后立即停止，状态：{watcher.Status}。");
+            }
+
+            var delay = Task.Delay(window, cancellationToken);
+            await Task.WhenAny(delay, stopped.Task).ConfigureAwait(false);
+
+            if (delay.IsCompleted)
+            {
+                // 让本地取消按原路径传播。
+                await delay.ConfigureAwait(false);
+            }
+
+            var finalStatus = stopped.Task.IsCompletedSuccessfully
+                ? stopped.Task.Result
+                : watcher.Status;
+
+            if (finalStatus is PeerWatcherStatus.Aborted or PeerWatcherStatus.Stopped)
+            {
+                throw new InvalidOperationException(
+                    $"PeerWatcher 在发现期间异步停止，状态：{finalStatus}。");
+            }
 
             lock (gate)
             {
@@ -235,6 +273,19 @@ public sealed class WifiDirectConnectionService : IWifiDirectConnectionService
         }
         finally
         {
+            if (watcher is not null)
+            {
+                try
+                {
+                    watcher.Added -= OnAdded;
+                    watcher.Stopped -= OnStopped;
+                }
+                catch (Exception)
+                {
+                    // watcher 已失效时仍继续 Stop 清理。
+                }
+            }
+
             try
             {
                 watcher?.Stop();
